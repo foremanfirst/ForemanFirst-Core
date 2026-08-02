@@ -2,22 +2,26 @@ import { prisma } from "@/lib/prisma";
 import AddCompanyModal from "./AddCompanyModal";
 import EditCompanyModal from "./EditCompanyModal";
 import DeleteCompanyButton from "./DeleteCompanyButton";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
-  const companies = await prisma.company.findMany({
-    include: {
-      _count: {
-        select: {
-          projects: true,
-        },
+const companies = await prisma.company.findMany({
+  where: {
+    isArchived: false,
+  },
+  include: {
+    _count: {
+      select: {
+        projects: true,
       },
     },
-    orderBy: {
-      name: "asc",
-    },
-  });
+  },
+  orderBy: {
+    name: "asc",
+  },
+});
 
   const totalCompanies = companies.length;
 
@@ -44,8 +48,16 @@ export default async function CompaniesPage() {
             project partners.
           </p>
         </div>
+<div className="flex items-center gap-3">
+  <Link
+    href="/companies/archived"
+    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+  >
+    Archived Companies
+  </Link>
 
-        <AddCompanyModal />
+  <AddCompanyModal />
+</div>
       </div>
 
       {/* Summary cards */}
@@ -220,10 +232,11 @@ export default async function CompaniesPage() {
                           }}
                         />
 
-                        <DeleteCompanyButton
-                          companyId={company.id}
-                          companyName={company.name}
-                        />
+<DeleteCompanyButton
+  companyId={company.id}
+  companyName={company.name}
+  companyType={company.companyType}
+/>
                       </div>
                     </td>
                   </tr>

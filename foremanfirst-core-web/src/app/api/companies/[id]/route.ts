@@ -70,6 +70,7 @@ export async function PATCH(
     );
   }
 }
+
 export async function DELETE(
   request: Request,
   context: RouteContext,
@@ -77,24 +78,31 @@ export async function DELETE(
   try {
     const { id } = await context.params;
 
-    await prisma.company.delete({
+    const company = await prisma.company.update({
       where: {
         id,
+      },
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        isActive: false,
       },
     });
 
     return NextResponse.json({
-      message: "Company deleted successfully.",
+      message: "Company archived successfully.",
+      company,
     });
   } catch (error) {
-    console.error("Delete company error:", error);
+    console.error("Archive company error:", error);
 
     return NextResponse.json(
-      { message: "Unable to delete company." },
+      { message: "Unable to archive the company." },
       { status: 500 },
     );
   }
 }
+
 function cleanOptionalValue(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
