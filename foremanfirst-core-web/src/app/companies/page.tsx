@@ -1,80 +1,82 @@
-const companies = [
-  {
-    name: "Barton Malow",
-    type: "General Contractor",
-    contact: "Sarah Mitchell",
-    email: "sarah.mitchell@example.com",
-    phone: "(517) 555-0142",
-    projects: 4,
-    status: "Active",
-  },
-  {
-    name: "Great Lakes Electrical",
-    type: "Specialty Contractor",
-    contact: "James Carter",
-    email: "jcarter@example.com",
-    phone: "(313) 555-0188",
-    projects: 2,
-    status: "Active",
-  },
-  {
-    name: "Midwest Safety Supply",
-    type: "Supplier",
-    contact: "Emily Brooks",
-    email: "ebrooks@example.com",
-    phone: "(616) 555-0114",
-    projects: 1,
-    status: "Inactive",
-  },
-];
+import { prisma } from "@/lib/prisma";
+import AddCompanyModal from "./AddCompanyModal";
+import EditCompanyModal from "./EditCompanyModal";
+import DeleteCompanyButton from "./DeleteCompanyButton";
 
-export default function CompaniesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CompaniesPage() {
+  const companies = await prisma.company.findMany({
+    include: {
+      _count: {
+        select: {
+          projects: true,
+        },
+      },
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+
+  const totalCompanies = companies.length;
+
+  const activeCompanies = companies.filter(
+    (company) => company.isActive,
+  ).length;
+
+  const activeProjects = companies.reduce(
+    (total, company) => total + company._count.projects,
+    0,
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* Page heading */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Companies</h1>
-          <p className="mt-1 text-slate-500">
-            Manage owners, contractors, suppliers, and project partners.
+          <h1 className="text-3xl font-bold text-slate-950">
+            Companies
+          </h1>
+
+          <p className="mt-1 text-sm text-slate-600">
+            Manage owners, contractors, suppliers, consultants, and
+            project partners.
           </p>
         </div>
 
-        <button className="rounded-lg bg-cyan-600 px-5 py-2.5 font-medium text-white transition hover:bg-cyan-700">
-          + Add Company
-        </button>
+        <AddCompanyModal />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Total Companies</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
-            {companies.length}
-          </p>
-        </div>
+      {/* Summary cards */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <SummaryCard
+          label="Total Companies"
+          value={totalCompanies}
+        />
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Active Companies</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
-            {companies.filter((company) => company.status === "Active").length}
-          </p>
-        </div>
+        <SummaryCard
+          label="Active Companies"
+          value={activeCompanies}
+        />
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Active Projects</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
-            {companies.reduce((total, company) => total + company.projects, 0)}
-          </p>
-        </div>
+        <SummaryCard
+          label="Active Projects"
+          value={activeProjects}
+        />
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      {/* Company directory */}
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">
+            <h2 className="text-lg font-bold text-slate-950">
               Company Directory
             </h2>
-            <p className="text-sm text-slate-500">
-              View and manage organizations connected to your projects.
+
+            <p className="mt-1 text-sm text-slate-500">
+              View and manage organizations connected to your
+              projects.
             </p>
           </div>
 
@@ -82,99 +84,193 @@ export default function CompaniesPage() {
             <input
               type="search"
               placeholder="Search companies..."
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
             />
 
-            <select className="rounded-lg border border-slate-300 px-4 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">
-              <option>All company types</option>
-              <option>Owner</option>
-              <option>General Contractor</option>
-              <option>Specialty Contractor</option>
-              <option>Supplier</option>
+            <select
+              defaultValue="all"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            >
+              <option value="all">All company types</option>
+              <option value="Owner">Owner</option>
+              <option value="General Contractor">
+                General Contractor
+              </option>
+              <option value="Specialty Contractor">
+                Specialty Contractor
+              </option>
+              <option value="Supplier">Supplier</option>
+              <option value="Consultant">Consultant</option>
+              <option value="Other">Other</option>
             </select>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Company
-                </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Type
-                </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Primary Contact
-                </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Projects
-                </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Status
-                </th>
-                <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
+        {companies.length === 0 ? (
+          <div className="p-10 text-center">
+            <h3 className="text-lg font-bold text-slate-900">
+              No companies found
+            </h3>
 
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {companies.map((company) => (
-                <tr key={company.name} className="hover:bg-slate-50">
-                  <td className="px-5 py-4">
-                    <div>
-                      <p className="font-semibold text-slate-900">
+            <p className="mt-2 text-sm text-slate-500">
+              Your PostgreSQL database does not contain any company
+              records yet.
+            </p>
+
+            <div className="mt-5 flex justify-center">
+              <AddCompanyModal />
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-semibold">
+                    Company
+                  </th>
+
+                  <th className="px-5 py-3 font-semibold">
+                    Type
+                  </th>
+
+                  <th className="px-5 py-3 font-semibold">
+                    Contact
+                  </th>
+
+                  <th className="px-5 py-3 font-semibold">
+                    Projects
+                  </th>
+
+                  <th className="px-5 py-3 font-semibold">
+                    Status
+                  </th>
+
+                  <th className="px-5 py-3 text-right font-semibold">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200">
+                {companies.map((company) => (
+                  <tr
+                    key={company.id}
+                    className="transition hover:bg-slate-50"
+                  >
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-slate-950">
                         {company.name}
                       </p>
-                      <p className="text-sm text-slate-500">{company.email}</p>
-                    </div>
-                  </td>
 
-                  <td className="px-5 py-4 text-sm text-slate-700">
-                    {company.type}
-                  </td>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {company.city || company.state
+                          ? [company.city, company.state]
+                              .filter(Boolean)
+                              .join(", ")
+                          : "Location not entered"}
+                      </p>
+                    </td>
 
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-slate-900">
-                      {company.contact}
-                    </p>
-                    <p className="text-sm text-slate-500">{company.phone}</p>
-                  </td>
+                    <td className="px-5 py-4 text-slate-700">
+                      {company.companyType}
+                    </td>
 
-                  <td className="px-5 py-4 text-sm text-slate-700">
-                    {company.projects}
-                  </td>
+                    <td className="px-5 py-4">
+                      <p className="text-slate-700">
+                        {company.email || "No email entered"}
+                      </p>
 
-                  <td className="px-5 py-4">
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        company.status === "Active"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-200 text-slate-600"
-                      }`}
-                    >
-                      {company.status}
-                    </span>
-                  </td>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {company.phone || "No phone entered"}
+                      </p>
+                    </td>
 
-                  <td className="px-5 py-4 text-right">
-                    <div className="flex justify-end gap-3 text-sm font-medium">
-                      <button className="text-cyan-700 hover:text-cyan-900">
-                        View
-                      </button>
-                      <button className="text-slate-600 hover:text-slate-900">
-                        Edit
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    <td className="px-5 py-4 font-semibold text-slate-800">
+                      {company._count.projects}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge
+                        isActive={company.isActive}
+                      />
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="flex justify-end gap-3">
+                        <button
+                          type="button"
+                          className="font-semibold text-slate-600 transition hover:text-cyan-700"
+                        >
+                          View
+                        </button>
+
+                        <EditCompanyModal
+                          company={{
+                            id: company.id,
+                            name: company.name,
+                            companyType: company.companyType,
+                            email: company.email,
+                            phone: company.phone,
+                            address: company.address,
+                            city: company.city,
+                            state: company.state,
+                            zipCode: company.zipCode,
+                            isActive: company.isActive,
+                          }}
+                        />
+
+                        <DeleteCompanyButton
+                          companyId={company.id}
+                          companyName={company.name}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-sm font-medium text-slate-500">
+        {label}
+      </p>
+
+      <p className="mt-2 text-3xl font-bold text-slate-950">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function StatusBadge({
+  isActive,
+}: {
+  isActive: boolean;
+}) {
+  return (
+    <span
+      className={
+        isActive
+          ? "inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700"
+          : "inline-flex rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+      }
+    >
+      {isActive ? "Active" : "Inactive"}
+    </span>
   );
 }
