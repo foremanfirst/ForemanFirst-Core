@@ -1,27 +1,28 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import AddCompanyModal from "./AddCompanyModal";
 import EditCompanyModal from "./EditCompanyModal";
 import DeleteCompanyButton from "./DeleteCompanyButton";
-import Link from "next/link";
+import ViewCompanyModal from "./ViewCompanyModal";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
-const companies = await prisma.company.findMany({
-  where: {
-    isArchived: false,
-  },
-  include: {
-    _count: {
-      select: {
-        projects: true,
+  const companies = await prisma.company.findMany({
+    where: {
+      isArchived: false,
+    },
+    include: {
+      _count: {
+        select: {
+          projects: true,
+        },
       },
     },
-  },
-  orderBy: {
-    name: "asc",
-  },
-});
+    orderBy: {
+      name: "asc",
+    },
+  });
 
   const totalCompanies = companies.length;
 
@@ -48,16 +49,17 @@ const companies = await prisma.company.findMany({
             project partners.
           </p>
         </div>
-<div className="flex items-center gap-3">
-  <Link
-    href="/companies/archived"
-    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
-  >
-    Archived Companies
-  </Link>
 
-  <AddCompanyModal />
-</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/companies/archived"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            Archived Companies
+          </Link>
+
+          <AddCompanyModal />
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -210,12 +212,21 @@ const companies = await prisma.company.findMany({
 
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-3">
-                        <button
-                          type="button"
-                          className="font-semibold text-slate-600 transition hover:text-cyan-700"
-                        >
-                          View
-                        </button>
+                        <ViewCompanyModal
+                          company={{
+                            id: company.id,
+                            name: company.name,
+                            companyType: company.companyType,
+                            email: company.email,
+                            phone: company.phone,
+                            address: company.address,
+                            city: company.city,
+                            state: company.state,
+                            zipCode: company.zipCode,
+                            isActive: company.isActive,
+                            projectCount: company._count.projects,
+                          }}
+                        />
 
                         <EditCompanyModal
                           company={{
@@ -232,11 +243,11 @@ const companies = await prisma.company.findMany({
                           }}
                         />
 
-<DeleteCompanyButton
-  companyId={company.id}
-  companyName={company.name}
-  companyType={company.companyType}
-/>
+                        <DeleteCompanyButton
+                          companyId={company.id}
+                          companyName={company.name}
+                          companyType={company.companyType}
+                        />
                       </div>
                     </td>
                   </tr>

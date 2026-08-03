@@ -26,9 +26,12 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  projects Project[]
+  projects    Project[]
+  workers     Worker[]
+  contractors Contractor[]
 
   @@index([tenantId])
+  @@index([isArchived])
 }
 
 model Project {
@@ -39,19 +42,178 @@ model Project {
   name        String
   projectCode String?
   clientName  String?
-  location    String?
-  status      String  @default("Planning")
+  projectType String?
+  description String?
+
+  address  String?
+  city     String?
+  state    String?
+  zipCode  String?
+  location String?
+
+  status String @default("Planning")
 
   startDate DateTime?
   endDate   DateTime?
 
-  isActive Boolean @default(true)
+  projectManager String?
+  superintendent String?
+  safetyManager  String?
+
+  contractValue     Decimal? @db.Decimal(14, 2)
+  plannedWorkforce  Int      @default(0)
+  currentWorkforce  Int      @default(0)
+  workersOnsite     Int      @default(0)
+  activeContractors Int      @default(0)
+  totalManHours     Int      @default(0)
+
+  progress                 Int @default(0)
+  openActions              Int @default(0)
+  recordableIncidents      Int @default(0)
+  permitsOpen              Int @default(0)
+  planningDocumentsPending Int @default(0)
+  trainingCompliance       Int @default(100)
+  accessCompliance         Int @default(100)
+  healthScore              Int @default(100)
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
+  company     Company      @relation(fields: [companyId], references: [id])
+  workers     Worker[]
+  contractors Contractor[]
 
   @@index([tenantId])
   @@index([companyId])
+  @@index([isArchived])
+  @@index([status])
+}
+
+model Worker {
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId String
+  projectId String?
+
+  firstName  String
+  middleName String?
+  lastName   String
+  suffix     String?
+
+  employeeNumber String?
+  email          String?
+  phone          String?
+
+  trade      String?
+  jobTitle   String?
+  crew       String?
+  foreman    String?
+  unionLocal String?
+
+  emergencyContactName         String?
+  emergencyContactRelationship String?
+  emergencyContactPhone        String?
+
+  orientationStatus    String    @default("Not Started")
+  orientationDate      DateTime?
+  orientationExpiresAt DateTime?
+
+  trainingStatus String @default("Pending")
+
+  drugScreenStatus    String    @default("Not Required")
+  drugScreenDate      DateTime?
+  drugScreenExpiresAt DateTime?
+
+  badgeNumber    String?
+  badgeStatus    String    @default("Inactive")
+  badgeExpiresAt DateTime?
+  qrCredentialId String?   @unique
+
+  accessStatus String @default("Pending")
+
+  hireDate  DateTime?
+  startDate DateTime?
+  endDate   DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company  @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([isArchived])
+  @@index([accessStatus])
+  @@index([badgeStatus])
+  @@index([lastName, firstName])
+}
+
+model Contractor {
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId String
+  projectId String?
+
+  name           String
+  legalName      String?
+  contractorCode String?
+
+  trade       String?
+  specialty   String?
+  description String?
+
+  primaryContactName  String?
+  primaryContactEmail String?
+  primaryContactPhone String?
+
+  safetyContactName  String?
+  safetyContactEmail String?
+  safetyContactPhone String?
+
+  address String?
+  city    String?
+  state   String?
+  zipCode String?
+
+  workforceCount Int @default(0)
+
+  emr  Decimal? @db.Decimal(5, 2)
+  trir Decimal? @db.Decimal(6, 2)
+
+  insuranceProvider  String?
+  insuranceExpiresAt DateTime?
+
+  orientationStatus String @default("Pending")
+  complianceStatus  String @default("Pending")
+  approvalStatus    String @default("Pending")
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company  @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([isArchived])
+  @@index([approvalStatus])
+  @@index([complianceStatus])
+  @@index([name])
 }
