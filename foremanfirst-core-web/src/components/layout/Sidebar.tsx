@@ -17,6 +17,10 @@ export default function Sidebar() {
         <Link href="/companies" className="block hover:text-cyan-400">
           Companies
         </Link>
+        
+        <Link href="/contractors" className="block hover:text-cyan-400">
+  Contractors
+</Link>
 
         <Link href="/workers" className="block hover:text-cyan-400">
           Workers

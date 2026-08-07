@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
-const DEFAULT_TENANT_ID = "foremanfirst-demo";
+const DEFAULT_TENANT_ID = "development-tenant";
 
 type ContractorPayload = {
   companyId: string;
