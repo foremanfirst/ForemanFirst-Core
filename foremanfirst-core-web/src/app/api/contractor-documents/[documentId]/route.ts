@@ -41,8 +41,6 @@ export async function GET(
         where: {
           id: cleanedDocumentId,
           tenantId: DEFAULT_TENANT_ID,
-          isArchived: false,
-          isActive: true,
         },
 
         select: {
@@ -52,6 +50,8 @@ export async function GET(
           mimeType: true,
           storageProvider: true,
           storageKey: true,
+          isActive: true,
+          isArchived: true,
         },
       });
 
@@ -105,7 +105,8 @@ export async function GET(
 
       return NextResponse.json(
         {
-          message: "The document storage path is invalid.",
+          message:
+            "The document storage path is invalid.",
         },
         {
           status: 400,
@@ -114,7 +115,9 @@ export async function GET(
     }
 
     try {
-      const fileStats = await stat(absoluteFilePath);
+      const fileStats = await stat(
+        absoluteFilePath,
+      );
 
       if (!fileStats.isFile()) {
         return NextResponse.json(
@@ -139,12 +142,15 @@ export async function GET(
       );
     }
 
-    const fileBuffer = await readFile(absoluteFilePath);
+    const fileBuffer = await readFile(
+      absoluteFilePath,
+    );
 
     const requestUrl = new URL(request.url);
 
     const shouldDownload =
-      requestUrl.searchParams.get("download") === "1";
+      requestUrl.searchParams.get("download") ===
+      "1";
 
     const displayName =
       document.documentName ||
@@ -166,9 +172,12 @@ export async function GET(
           document.mimeType ||
           "application/octet-stream",
 
-        "Content-Length": String(fileBuffer.length),
+        "Content-Length": String(
+          fileBuffer.length,
+        ),
 
-        "Content-Disposition": contentDisposition,
+        "Content-Disposition":
+          contentDisposition,
 
         "Cache-Control":
           "private, no-store, max-age=0",
@@ -196,7 +205,9 @@ export async function GET(
   }
 }
 
-function sanitizeHeaderFileName(fileName: string) {
+function sanitizeHeaderFileName(
+  fileName: string,
+) {
   const cleaned = fileName
     .replace(/[\r\n"]/g, "")
     .trim();
