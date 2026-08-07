@@ -21,6 +21,12 @@ export type ContractorOrientationStatus =
   | "Expired"
   | "Not Required";
 
+export type ContractorDocumentExpirationStatus =
+  | "Current"
+  | "Expiring Soon"
+  | "Expired"
+  | "No Expiration";
+
 export type ContractorOption = {
   id: string;
   name: string;
@@ -37,6 +43,50 @@ export type ContractorProjectOption = {
   name: string;
   projectCode: string | null;
   companyId: string;
+};
+
+export type ContractorDocumentRecord = {
+  id: string;
+  tenantId?: string;
+
+  contractorId: string;
+  projectId: string | null;
+
+  documentType: string;
+  documentName: string;
+
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+
+  storageProvider: string;
+  storageKey: string;
+  storageUrl: string | null;
+
+  effectiveDate: string | null;
+  expirationDate: string | null;
+
+  approvalStatus: string;
+  reviewStatus: string;
+
+  notes: string | null;
+
+  aiProcessingStatus: string;
+  aiDocumentType?: string | null;
+  aiConfidence?: number | null;
+  extractedData?: unknown;
+  confirmedData?: unknown;
+
+  uploadedBy: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+
+  isActive: boolean;
+  isArchived: boolean;
+  archivedAt?: string | null;
+
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ContractorFormData = {
@@ -128,6 +178,8 @@ export type ContractorRecord = {
 
   company: ContractorCompanyOption;
   project: ContractorProjectOption | null;
+
+  documents: ContractorDocumentRecord[];
 };
 
 export type ContractorModalProps = {

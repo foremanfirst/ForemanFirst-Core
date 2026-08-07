@@ -83,9 +83,10 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company     Company      @relation(fields: [companyId], references: [id])
-  workers     Worker[]
-  contractors Contractor[]
+  company             Company              @relation(fields: [companyId], references: [id])
+  workers             Worker[]
+  contractors         Contractor[]
+  contractorDocuments ContractorDocument[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -206,8 +207,9 @@ model Contractor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company Company  @relation(fields: [companyId], references: [id])
-  project Project? @relation(fields: [projectId], references: [id])
+  company   Company              @relation(fields: [companyId], references: [id])
+  project   Project?             @relation(fields: [projectId], references: [id])
+  documents ContractorDocument[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -216,4 +218,59 @@ model Contractor {
   @@index([approvalStatus])
   @@index([complianceStatus])
   @@index([name])
+}
+
+model ContractorDocument {
+  id       String @id @default(cuid())
+  tenantId String
+
+  contractorId String
+  projectId    String?
+
+  documentType String
+  documentName String
+
+  fileName        String
+  mimeType        String
+  fileSize        Int
+  storageProvider String
+  storageKey      String
+  storageUrl      String?
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  approvalStatus String @default("Pending")
+  reviewStatus   String @default("Not Reviewed")
+
+  notes String?
+
+  aiProcessingStatus String   @default("Not Started")
+  aiDocumentType     String?
+  aiConfidence       Decimal? @db.Decimal(5, 4)
+  extractedData      Json?
+  confirmedData      Json?
+
+  uploadedBy String?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  project    Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([contractorId])
+  @@index([projectId])
+  @@index([documentType])
+  @@index([expirationDate])
+  @@index([approvalStatus])
+  @@index([reviewStatus])
+  @@index([isArchived])
 }
