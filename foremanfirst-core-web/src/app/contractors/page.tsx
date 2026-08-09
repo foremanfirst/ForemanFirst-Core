@@ -12,6 +12,12 @@ import DeleteContractorButton from "./DeleteContractorButton";
 import EditContractorModal from "./EditContractorModal";
 import ViewContractorModal from "./ViewContractorModal";
 
+import {
+  evaluateContractorCompliance,
+  type ContractorComplianceSummary,
+  type ContractorDocumentRequirementRecord,
+} from "./compliance";
+
 import type {
   ContractorCompanyOption,
   ContractorProjectOption,
@@ -32,115 +38,160 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function ContractorsPage() {
-  const [contractorsRaw, companiesRaw, projectsRaw] =
-    await Promise.all([
-      prisma.contractor.findMany({
-        where: {
-          isArchived: false,
-        },
+  const [
+    contractorsRaw,
+    companiesRaw,
+    projectsRaw,
+    requirementsRaw,
+  ] = await Promise.all([
+    prisma.contractor.findMany({
+      where: {
+        isArchived: false,
+      },
 
-        include: {
-          company: {
-            select: {
-              id: true,
-              name: true,
-              companyType: true,
-            },
-          },
-
-          project: {
-            select: {
-              id: true,
-              name: true,
-              projectCode: true,
-              companyId: true,
-            },
-          },
-
-          documents: {
-            where: {
-              isArchived: false,
-            },
-
-            select: {
-              id: true,
-              contractorId: true,
-              projectId: true,
-
-              documentType: true,
-              documentName: true,
-
-              fileName: true,
-              mimeType: true,
-              fileSize: true,
-
-              storageProvider: true,
-              storageKey: true,
-              storageUrl: true,
-
-              effectiveDate: true,
-              expirationDate: true,
-
-              approvalStatus: true,
-              reviewStatus: true,
-
-              notes: true,
-
-              aiProcessingStatus: true,
-
-              uploadedBy: true,
-
-              isActive: true,
-              isArchived: true,
-
-              createdAt: true,
-              updatedAt: true,
-            },
-
-            orderBy: {
-              createdAt: "desc",
-            },
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+            companyType: true,
           },
         },
 
-        orderBy: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            projectCode: true,
+            companyId: true,
+          },
+        },
+
+        documents: {
+          where: {
+            isArchived: false,
+          },
+
+          select: {
+            id: true,
+            contractorId: true,
+            projectId: true,
+
+            documentType: true,
+            documentName: true,
+
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+
+            storageProvider: true,
+            storageKey: true,
+            storageUrl: true,
+
+            effectiveDate: true,
+            expirationDate: true,
+
+            approvalStatus: true,
+            reviewStatus: true,
+
+            notes: true,
+
+            aiProcessingStatus: true,
+
+            uploadedBy: true,
+
+            isActive: true,
+            isArchived: true,
+
+            createdAt: true,
+            updatedAt: true,
+          },
+
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+
+      orderBy: {
+        name: "asc",
+      },
+    }),
+
+    prisma.company.findMany({
+      where: {
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        name: true,
+        companyType: true,
+      },
+
+      orderBy: {
+        name: "asc",
+      },
+    }),
+
+    prisma.project.findMany({
+      where: {
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        name: true,
+        projectCode: true,
+        companyId: true,
+      },
+
+      orderBy: {
+        name: "asc",
+      },
+    }),
+
+    prisma.contractorDocumentRequirement.findMany({
+      where: {
+        isActive: true,
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        tenantId: true,
+        projectId: true,
+
+        documentType: true,
+        name: true,
+        description: true,
+
+        isRequired: true,
+        expirationRequired: true,
+        reviewRequired: true,
+
+        sortOrder: true,
+
+        isActive: true,
+        isArchived: true,
+
+        createdAt: true,
+        updatedAt: true,
+      },
+
+      orderBy: [
+        {
+          projectId: "asc",
+        },
+        {
+          sortOrder: "asc",
+        },
+        {
           name: "asc",
         },
-      }),
-
-      prisma.company.findMany({
-        where: {
-          isArchived: false,
-        },
-
-        select: {
-          id: true,
-          name: true,
-          companyType: true,
-        },
-
-        orderBy: {
-          name: "asc",
-        },
-      }),
-
-      prisma.project.findMany({
-        where: {
-          isArchived: false,
-        },
-
-        select: {
-          id: true,
-          name: true,
-          projectCode: true,
-          companyId: true,
-        },
-
-        orderBy: {
-          name: "asc",
-        },
-      }),
-    ]);
+      ],
+    }),
+  ]);
 
   const contractors: ContractorRecord[] =
     contractorsRaw.map((contractor) => ({
@@ -190,6 +241,60 @@ export default async function ContractorsPage() {
   const projects: ContractorProjectOption[] =
     projectsRaw;
 
+  const requirements: ContractorDocumentRequirementRecord[] =
+    requirementsRaw.map((requirement) => ({
+      ...requirement,
+
+      createdAt:
+        requirement.createdAt.toISOString(),
+
+      updatedAt:
+        requirement.updatedAt.toISOString(),
+    }));
+
+  const requirementsByProject =
+    new Map<
+      string,
+      ContractorDocumentRequirementRecord[]
+    >();
+
+  for (const requirement of requirements) {
+    const existingRequirements =
+      requirementsByProject.get(
+        requirement.projectId,
+      ) ?? [];
+
+    existingRequirements.push(requirement);
+
+    requirementsByProject.set(
+      requirement.projectId,
+      existingRequirements,
+    );
+  }
+
+  const complianceByContractor =
+    new Map<string, ContractorComplianceSummary>();
+
+  for (const contractor of contractors) {
+    const projectRequirements =
+      contractor.projectId
+        ? requirementsByProject.get(
+            contractor.projectId,
+          ) ?? []
+        : [];
+
+    const complianceSummary =
+      evaluateContractorCompliance(
+        projectRequirements,
+        contractor.documents,
+      );
+
+    complianceByContractor.set(
+      contractor.id,
+      complianceSummary,
+    );
+  }
+
   const totalContractors = contractors.length;
 
   const activeContractors = contractors.filter(
@@ -203,14 +308,42 @@ export default async function ContractorsPage() {
   );
 
   const compliantContractors = contractors.filter(
-    (contractor) =>
-      contractor.complianceStatus === "Compliant",
+    (contractor) => {
+      const summary =
+        complianceByContractor.get(contractor.id);
+
+      if (
+        summary &&
+        summary.overallStatus !== "No Requirements"
+      ) {
+        return (
+          summary.overallStatus === "Compliant"
+        );
+      }
+
+      return (
+        contractor.complianceStatus === "Compliant"
+      );
+    },
   ).length;
 
   const contractorsNeedingAttention =
-    contractors.filter((contractor) =>
-      contractorHasComplianceIssue(contractor),
-    ).length;
+    contractors.filter((contractor) => {
+      const summary =
+        complianceByContractor.get(contractor.id);
+
+      const documentComplianceIssue =
+        summary?.overallStatus ===
+        "Needs Attention";
+
+      const existingComplianceIssue =
+        contractorHasComplianceIssue(contractor);
+
+      return (
+        documentComplianceIssue ||
+        existingComplianceIssue
+      );
+    }).length;
 
   return (
     <div className="space-y-6">
@@ -254,7 +387,7 @@ export default async function ContractorsPage() {
         <SummaryCard
           label="Needs Attention"
           value={contractorsNeedingAttention}
-          detail="Compliance or insurance issues"
+          detail="Compliance or document issues"
         />
       </section>
 
@@ -271,7 +404,8 @@ export default async function ContractorsPage() {
 
             <p className="mt-1 text-sm text-slate-600">
               {contractors.length} contractor
-              {contractors.length === 1 ? "" : "s"} shown
+              {contractors.length === 1 ? "" : "s"}{" "}
+              shown
             </p>
           </div>
 
@@ -399,6 +533,11 @@ export default async function ContractorsPage() {
                         contractor.insuranceExpiresAt,
                       );
 
+                    const complianceSummary =
+                      complianceByContractor.get(
+                        contractor.id,
+                      );
+
                     return (
                       <tr
                         key={contractor.id}
@@ -478,32 +617,40 @@ export default async function ContractorsPage() {
                         </td>
 
                         <td className="px-5 py-5">
-                          <div className="flex max-w-48 flex-wrap gap-2">
-                            <StatusBadge
-                              label={
-                                contractor.approvalStatus
-                              }
-                              tone={approvalStatusTone(
-                                contractor.approvalStatus,
-                              )}
-                            />
+                          <div className="space-y-3">
+                            <div className="flex max-w-48 flex-wrap gap-2">
+                              <StatusBadge
+                                label={
+                                  contractor.approvalStatus
+                                }
+                                tone={approvalStatusTone(
+                                  contractor.approvalStatus,
+                                )}
+                              />
 
-                            <StatusBadge
-                              label={
-                                contractor.complianceStatus
-                              }
-                              tone={complianceStatusTone(
-                                contractor.complianceStatus,
-                              )}
-                            />
+                              <StatusBadge
+                                label={
+                                  contractor.complianceStatus
+                                }
+                                tone={complianceStatusTone(
+                                  contractor.complianceStatus,
+                                )}
+                              />
 
-                            <StatusBadge
-                              label={
-                                contractor.orientationStatus
+                              <StatusBadge
+                                label={
+                                  contractor.orientationStatus
+                                }
+                                tone={orientationStatusTone(
+                                  contractor.orientationStatus,
+                                )}
+                              />
+                            </div>
+
+                            <DocumentComplianceSummary
+                              summary={
+                                complianceSummary
                               }
-                              tone={orientationStatusTone(
-                                contractor.orientationStatus,
-                              )}
                             />
                           </div>
                         </td>
@@ -561,112 +708,214 @@ export default async function ContractorsPage() {
             </div>
 
             <div className="grid gap-4 p-5 xl:hidden">
-              {contractors.map((contractor) => (
-                <article
-                  key={contractor.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
-                        {contractorInitials(
-                          contractor.name,
+              {contractors.map((contractor) => {
+                const complianceSummary =
+                  complianceByContractor.get(
+                    contractor.id,
+                  );
+
+                return (
+                  <article
+                    key={contractor.id}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
+                          {contractorInitials(
+                            contractor.name,
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <h3 className="truncate font-black text-slate-950">
+                            {contractor.name}
+                          </h3>
+
+                          <p className="mt-1 truncate text-sm text-slate-500">
+                            {contractor.company.name}
+                          </p>
+                        </div>
+                      </div>
+
+                      <StatusBadge
+                        label={
+                          contractor.approvalStatus
+                        }
+                        tone={approvalStatusTone(
+                          contractor.approvalStatus,
                         )}
-                      </div>
-
-                      <div className="min-w-0">
-                        <h3 className="truncate font-black text-slate-950">
-                          {contractor.name}
-                        </h3>
-
-                        <p className="mt-1 truncate text-sm text-slate-500">
-                          {contractor.company.name}
-                        </p>
-                      </div>
+                      />
                     </div>
 
-                    <StatusBadge
-                      label={contractor.approvalStatus}
-                      tone={approvalStatusTone(
-                        contractor.approvalStatus,
-                      )}
-                    />
-                  </div>
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <MobileDetail
+                        label="Project"
+                        value={
+                          contractor.project?.name ||
+                          "Not assigned"
+                        }
+                      />
 
-                  <div className="mt-5 grid grid-cols-2 gap-3">
-                    <MobileDetail
-                      label="Project"
-                      value={
-                        contractor.project?.name ||
-                        "Not assigned"
-                      }
-                    />
+                      <MobileDetail
+                        label="Trade"
+                        value={
+                          contractor.trade ||
+                          "Not entered"
+                        }
+                      />
 
-                    <MobileDetail
-                      label="Trade"
-                      value={
-                        contractor.trade ||
-                        "Not entered"
-                      }
-                    />
+                      <MobileDetail
+                        label="Workforce"
+                        value={String(
+                          contractor.workforceCount,
+                        )}
+                      />
 
-                    <MobileDetail
-                      label="Workforce"
-                      value={String(
-                        contractor.workforceCount,
-                      )}
-                    />
+                      <MobileDetail
+                        label="Compliance"
+                        value={
+                          complianceSummary &&
+                          complianceSummary.overallStatus !==
+                            "No Requirements"
+                            ? `${complianceSummary.compliancePercentage}%`
+                            : contractor.complianceStatus
+                        }
+                      />
 
-                    <MobileDetail
-                      label="Compliance"
-                      value={
-                        contractor.complianceStatus
-                      }
-                    />
+                      <MobileDetail
+                        label="EMR"
+                        value={formatRiskRate(
+                          contractor.emr,
+                        )}
+                      />
 
-                    <MobileDetail
-                      label="EMR"
-                      value={formatRiskRate(
-                        contractor.emr,
-                      )}
-                    />
+                      <MobileDetail
+                        label="TRIR"
+                        value={formatRiskRate(
+                          contractor.trir,
+                        )}
+                      />
+                    </div>
 
-                    <MobileDetail
-                      label="TRIR"
-                      value={formatRiskRate(
-                        contractor.trir,
-                      )}
-                    />
-                  </div>
+                    <div className="mt-4">
+                      <DocumentComplianceSummary
+                        summary={complianceSummary}
+                      />
+                    </div>
 
-                  <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
-                    <ViewContractorModal
-                      contractor={contractor}
-                    />
+                    <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+                      <ViewContractorModal
+                        contractor={contractor}
+                      />
 
-                    <EditContractorModal
-                      contractor={contractor}
-                      companies={companies}
-                      projects={projects}
-                    />
+                      <EditContractorModal
+                        contractor={contractor}
+                        companies={companies}
+                        projects={projects}
+                      />
 
-                    <DeleteContractorButton
-                      contractorId={contractor.id}
-                      contractorName={contractor.name}
-                      companyName={
-                        contractor.company.name
-                      }
-                      projectName={
-                        contractor.project?.name
-                      }
-                    />
-                  </div>
-                </article>
-              ))}
+                      <DeleteContractorButton
+                        contractorId={contractor.id}
+                        contractorName={
+                          contractor.name
+                        }
+                        companyName={
+                          contractor.company.name
+                        }
+                        projectName={
+                          contractor.project?.name
+                        }
+                      />
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+function DocumentComplianceSummary({
+  summary,
+}: {
+  summary:
+    | ContractorComplianceSummary
+    | undefined;
+}) {
+  if (
+    !summary ||
+    summary.overallStatus === "No Requirements"
+  ) {
+    return (
+      <p className="text-xs font-semibold text-slate-500">
+        No document requirements
+      </p>
+    );
+  }
+
+  const hasCriticalIssue =
+    summary.missing > 0 ||
+    summary.expired > 0;
+
+  const hasWarning =
+    summary.expiringSoon > 0 ||
+    summary.awaitingReview > 0;
+
+  const toneClass = hasCriticalIssue
+    ? "border-rose-200 bg-rose-50 text-rose-700"
+    : hasWarning
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+  return (
+    <div
+      className={`max-w-64 rounded-xl border px-3 py-2 ${toneClass}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-black">
+          Document Compliance
+        </span>
+
+        <span className="text-sm font-black">
+          {summary.compliancePercentage}%
+        </span>
+      </div>
+
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-black">
+        {summary.current > 0 ? (
+          <span>
+            {summary.current} Current
+          </span>
+        ) : null}
+
+        {summary.missing > 0 ? (
+          <span>
+            {summary.missing} Missing
+          </span>
+        ) : null}
+
+        {summary.expiringSoon > 0 ? (
+          <span>
+            {summary.expiringSoon} Expiring
+          </span>
+        ) : null}
+
+        {summary.expired > 0 ? (
+          <span>
+            {summary.expired} Expired
+          </span>
+        ) : null}
+
+        {summary.awaitingReview > 0 ? (
+          <span>
+            {summary.awaitingReview} Awaiting Review
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

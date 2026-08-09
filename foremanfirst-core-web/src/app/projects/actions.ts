@@ -47,34 +47,194 @@ export interface CreateProjectInput {
   isActive?: boolean;
 }
 
-export interface UpdateProjectInput extends CreateProjectInput {
+export interface UpdateProjectInput
+  extends CreateProjectInput {
   id: string;
 }
+
+/* =========================================================
+   GET PROJECTS
+========================================================= */
+
+export async function getProjects() {
+  const projects = await prisma.project.findMany({
+    include: {
+      company: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+
+    orderBy: {
+      name: "asc",
+    },
+  });
+
+  return projects.map((project) => ({
+    id: project.id,
+
+    projectName: project.name,
+    projectNumber: project.projectCode ?? "",
+    client: project.clientName ?? "",
+    managingCompany: project.company.name,
+
+    companyId: project.companyId,
+
+    projectType: project.projectType ?? "Other",
+
+    address: project.address ?? "",
+    city: project.city ?? "",
+    state: project.state ?? "",
+    postalCode: project.zipCode ?? "",
+    location: project.location ?? "",
+
+    startDate: formatDateForProjectInput(
+      project.startDate,
+    ),
+
+    targetCompletionDate:
+      formatDateForProjectInput(project.endDate),
+
+    status: project.isArchived
+      ? "Archived"
+      : project.status,
+
+    projectManager:
+      project.projectManager ?? "",
+
+    superintendent:
+      project.superintendent ?? "",
+
+    safetyManager:
+      project.safetyManager ?? "",
+
+    description:
+      project.description ?? "",
+
+    contractValue:
+      project.contractValue === null
+        ? 0
+        : Number(project.contractValue),
+
+    plannedWorkforce:
+      project.plannedWorkforce,
+
+    currentWorkforce:
+      project.currentWorkforce,
+
+    workersOnsite:
+      project.workersOnsite,
+
+    activeContractors:
+      project.activeContractors,
+
+    totalManHours:
+      project.totalManHours,
+
+    progress:
+      project.progress,
+
+    openActions:
+      project.openActions,
+
+    recordableIncidents:
+      project.recordableIncidents,
+
+    permitsOpen:
+      project.permitsOpen,
+
+    planningDocumentsPending:
+      project.planningDocumentsPending,
+
+    trainingCompliance:
+      project.trainingCompliance,
+
+    accessCompliance:
+      project.accessCompliance,
+
+    healthScore:
+      project.healthScore,
+
+    isActive:
+      project.isActive,
+
+    isArchived:
+      project.isArchived,
+
+    archivedAt:
+      project.archivedAt?.toISOString() ?? null,
+
+    createdAt:
+      project.createdAt.toISOString(),
+
+    updatedAt:
+      project.updatedAt.toISOString(),
+  }));
+}
+
+/* =========================================================
+   GET PROJECT COMPANIES
+========================================================= */
+
+export async function getProjectCompanies() {
+  const companies = await prisma.company.findMany({
+    where: {
+      isArchived: false,
+      isActive: true,
+    },
+
+    select: {
+      id: true,
+      name: true,
+    },
+
+    orderBy: {
+      name: "asc",
+    },
+  });
+
+  return companies;
+}
+
+/* =========================================================
+   CREATE PROJECT
+========================================================= */
 
 export async function createProject(
   input: CreateProjectInput,
 ) {
-  const companyId = cleanRequiredString(input.companyId);
+  const companyId = cleanRequiredString(
+    input.companyId,
+  );
+
   const name = cleanRequiredString(input.name);
 
   if (!companyId) {
-    throw new Error("Select a managing company.");
+    throw new Error(
+      "Select a managing company.",
+    );
   }
 
   if (!name) {
-    throw new Error("Project name is required.");
+    throw new Error(
+      "Project name is required.",
+    );
   }
 
-  const company = await prisma.company.findFirst({
-    where: {
-      id: companyId,
-      isArchived: false,
-    },
-    select: {
-      id: true,
-      tenantId: true,
-    },
-  });
+  const company =
+    await prisma.company.findFirst({
+      where: {
+        id: companyId,
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        tenantId: true,
+      },
+    });
 
   if (!company) {
     throw new Error(
@@ -82,143 +242,229 @@ export async function createProject(
     );
   }
 
-  const startDate = parseOptionalDate(input.startDate);
-  const endDate = parseOptionalDate(input.endDate);
+  const startDate =
+    parseOptionalDate(input.startDate);
 
-  validateDateRange(startDate, endDate);
+  const endDate =
+    parseOptionalDate(input.endDate);
 
-  const project = await prisma.project.create({
-    data: {
-      tenantId: company.tenantId,
-      companyId: company.id,
+  validateDateRange(
+    startDate,
+    endDate,
+  );
 
-      name,
-      projectCode: cleanOptionalString(input.projectCode),
-      clientName: cleanOptionalString(input.clientName),
-      projectType: cleanOptionalString(input.projectType),
-      description: cleanOptionalString(input.description),
+  const project =
+    await prisma.project.create({
+      data: {
+        tenantId: company.tenantId,
+        companyId: company.id,
 
-      address: cleanOptionalString(input.address),
-      city: cleanOptionalString(input.city),
-      state: cleanOptionalString(input.state),
-      zipCode: cleanOptionalString(input.zipCode),
-      location: cleanOptionalString(input.location),
+        name,
 
-      status:
-        cleanOptionalString(input.status) || "Planning",
+        projectCode:
+          cleanOptionalString(
+            input.projectCode,
+          ),
 
-      startDate,
-      endDate,
+        clientName:
+          cleanOptionalString(
+            input.clientName,
+          ),
 
-      projectManager: cleanOptionalString(
-        input.projectManager,
-      ),
-      superintendent: cleanOptionalString(
-        input.superintendent,
-      ),
-      safetyManager: cleanOptionalString(
-        input.safetyManager,
-      ),
+        projectType:
+          cleanOptionalString(
+            input.projectType,
+          ),
 
-      contractValue: parseOptionalDecimal(
-        input.contractValue,
-      ),
+        description:
+          cleanOptionalString(
+            input.description,
+          ),
 
-      plannedWorkforce: safeNonNegativeInteger(
-        input.plannedWorkforce,
-      ),
-      currentWorkforce: safeNonNegativeInteger(
-        input.currentWorkforce,
-      ),
-      workersOnsite: safeNonNegativeInteger(
-        input.workersOnsite,
-      ),
-      activeContractors: safeNonNegativeInteger(
-        input.activeContractors,
-      ),
-      totalManHours: safeNonNegativeInteger(
-        input.totalManHours,
-      ),
+        address:
+          cleanOptionalString(
+            input.address,
+          ),
 
-      progress: clampInteger(
-        input.progress,
-        0,
-        100,
-        0,
-      ),
+        city:
+          cleanOptionalString(
+            input.city,
+          ),
 
-      openActions: safeNonNegativeInteger(
-        input.openActions,
-      ),
+        state:
+          cleanOptionalString(
+            input.state,
+          ),
 
-      recordableIncidents: safeNonNegativeInteger(
-        input.recordableIncidents,
-      ),
+        zipCode:
+          cleanOptionalString(
+            input.zipCode,
+          ),
 
-      permitsOpen: safeNonNegativeInteger(
-        input.permitsOpen,
-      ),
+        location:
+          cleanOptionalString(
+            input.location,
+          ),
 
-      planningDocumentsPending: safeNonNegativeInteger(
-        input.planningDocumentsPending,
-      ),
+        status:
+          cleanOptionalString(
+            input.status,
+          ) || "Planning",
 
-      trainingCompliance: clampInteger(
-        input.trainingCompliance,
-        0,
-        100,
-        100,
-      ),
+        startDate,
+        endDate,
 
-      accessCompliance: clampInteger(
-        input.accessCompliance,
-        0,
-        100,
-        100,
-      ),
+        projectManager:
+          cleanOptionalString(
+            input.projectManager,
+          ),
 
-      healthScore: clampInteger(
-        input.healthScore,
-        0,
-        100,
-        100,
-      ),
+        superintendent:
+          cleanOptionalString(
+            input.superintendent,
+          ),
 
-      isActive:
-        typeof input.isActive === "boolean"
-          ? input.isActive
-          : true,
+        safetyManager:
+          cleanOptionalString(
+            input.safetyManager,
+          ),
 
-      isArchived: false,
-      archivedAt: null,
-    },
-  });
+        contractValue:
+          parseOptionalDecimal(
+            input.contractValue,
+          ),
+
+        plannedWorkforce:
+          safeNonNegativeInteger(
+            input.plannedWorkforce,
+          ),
+
+        currentWorkforce:
+          safeNonNegativeInteger(
+            input.currentWorkforce,
+          ),
+
+        workersOnsite:
+          safeNonNegativeInteger(
+            input.workersOnsite,
+          ),
+
+        activeContractors:
+          safeNonNegativeInteger(
+            input.activeContractors,
+          ),
+
+        totalManHours:
+          safeNonNegativeInteger(
+            input.totalManHours,
+          ),
+
+        progress:
+          clampInteger(
+            input.progress,
+            0,
+            100,
+            0,
+          ),
+
+        openActions:
+          safeNonNegativeInteger(
+            input.openActions,
+          ),
+
+        recordableIncidents:
+          safeNonNegativeInteger(
+            input.recordableIncidents,
+          ),
+
+        permitsOpen:
+          safeNonNegativeInteger(
+            input.permitsOpen,
+          ),
+
+        planningDocumentsPending:
+          safeNonNegativeInteger(
+            input.planningDocumentsPending,
+          ),
+
+        trainingCompliance:
+          clampInteger(
+            input.trainingCompliance,
+            0,
+            100,
+            100,
+          ),
+
+        accessCompliance:
+          clampInteger(
+            input.accessCompliance,
+            0,
+            100,
+            100,
+          ),
+
+        healthScore:
+          clampInteger(
+            input.healthScore,
+            0,
+            100,
+            100,
+          ),
+
+        isActive:
+          typeof input.isActive ===
+          "boolean"
+            ? input.isActive
+            : true,
+
+        isArchived: false,
+        archivedAt: null,
+      },
+    });
 
   revalidateProjectRoutes();
 
   return {
     id: project.id,
-    message: "Project created successfully.",
+    message:
+      "Project created successfully.",
   };
 }
+
+/* =========================================================
+   UPDATE PROJECT
+========================================================= */
 
 export async function updateProject(
   input: UpdateProjectInput,
 ) {
-  const id = cleanRequiredString(input.id);
-  const companyId = cleanRequiredString(input.companyId);
-  const name = cleanRequiredString(input.name);
+  const id =
+    cleanRequiredString(input.id);
+
+  const companyId =
+    cleanRequiredString(
+      input.companyId,
+    );
+
+  const name =
+    cleanRequiredString(input.name);
 
   if (!id) {
-    throw new Error("Project ID is required.");
+    throw new Error(
+      "Project ID is required.",
+    );
   }
 
   if (!companyId) {
-    throw new Error("Select a managing company.");
+    throw new Error(
+      "Select a managing company.",
+    );
   }
 
   if (!name) {
-    throw new Error("Project name is required.");
+    throw new Error(
+      "Project name is required.",
+    );
   }
 
   const existingProject =
@@ -227,25 +473,30 @@ export async function updateProject(
         id,
         isArchived: false,
       },
+
       select: {
         id: true,
       },
     });
 
   if (!existingProject) {
-    throw new Error("Project could not be found.");
+    throw new Error(
+      "Project could not be found.",
+    );
   }
 
-  const company = await prisma.company.findFirst({
-    where: {
-      id: companyId,
-      isArchived: false,
-    },
-    select: {
-      id: true,
-      tenantId: true,
-    },
-  });
+  const company =
+    await prisma.company.findFirst({
+      where: {
+        id: companyId,
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        tenantId: true,
+      },
+    });
 
   if (!company) {
     throw new Error(
@@ -253,113 +504,181 @@ export async function updateProject(
     );
   }
 
-  const startDate = parseOptionalDate(input.startDate);
-  const endDate = parseOptionalDate(input.endDate);
+  const startDate =
+    parseOptionalDate(input.startDate);
 
-  validateDateRange(startDate, endDate);
+  const endDate =
+    parseOptionalDate(input.endDate);
+
+  validateDateRange(
+    startDate,
+    endDate,
+  );
 
   await prisma.project.update({
     where: {
       id,
     },
+
     data: {
       tenantId: company.tenantId,
       companyId: company.id,
 
       name,
-      projectCode: cleanOptionalString(input.projectCode),
-      clientName: cleanOptionalString(input.clientName),
-      projectType: cleanOptionalString(input.projectType),
-      description: cleanOptionalString(input.description),
 
-      address: cleanOptionalString(input.address),
-      city: cleanOptionalString(input.city),
-      state: cleanOptionalString(input.state),
-      zipCode: cleanOptionalString(input.zipCode),
-      location: cleanOptionalString(input.location),
+      projectCode:
+        cleanOptionalString(
+          input.projectCode,
+        ),
+
+      clientName:
+        cleanOptionalString(
+          input.clientName,
+        ),
+
+      projectType:
+        cleanOptionalString(
+          input.projectType,
+        ),
+
+      description:
+        cleanOptionalString(
+          input.description,
+        ),
+
+      address:
+        cleanOptionalString(
+          input.address,
+        ),
+
+      city:
+        cleanOptionalString(
+          input.city,
+        ),
+
+      state:
+        cleanOptionalString(
+          input.state,
+        ),
+
+      zipCode:
+        cleanOptionalString(
+          input.zipCode,
+        ),
+
+      location:
+        cleanOptionalString(
+          input.location,
+        ),
 
       status:
-        cleanOptionalString(input.status) || "Planning",
+        cleanOptionalString(
+          input.status,
+        ) || "Planning",
 
       startDate,
       endDate,
 
-      projectManager: cleanOptionalString(
-        input.projectManager,
-      ),
-      superintendent: cleanOptionalString(
-        input.superintendent,
-      ),
-      safetyManager: cleanOptionalString(
-        input.safetyManager,
-      ),
+      projectManager:
+        cleanOptionalString(
+          input.projectManager,
+        ),
 
-      contractValue: parseOptionalDecimal(
-        input.contractValue,
-      ),
+      superintendent:
+        cleanOptionalString(
+          input.superintendent,
+        ),
 
-      plannedWorkforce: safeNonNegativeInteger(
-        input.plannedWorkforce,
-      ),
-      currentWorkforce: safeNonNegativeInteger(
-        input.currentWorkforce,
-      ),
-      workersOnsite: safeNonNegativeInteger(
-        input.workersOnsite,
-      ),
-      activeContractors: safeNonNegativeInteger(
-        input.activeContractors,
-      ),
-      totalManHours: safeNonNegativeInteger(
-        input.totalManHours,
-      ),
+      safetyManager:
+        cleanOptionalString(
+          input.safetyManager,
+        ),
 
-      progress: clampInteger(
-        input.progress,
-        0,
-        100,
-        0,
-      ),
+      contractValue:
+        parseOptionalDecimal(
+          input.contractValue,
+        ),
 
-      openActions: safeNonNegativeInteger(
-        input.openActions,
-      ),
+      plannedWorkforce:
+        safeNonNegativeInteger(
+          input.plannedWorkforce,
+        ),
 
-      recordableIncidents: safeNonNegativeInteger(
-        input.recordableIncidents,
-      ),
+      currentWorkforce:
+        safeNonNegativeInteger(
+          input.currentWorkforce,
+        ),
 
-      permitsOpen: safeNonNegativeInteger(
-        input.permitsOpen,
-      ),
+      workersOnsite:
+        safeNonNegativeInteger(
+          input.workersOnsite,
+        ),
 
-      planningDocumentsPending: safeNonNegativeInteger(
-        input.planningDocumentsPending,
-      ),
+      activeContractors:
+        safeNonNegativeInteger(
+          input.activeContractors,
+        ),
 
-      trainingCompliance: clampInteger(
-        input.trainingCompliance,
-        0,
-        100,
-        100,
-      ),
+      totalManHours:
+        safeNonNegativeInteger(
+          input.totalManHours,
+        ),
 
-      accessCompliance: clampInteger(
-        input.accessCompliance,
-        0,
-        100,
-        100,
-      ),
+      progress:
+        clampInteger(
+          input.progress,
+          0,
+          100,
+          0,
+        ),
 
-      healthScore: clampInteger(
-        input.healthScore,
-        0,
-        100,
-        100,
-      ),
+      openActions:
+        safeNonNegativeInteger(
+          input.openActions,
+        ),
+
+      recordableIncidents:
+        safeNonNegativeInteger(
+          input.recordableIncidents,
+        ),
+
+      permitsOpen:
+        safeNonNegativeInteger(
+          input.permitsOpen,
+        ),
+
+      planningDocumentsPending:
+        safeNonNegativeInteger(
+          input.planningDocumentsPending,
+        ),
+
+      trainingCompliance:
+        clampInteger(
+          input.trainingCompliance,
+          0,
+          100,
+          100,
+        ),
+
+      accessCompliance:
+        clampInteger(
+          input.accessCompliance,
+          0,
+          100,
+          100,
+        ),
+
+      healthScore:
+        clampInteger(
+          input.healthScore,
+          0,
+          100,
+          100,
+        ),
 
       isActive:
-        typeof input.isActive === "boolean"
+        typeof input.isActive ===
+        "boolean"
           ? input.isActive
           : true,
     },
@@ -369,38 +688,51 @@ export async function updateProject(
 
   return {
     id,
-    message: "Project updated successfully.",
+    message:
+      "Project updated successfully.",
   };
 }
+
+/* =========================================================
+   ARCHIVE PROJECT
+========================================================= */
 
 export async function archiveProject(
   projectId: string,
 ) {
-  const id = cleanRequiredString(projectId);
+  const id =
+    cleanRequiredString(projectId);
 
   if (!id) {
-    throw new Error("Project ID is required.");
+    throw new Error(
+      "Project ID is required.",
+    );
   }
 
-  const project = await prisma.project.findFirst({
-    where: {
-      id,
-      isArchived: false,
-    },
-    select: {
-      id: true,
-      name: true,
-    },
-  });
+  const project =
+    await prisma.project.findFirst({
+      where: {
+        id,
+        isArchived: false,
+      },
+
+      select: {
+        id: true,
+        name: true,
+      },
+    });
 
   if (!project) {
-    throw new Error("Project could not be found.");
+    throw new Error(
+      "Project could not be found.",
+    );
   }
 
   await prisma.project.update({
     where: {
       id,
     },
+
     data: {
       isArchived: true,
       isActive: false,
@@ -413,29 +745,39 @@ export async function archiveProject(
 
   return {
     id,
-    message: `${project.name} was archived.`,
+    message:
+      `${project.name} was archived.`,
   };
 }
+
+/* =========================================================
+   RESTORE PROJECT
+========================================================= */
 
 export async function restoreProject(
   projectId: string,
 ) {
-  const id = cleanRequiredString(projectId);
+  const id =
+    cleanRequiredString(projectId);
 
   if (!id) {
-    throw new Error("Project ID is required.");
+    throw new Error(
+      "Project ID is required.",
+    );
   }
 
-  const project = await prisma.project.findFirst({
-    where: {
-      id,
-      isArchived: true,
-    },
-    select: {
-      id: true,
-      name: true,
-    },
-  });
+  const project =
+    await prisma.project.findFirst({
+      where: {
+        id,
+        isArchived: true,
+      },
+
+      select: {
+        id: true,
+        name: true,
+      },
+    });
 
   if (!project) {
     throw new Error(
@@ -447,6 +789,7 @@ export async function restoreProject(
     where: {
       id,
     },
+
     data: {
       isArchived: false,
       isActive: true,
@@ -459,37 +802,50 @@ export async function restoreProject(
 
   return {
     id,
-    message: `${project.name} was restored.`,
+    message:
+      `${project.name} was restored.`,
   };
 }
+
+/* =========================================================
+   DELETE PROJECT
+========================================================= */
 
 export async function deleteProject(
   projectId: string,
 ) {
-  const id = cleanRequiredString(projectId);
+  const id =
+    cleanRequiredString(projectId);
 
   if (!id) {
-    throw new Error("Project ID is required.");
+    throw new Error(
+      "Project ID is required.",
+    );
   }
 
-  const project = await prisma.project.findUnique({
-    where: {
-      id,
-    },
-    select: {
-      id: true,
-      name: true,
-      _count: {
-        select: {
-          workers: true,
-          contractors: true,
+  const project =
+    await prisma.project.findUnique({
+      where: {
+        id,
+      },
+
+      select: {
+        id: true,
+        name: true,
+
+        _count: {
+          select: {
+            workers: true,
+            contractors: true,
+          },
         },
       },
-    },
-  });
+    });
 
   if (!project) {
-    throw new Error("Project could not be found.");
+    throw new Error(
+      "Project could not be found.",
+    );
   }
 
   if (
@@ -511,9 +867,14 @@ export async function deleteProject(
 
   return {
     id,
-    message: `${project.name} was permanently deleted.`,
+    message:
+      `${project.name} was permanently deleted.`,
   };
 }
+
+/* =========================================================
+   REVALIDATE PROJECT ROUTES
+========================================================= */
 
 function revalidateProjectRoutes() {
   revalidatePath("/projects");
@@ -522,6 +883,10 @@ function revalidateProjectRoutes() {
   revalidatePath("/dashboard");
   revalidatePath("/api/projects");
 }
+
+/* =========================================================
+   STRING HELPERS
+========================================================= */
 
 function cleanRequiredString(
   value: unknown,
@@ -542,8 +907,14 @@ function cleanOptionalString(
 
   const cleaned = value.trim();
 
-  return cleaned.length > 0 ? cleaned : null;
+  return cleaned.length > 0
+    ? cleaned
+    : null;
 }
+
+/* =========================================================
+   NUMBER HELPERS
+========================================================= */
 
 function safeNonNegativeInteger(
   value: unknown,
@@ -554,7 +925,10 @@ function safeNonNegativeInteger(
     return 0;
   }
 
-  return Math.max(0, Math.trunc(parsed));
+  return Math.max(
+    0,
+    Math.trunc(parsed),
+  );
 }
 
 function clampInteger(
@@ -570,7 +944,10 @@ function clampInteger(
   }
 
   return Math.min(
-    Math.max(Math.trunc(parsed), minimum),
+    Math.max(
+      Math.trunc(parsed),
+      minimum,
+    ),
     maximum,
   );
 }
@@ -588,12 +965,19 @@ function parseOptionalDecimal(
 
   const parsed = Number(value);
 
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < 0
+  ) {
     return null;
   }
 
   return parsed;
 }
+
+/* =========================================================
+   DATE HELPERS
+========================================================= */
 
 function parseOptionalDate(
   value: unknown,
@@ -607,16 +991,48 @@ function parseOptionalDate(
   }
 
   if (typeof value !== "string") {
-    throw new Error("Project date is invalid.");
+    throw new Error(
+      "Project date is invalid.",
+    );
   }
 
-  const date = new Date(`${value}T12:00:00`);
+  const date =
+    new Date(`${value}T12:00:00`);
 
-  if (Number.isNaN(date.getTime())) {
-    throw new Error("Project date is invalid.");
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    throw new Error(
+      "Project date is invalid.",
+    );
   }
 
   return date;
+}
+
+function formatDateForProjectInput(
+  value: Date | null,
+): string {
+  if (!value) {
+    return "";
+  }
+
+  const year =
+    value.getFullYear();
+
+  const month =
+    String(
+      value.getMonth() + 1,
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      value.getDate(),
+    ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function validateDateRange(
@@ -626,7 +1042,8 @@ function validateDateRange(
   if (
     startDate &&
     endDate &&
-    endDate.getTime() < startDate.getTime()
+    endDate.getTime() <
+      startDate.getTime()
   ) {
     throw new Error(
       "Target completion date cannot be before the start date.",

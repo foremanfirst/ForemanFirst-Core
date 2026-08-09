@@ -1,14 +1,23 @@
 "use client";
-
+ 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-
+ 
+import {
+  createProject,
+  updateProject,
+  archiveProject as archiveProjectAction,
+  restoreProject as restoreProjectAction,
+  getProjects,
+  getProjectCompanies,
+} from "./actions";
+ 
 type ProjectStatus =
   | "Planning"
   | "Active"
   | "On Hold"
   | "Completed"
   | "Archived";
-
+ 
 type ProjectType =
   | "Commercial Construction"
   | "Industrial Construction"
@@ -17,7 +26,7 @@ type ProjectType =
   | "Energy"
   | "Infrastructure"
   | "Other";
-
+ 
 type SortOption =
   | "name-asc"
   | "name-desc"
@@ -25,9 +34,10 @@ type SortOption =
   | "start-oldest"
   | "end-soonest"
   | "progress-highest";
-
+ 
 interface Project {
   id: string;
+  companyId: string;
   projectName: string;
   projectNumber: string;
   client: string;
@@ -61,8 +71,9 @@ interface Project {
   createdAt: string;
   updatedAt: string;
 }
-
+ 
 interface ProjectFormData {
+  companyId: string;
   projectName: string;
   projectNumber: string;
   client: string;
@@ -94,10 +105,13 @@ interface ProjectFormData {
   accessCompliance: string;
   healthScore: string;
 }
-
+ 
 type ModalMode = "create" | "edit" | "view" | null;
 
-const STORAGE_KEY = "foremanfirst-projects-v1";
+type CompanyOption = {
+  id: string;
+  name: string;
+};
 
 const projectTypes: ProjectType[] = [
   "Commercial Construction",
@@ -108,15 +122,16 @@ const projectTypes: ProjectType[] = [
   "Infrastructure",
   "Other",
 ];
-
+ 
 const activeStatuses: Exclude<ProjectStatus, "Archived">[] = [
   "Planning",
   "Active",
   "On Hold",
   "Completed",
 ];
-
+ 
 const emptyForm: ProjectFormData = {
+  companyId: "",
   projectName: "",
   projectNumber: "",
   client: "",
@@ -149,45 +164,6 @@ const emptyForm: ProjectFormData = {
   healthScore: "100",
 };
 
-const seedProjects: Project[] = [
-  {
-    id: "gm-ldt-001",
-    projectName: "GM Lansing Delta Township",
-    projectNumber: "GM-LDT-2026",
-    client: "General Motors",
-    managingCompany: "Barton Malow",
-    projectType: "Manufacturing",
-    address: "920 Townsend Street",
-    city: "Lansing",
-    state: "MI",
-    postalCode: "48933",
-    startDate: "2026-05-01",
-    targetCompletionDate: "2027-08-31",
-    status: "Active",
-    projectManager: "Project Manager",
-    superintendent: "Project Superintendent",
-    safetyManager: "Robert Willis",
-    description:
-      "Multi-building construction and field-operations project supporting manufacturing improvements at GM Lansing Delta Township.",
-    contractValue: 0,
-    plannedWorkforce: 300,
-    currentWorkforce: 74,
-    workersOnsite: 61,
-    activeContractors: 8,
-    totalManHours: 50240,
-    progress: 32,
-    openActions: 6,
-    recordableIncidents: 0,
-    permitsOpen: 4,
-    planningDocumentsPending: 3,
-    trainingCompliance: 96,
-    accessCompliance: 94,
-    healthScore: 92,
-    createdAt: "2026-07-27T12:00:00.000Z",
-    updatedAt: "2026-07-28T12:00:00.000Z",
-  },
-];
-
 const commandCenterModules = [
   {
     title: "Companies",
@@ -201,7 +177,7 @@ const commandCenterModules = [
     description: "Manage prime contractors, subcontractors, and trades.",
     icon: "CT",
     route: "/contractors",
-    available: false,
+    available: true,
   },
   {
     title: "Team Members",
@@ -372,7 +348,7 @@ const commandCenterModules = [
     available: false,
   },
 ];
-
+ 
 const quickActions = [
   "Add Company",
   "Add Contractor",
@@ -386,67 +362,56 @@ const quickActions = [
   "Launch Vision™",
 ];
 
-function createId(): string {
-  if (
-    typeof window !== "undefined" &&
-    typeof window.crypto?.randomUUID === "function"
-  ) {
-    return window.crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
-
+ 
 function safeNumber(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
-
+ 
 function formatCurrency(value: number): string {
   if (!value) return "Not entered";
-
+ 
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
 }
-
+ 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
-
+ 
 function formatDate(value: string): string {
   if (!value) return "Not entered";
-
+ 
   const date = new Date(`${value}T12:00:00`);
-
+ 
   if (Number.isNaN(date.getTime())) {
     return "Invalid date";
   }
-
+ 
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   }).format(date);
 }
-
+ 
 function getDaysRemaining(targetDate: string): number | null {
   if (!targetDate) return null;
-
+ 
   const target = new Date(`${targetDate}T23:59:59`);
   const now = new Date();
-
+ 
   if (Number.isNaN(target.getTime())) return null;
-
+ 
   return Math.ceil((target.getTime() - now.getTime()) / 86400000);
 }
-
+ 
 function statusClass(status: ProjectStatus): string {
   switch (status) {
     case "Active":
@@ -463,9 +428,10 @@ function statusClass(status: ProjectStatus): string {
       return "border-slate-200 bg-slate-100 text-slate-700";
   }
 }
-
+ 
 function projectToForm(project: Project): ProjectFormData {
   return {
+    companyId: project.companyId,
     projectName: project.projectName,
     projectNumber: project.projectNumber,
     client: project.client,
@@ -498,8 +464,9 @@ function projectToForm(project: Project): ProjectFormData {
     healthScore: String(project.healthScore),
   };
 }
-
+ 
 function validateProject(form: ProjectFormData): string | null {
+  if (!form.companyId.trim()) return "Managing company is required.";
   if (!form.projectName.trim()) return "Project name is required.";
   if (!form.projectNumber.trim()) return "Project number is required.";
   if (!form.client.trim()) return "Client is required.";
@@ -507,46 +474,47 @@ function validateProject(form: ProjectFormData): string | null {
   if (!form.targetCompletionDate) {
     return "Target completion date is required.";
   }
-
+ 
   if (
     new Date(`${form.targetCompletionDate}T12:00:00`) <
     new Date(`${form.startDate}T12:00:00`)
   ) {
     return "Target completion date cannot be before the start date.";
   }
-
+ 
   if (safeNumber(form.progress) < 0 || safeNumber(form.progress) > 100) {
     return "Project progress must be between 0 and 100.";
   }
-
+ 
   if (
     safeNumber(form.trainingCompliance) < 0 ||
     safeNumber(form.trainingCompliance) > 100
   ) {
     return "Training compliance must be between 0 and 100.";
   }
-
+ 
   if (
     safeNumber(form.accessCompliance) < 0 ||
     safeNumber(form.accessCompliance) > 100
   ) {
     return "Access compliance must be between 0 and 100.";
   }
-
+ 
   if (
     safeNumber(form.healthScore) < 0 ||
     safeNumber(form.healthScore) > 100
   ) {
     return "Project health score must be between 0 and 100.";
   }
-
+ 
   return null;
 }
-
+ 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [hydrated, setHydrated] = useState(false);
-
+ 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "All">(
     "All",
@@ -554,76 +522,90 @@ export default function ProjectsPage() {
   const [typeFilter, setTypeFilter] = useState<ProjectType | "All">("All");
   const [sortOption, setSortOption] = useState<SortOption>("name-asc");
   const [showArchived, setShowArchived] = useState(false);
-
+ 
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
   const [form, setForm] = useState<ProjectFormData>(emptyForm);
   const [formError, setFormError] = useState("");
-
+ 
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(
     null,
   );
   const [workspaceTab, setWorkspaceTab] = useState<
     "overview" | "command" | "activity"
   >("overview");
-
+ 
   const [toast, setToast] = useState("");
-
+ 
   useEffect(() => {
-    try {
-      const storedProjects = window.localStorage.getItem(STORAGE_KEY);
+    let isMounted = true;
 
-      if (storedProjects) {
-        const parsed = JSON.parse(storedProjects) as Project[];
-        setProjects(Array.isArray(parsed) ? parsed : seedProjects);
-      } else {
-        setProjects(seedProjects);
+    async function loadProjectData() {
+      try {
+        const [loadedProjects, loadedCompanies] = await Promise.all([
+          getProjects(),
+          getProjectCompanies(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setProjects(loadedProjects as Project[]);
+        setCompanies(loadedCompanies as CompanyOption[]);
+      } catch (error) {
+        console.error("Unable to load project data:", error);
+
+        if (isMounted) {
+          setProjects([]);
+          setCompanies([]);
+        }
+      } finally {
+        if (isMounted) {
+          setHydrated(true);
+        }
       }
-    } catch {
-      setProjects(seedProjects);
-    } finally {
-      setHydrated(true);
     }
+
+    void loadProjectData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
-
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-  }, [projects, hydrated]);
-
-  useEffect(() => {
     if (!toast) return;
-
+ 
     const timeout = window.setTimeout(() => {
       setToast("");
     }, 3200);
-
+ 
     return () => window.clearTimeout(timeout);
   }, [toast]);
-
+ 
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ?? null;
-
+ 
   const workspaceProject =
     projects.find((project) => project.id === workspaceProjectId) ?? null;
-
+ 
   const visibleProjects = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-
+ 
     const filtered = projects.filter((project) => {
       const matchesArchive = showArchived
         ? project.status === "Archived"
         : project.status !== "Archived";
-
+ 
       const matchesStatus =
         statusFilter === "All" || project.status === statusFilter;
-
+ 
       const matchesType =
         typeFilter === "All" || project.projectType === typeFilter;
-
+ 
       const matchesSearch =
         !normalizedSearch ||
         [
@@ -641,10 +623,10 @@ export default function ProjectsPage() {
           .join(" ")
           .toLowerCase()
           .includes(normalizedSearch);
-
+ 
       return matchesArchive && matchesStatus && matchesType && matchesSearch;
     });
-
+ 
     return [...filtered].sort((a, b) => {
       switch (sortOption) {
         case "name-desc":
@@ -670,54 +652,54 @@ export default function ProjectsPage() {
     sortOption,
     showArchived,
   ]);
-
+ 
   const activeProjectCount = projects.filter(
     (project) => project.status === "Active",
   ).length;
-
+ 
   const planningProjectCount = projects.filter(
     (project) => project.status === "Planning",
   ).length;
-
+ 
   const onHoldProjectCount = projects.filter(
     (project) => project.status === "On Hold",
   ).length;
-
+ 
   const completedProjectCount = projects.filter(
     (project) => project.status === "Completed",
   ).length;
-
+ 
   const archivedProjectCount = projects.filter(
     (project) => project.status === "Archived",
   ).length;
-
+ 
   function openCreateModal() {
     setSelectedProjectId(null);
     setForm(emptyForm);
     setFormError("");
     setModalMode("create");
   }
-
+ 
   function openViewModal(project: Project) {
     setSelectedProjectId(project.id);
     setFormError("");
     setModalMode("view");
   }
-
+ 
   function openEditModal(project: Project) {
     setSelectedProjectId(project.id);
     setForm(projectToForm(project));
     setFormError("");
     setModalMode("edit");
   }
-
+ 
   function closeModal() {
     setModalMode(null);
     setSelectedProjectId(null);
     setForm(emptyForm);
     setFormError("");
   }
-
+ 
   function updateForm<K extends keyof ProjectFormData>(
     field: K,
     value: ProjectFormData[K],
@@ -728,30 +710,40 @@ export default function ProjectsPage() {
     }));
   }
 
-  function buildProjectFromForm(
-    data: ProjectFormData,
-    existing?: Project,
-  ): Project {
-    const now = new Date().toISOString();
+  async function reloadProjects() {
+    const loadedProjects = await getProjects();
+    setProjects(loadedProjects as Project[]);
+  }
 
+  function selectManagingCompany(companyId: string) {
+    const company = companies.find((item) => item.id === companyId);
+
+    setForm((current) => ({
+      ...current,
+      companyId,
+      managingCompany: company?.name ?? "",
+    }));
+  }
+ 
+ 
+  function buildProjectInput(data: ProjectFormData) {
     return {
-      id: existing?.id ?? createId(),
-      projectName: data.projectName.trim(),
-      projectNumber: data.projectNumber.trim(),
-      client: data.client.trim(),
-      managingCompany: data.managingCompany.trim(),
+      companyId: data.companyId,
+      name: data.projectName.trim(),
+      projectCode: data.projectNumber.trim(),
+      clientName: data.client.trim(),
       projectType: data.projectType,
+      description: data.description.trim(),
       address: data.address.trim(),
       city: data.city.trim(),
       state: data.state.trim(),
-      postalCode: data.postalCode.trim(),
-      startDate: data.startDate,
-      targetCompletionDate: data.targetCompletionDate,
+      zipCode: data.postalCode.trim(),
       status: data.status,
+      startDate: data.startDate,
+      endDate: data.targetCompletionDate,
       projectManager: data.projectManager.trim(),
       superintendent: data.superintendent.trim(),
       safetyManager: data.safetyManager.trim(),
-      description: data.description.trim(),
       contractValue: Math.max(0, safeNumber(data.contractValue)),
       plannedWorkforce: Math.max(0, safeNumber(data.plannedWorkforce)),
       currentWorkforce: Math.max(0, safeNumber(data.currentWorkforce)),
@@ -774,14 +766,21 @@ export default function ProjectsPage() {
         0,
         100,
       ),
-      accessCompliance: clamp(safeNumber(data.accessCompliance), 0, 100),
-      healthScore: clamp(safeNumber(data.healthScore), 0, 100),
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
+      accessCompliance: clamp(
+        safeNumber(data.accessCompliance),
+        0,
+        100,
+      ),
+      healthScore: clamp(
+        safeNumber(data.healthScore),
+        0,
+        100,
+      ),
+      isActive: true,
     };
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const validationError = validateProject(form);
@@ -791,104 +790,146 @@ export default function ProjectsPage() {
       return;
     }
 
-    if (modalMode === "create") {
-      const newProject = buildProjectFromForm(form);
-      setProjects((current) => [newProject, ...current]);
-      setToast(`${newProject.projectName} was created.`);
-      closeModal();
+    setFormError("");
+
+    try {
+      if (modalMode === "create") {
+        await createProject(buildProjectInput(form));
+        await reloadProjects();
+
+        setToast(`${form.projectName.trim()} was created.`);
+        closeModal();
+        return;
+      }
+
+      if (modalMode === "edit" && selectedProject) {
+        await updateProject({
+          id: selectedProject.id,
+          ...buildProjectInput(form),
+        });
+
+        await reloadProjects();
+
+        setToast(`${form.projectName.trim()} was updated.`);
+        closeModal();
+      }
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the project.",
+      );
+    }
+  }
+
+  async function duplicateProject(project: Project) {
+    if (!project.companyId) {
+      setToast("This project is missing a managing company.");
       return;
     }
 
-    if (modalMode === "edit" && selectedProject) {
-      const updatedProject = buildProjectFromForm(form, selectedProject);
+    try {
+      await createProject({
+        companyId: project.companyId,
+        name: `${project.projectName} Copy`,
+        projectCode: `${project.projectNumber}-COPY`,
+        clientName: project.client,
+        projectType: project.projectType,
+        description: project.description,
+        address: project.address,
+        city: project.city,
+        state: project.state,
+        zipCode: project.postalCode,
+        status: "Planning",
+        startDate: project.startDate,
+        endDate: project.targetCompletionDate,
+        projectManager: project.projectManager,
+        superintendent: project.superintendent,
+        safetyManager: project.safetyManager,
+        contractValue: project.contractValue,
+        plannedWorkforce: project.plannedWorkforce,
+        currentWorkforce: 0,
+        workersOnsite: 0,
+        activeContractors: project.activeContractors,
+        totalManHours: 0,
+        progress: 0,
+        openActions: 0,
+        recordableIncidents: 0,
+        permitsOpen: project.permitsOpen,
+        planningDocumentsPending: project.planningDocumentsPending,
+        trainingCompliance: project.trainingCompliance,
+        accessCompliance: project.accessCompliance,
+        healthScore: project.healthScore,
+        isActive: true,
+      });
 
-      setProjects((current) =>
-        current.map((project) =>
-          project.id === selectedProject.id ? updatedProject : project,
-        ),
+      await reloadProjects();
+      setToast(`${project.projectName} was duplicated.`);
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to duplicate the project.",
       );
-
-      setToast(`${updatedProject.projectName} was updated.`);
-      closeModal();
     }
   }
 
-  function duplicateProject(project: Project) {
-    const now = new Date().toISOString();
-
-    const duplicate: Project = {
-      ...project,
-      id: createId(),
-      projectName: `${project.projectName} Copy`,
-      projectNumber: `${project.projectNumber}-COPY`,
-      status: "Planning",
-      progress: 0,
-      currentWorkforce: 0,
-      workersOnsite: 0,
-      totalManHours: 0,
-      openActions: 0,
-      recordableIncidents: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    setProjects((current) => [duplicate, ...current]);
-    setToast(`${project.projectName} was duplicated.`);
-  }
-
-  function archiveProject(project: Project) {
+  async function archiveProject(project: Project) {
     const confirmed = window.confirm(
       `Archive ${project.projectName}? The project can be restored later.`,
     );
 
     if (!confirmed) return;
 
-    setProjects((current) =>
-      current.map((item) =>
-        item.id === project.id
-          ? {
-              ...item,
-              status: "Archived",
-              updatedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
-    );
+    try {
+      await archiveProjectAction(project.id);
+      await reloadProjects();
 
-    if (workspaceProjectId === project.id) {
-      setWorkspaceProjectId(null);
+      if (workspaceProjectId === project.id) {
+        setWorkspaceProjectId(null);
+      }
+
+      setToast(`${project.projectName} was archived.`);
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to archive the project.",
+      );
     }
-
-    setToast(`${project.projectName} was archived.`);
   }
 
-  function restoreProject(project: Project) {
-    setProjects((current) =>
-      current.map((item) =>
-        item.id === project.id
-          ? {
-              ...item,
-              status: "Planning",
-              updatedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
-    );
-
-    setToast(`${project.projectName} was restored to Planning.`);
+  async function restoreProject(project: Project) {
+    try {
+      await restoreProjectAction(project.id);
+      await reloadProjects();
+      setToast(`${project.projectName} was restored to Planning.`);
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to restore the project.",
+      );
+    }
   }
-
+ 
   function openWorkspace(project: Project) {
     setWorkspaceProjectId(project.id);
     setWorkspaceTab("overview");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
+ 
   function openCommandCenterModule(
     moduleTitle: string,
     route: string,
     available: boolean,
   ) {
+    if (moduleTitle === "Contractors" && workspaceProjectId) {
+      window.location.href =
+        `/projects/${workspaceProjectId}/contractor-requirements`;
+      return;
+    }
+
     if (available) {
       window.location.href = route;
       return;
@@ -898,21 +939,9 @@ export default function ProjectsPage() {
       `${moduleTitle} is connected to this project workspace and will be activated when its module is built.`,
     );
   }
-
+ 
   function runQuickAction(action: string) {
     setToast(`${action} is ready for connection to its ForemanFirst™ module.`);
-  }
-
-  function resetDemoData() {
-    const confirmed = window.confirm(
-      "Reset the Projects page to the original demonstration project?",
-    );
-
-    if (!confirmed) return;
-
-    setProjects(seedProjects);
-    setWorkspaceProjectId(null);
-    setToast("Demonstration project data was restored.");
   }
 
   if (!hydrated) {
@@ -923,10 +952,10 @@ export default function ProjectsPage() {
             <div className="h-8 w-56 animate-pulse rounded-lg bg-white/15" />
           </div>
         </div>
-
+ 
         <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-8 sm:px-6 lg:px-8">
           <div className="h-36 animate-pulse rounded-3xl bg-white shadow-sm" />
-
+ 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {Array.from({ length: 5 }).map((_, index) => (
               <div
@@ -935,18 +964,18 @@ export default function ProjectsPage() {
               />
             ))}
           </div>
-
+ 
           <div className="h-96 animate-pulse rounded-3xl bg-white shadow-sm" />
         </div>
       </main>
     );
   }
-
+ 
   if (workspaceProject) {
     const daysRemaining = getDaysRemaining(
       workspaceProject.targetCompletionDate,
     );
-
+ 
     return (
       <main className="min-h-screen bg-slate-50">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0B132B] text-white shadow-lg">
@@ -959,7 +988,7 @@ export default function ProjectsPage() {
               >
                 ← Projects
               </button>
-
+ 
               <div className="min-w-0">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">
                   ForemanFirst™ Project Workspace
@@ -969,7 +998,7 @@ export default function ProjectsPage() {
                 </h1>
               </div>
             </div>
-
+ 
             <button
               type="button"
               onClick={() => openEditModal(workspaceProject)}
@@ -979,7 +1008,7 @@ export default function ProjectsPage() {
             </button>
           </div>
         </header>
-
+ 
         <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
           <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B132B] via-[#142B5F] to-[#075EA8] p-6 text-white shadow-xl sm:p-8">
             <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-start">
@@ -992,20 +1021,20 @@ export default function ProjectsPage() {
                   >
                     {workspaceProject.status}
                   </span>
-
+ 
                   <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold">
                     {workspaceProject.projectNumber}
                   </span>
-
+ 
                   <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold">
                     {workspaceProject.projectType}
                   </span>
                 </div>
-
+ 
                 <h2 className="text-3xl font-black tracking-tight sm:text-4xl">
                   {workspaceProject.projectName}
                 </h2>
-
+ 
                 <p className="mt-3 text-base text-blue-100">
                   {workspaceProject.client}
                   {workspaceProject.city || workspaceProject.state
@@ -1016,13 +1045,13 @@ export default function ProjectsPage() {
                       }${workspaceProject.state}`
                     : ""}
                 </p>
-
+ 
                 <p className="mt-5 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
                   {workspaceProject.description ||
                     "No project description has been entered."}
                 </p>
               </div>
-
+ 
               <div className="w-full rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur xl:max-w-sm">
                 <div className="flex items-end justify-between gap-4">
                   <div>
@@ -1033,7 +1062,7 @@ export default function ProjectsPage() {
                       {workspaceProject.progress}%
                     </p>
                   </div>
-
+ 
                   <p className="text-right text-sm text-blue-100">
                     {daysRemaining === null
                       ? "Completion date not entered"
@@ -1044,14 +1073,14 @@ export default function ProjectsPage() {
                           )} days past target`}
                   </p>
                 </div>
-
+ 
                 <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/25">
                   <div
                     className="h-full rounded-full bg-[#00C2FF] transition-all"
                     style={{ width: `${workspaceProject.progress}%` }}
                   />
                 </div>
-
+ 
                 <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
                   <div className="rounded-xl bg-white/10 p-3">
                     <p className="text-blue-200">Start</p>
@@ -1059,7 +1088,7 @@ export default function ProjectsPage() {
                       {formatDate(workspaceProject.startDate)}
                     </p>
                   </div>
-
+ 
                   <div className="rounded-xl bg-white/10 p-3">
                     <p className="text-blue-200">Target</p>
                     <p className="mt-1 font-bold">
@@ -1070,7 +1099,7 @@ export default function ProjectsPage() {
               </div>
             </div>
           </section>
-
+ 
           <nav className="mt-6 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
             {[
               { id: "overview", label: "Overview" },
@@ -1095,7 +1124,7 @@ export default function ProjectsPage() {
               </button>
             ))}
           </nav>
-
+ 
           {workspaceTab === "overview" && (
             <div className="mt-6 space-y-6">
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1107,7 +1136,7 @@ export default function ProjectsPage() {
                   )} current workforce`}
                   tone="blue"
                 />
-
+ 
                 <MetricCard
                   label="Total Man-Hours"
                   value={formatNumber(workspaceProject.totalManHours)}
@@ -1116,14 +1145,14 @@ export default function ProjectsPage() {
                   )} planned peak`}
                   tone="cyan"
                 />
-
+ 
                 <MetricCard
                   label="Active Contractors"
                   value={formatNumber(workspaceProject.activeContractors)}
                   detail="Companies currently assigned"
                   tone="navy"
                 />
-
+ 
                 <MetricCard
                   label="Project Health"
                   value={`${workspaceProject.healthScore}%`}
@@ -1143,7 +1172,7 @@ export default function ProjectsPage() {
                   }
                 />
               </section>
-
+ 
               <section className="grid gap-6 xl:grid-cols-3">
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm xl:col-span-2">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1155,7 +1184,7 @@ export default function ProjectsPage() {
                         Safety and Operations
                       </h3>
                     </div>
-
+ 
                     <button
                       type="button"
                       onClick={() => setWorkspaceTab("command")}
@@ -1164,26 +1193,26 @@ export default function ProjectsPage() {
                       Open Command Center
                     </button>
                   </div>
-
+ 
                   <div className="mt-6 grid gap-4 sm:grid-cols-2">
                     <HealthRow
                       label="Training Compliance"
                       value={workspaceProject.trainingCompliance}
                       description="Required training currently compliant"
                     />
-
+ 
                     <HealthRow
                       label="Access Eligibility"
                       value={workspaceProject.accessCompliance}
                       description="Workers eligible for site access"
                     />
-
+ 
                     <HealthRow
                       label="Project Progress"
                       value={workspaceProject.progress}
                       description="Progress toward project completion"
                     />
-
+ 
                     <HealthRow
                       label="Corrective Actions"
                       value={clamp(
@@ -1195,7 +1224,7 @@ export default function ProjectsPage() {
                     />
                   </div>
                 </div>
-
+ 
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
                     Quick Actions
@@ -1203,7 +1232,7 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     Start Field Work
                   </h3>
-
+ 
                   <div className="mt-5 grid gap-2">
                     {quickActions.slice(0, 6).map((action) => (
                       <button
@@ -1219,7 +1248,7 @@ export default function ProjectsPage() {
                   </div>
                 </div>
               </section>
-
+ 
               <section className="grid gap-6 xl:grid-cols-3">
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
@@ -1228,7 +1257,7 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     Current Status
                   </h3>
-
+ 
                   <div className="mt-5 space-y-3">
                     <SummaryRow
                       label="Recordable incidents"
@@ -1237,18 +1266,18 @@ export default function ProjectsPage() {
                       )}
                       danger={workspaceProject.recordableIncidents > 0}
                     />
-
+ 
                     <SummaryRow
                       label="Open corrective actions"
                       value={formatNumber(workspaceProject.openActions)}
                       danger={workspaceProject.openActions > 10}
                     />
-
+ 
                     <SummaryRow
                       label="Open permits"
                       value={formatNumber(workspaceProject.permitsOpen)}
                     />
-
+ 
                     <SummaryRow
                       label="Pending planning documents"
                       value={formatNumber(
@@ -1258,7 +1287,7 @@ export default function ProjectsPage() {
                     />
                   </div>
                 </div>
-
+ 
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
                     Key Contacts
@@ -1266,7 +1295,7 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     Project Leadership
                   </h3>
-
+ 
                   <div className="mt-5 space-y-4">
                     <ContactRow
                       role="Project Manager"
@@ -1286,7 +1315,7 @@ export default function ProjectsPage() {
                     />
                   </div>
                 </div>
-
+ 
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
                     Vision™ and Access™
@@ -1294,20 +1323,20 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     Platform Readiness
                   </h3>
-
+ 
                   <div className="mt-5 space-y-3">
                     <ReadinessCard
                       title="ForemanFirst Access™"
                       status="Ready for setup"
                       description="Worker credentials, attendance, eligibility, and live headcount."
                     />
-
+ 
                     <ReadinessCard
                       title="ForemanFirst Vision™"
                       status="Ready for setup"
                       description="Vision Live™, Capture™, Replay™, and Assistant™."
                     />
-
+ 
                     <ReadinessCard
                       title="Weather Intelligence"
                       status="Future connection"
@@ -1316,7 +1345,7 @@ export default function ProjectsPage() {
                   </div>
                 </div>
               </section>
-
+ 
               <section className="grid gap-6 xl:grid-cols-2">
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
@@ -1325,7 +1354,7 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     General Details
                   </h3>
-
+ 
                   <dl className="mt-6 grid gap-5 sm:grid-cols-2">
                     <DetailItem
                       label="Project Number"
@@ -1353,7 +1382,7 @@ export default function ProjectsPage() {
                     />
                   </dl>
                 </div>
-
+ 
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
                     Location
@@ -1361,7 +1390,7 @@ export default function ProjectsPage() {
                   <h3 className="mt-1 text-xl font-black text-slate-950">
                     Project Address
                   </h3>
-
+ 
                   <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <p className="font-black text-slate-900">
                       {workspaceProject.address || "Address not entered"}
@@ -1376,7 +1405,7 @@ export default function ProjectsPage() {
                         .join(", ") || "City, state, and postal code not entered"}
                     </p>
                   </div>
-
+ 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-slate-200 p-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1386,7 +1415,7 @@ export default function ProjectsPage() {
                         {formatDate(workspaceProject.startDate)}
                       </p>
                     </div>
-
+ 
                     <div className="rounded-xl border border-slate-200 p-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Target Completion
@@ -1400,7 +1429,7 @@ export default function ProjectsPage() {
               </section>
             </div>
           )}
-
+ 
           {workspaceTab === "command" && (
             <div className="mt-6 space-y-6">
               <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -1418,12 +1447,12 @@ export default function ProjectsPage() {
                       audit history.
                     </p>
                   </div>
-
+ 
                   <span className="inline-flex w-fit rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-black text-cyan-800">
                     {commandCenterModules.length} connected modules
                   </span>
                 </div>
-
+ 
                 <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   {commandCenterModules.map((module) => (
                     <button
@@ -1442,20 +1471,20 @@ export default function ProjectsPage() {
                         <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0B132B] text-sm font-black text-[#00C2FF]">
                           {module.icon}
                         </span>
-
+ 
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500 group-hover:bg-cyan-50 group-hover:text-cyan-700">
                           {module.available ? "Open" : "Coming Soon"}
                         </span>
                       </div>
-
+ 
                       <h3 className="mt-5 text-lg font-black text-slate-950">
                         {module.title}
                       </h3>
-
+ 
                       <p className="mt-2 flex-1 text-sm leading-5 text-slate-600">
                         {module.description}
                       </p>
-
+ 
                       <span className="mt-5 text-sm font-black text-blue-700">
                         Open module →
                       </span>
@@ -1463,7 +1492,7 @@ export default function ProjectsPage() {
                   ))}
                 </div>
               </section>
-
+ 
               <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
                   Quick Actions
@@ -1471,7 +1500,7 @@ export default function ProjectsPage() {
                 <h3 className="mt-1 text-xl font-black text-slate-950">
                   Common project workflows
                 </h3>
-
+ 
                 <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                   {quickActions.map((action) => (
                     <button
@@ -1487,7 +1516,7 @@ export default function ProjectsPage() {
               </section>
             </div>
           )}
-
+ 
           {workspaceTab === "activity" && (
             <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
@@ -1496,14 +1525,14 @@ export default function ProjectsPage() {
               <h2 className="mt-1 text-2xl font-black text-slate-950">
                 Recent activity and audit history
               </h2>
-
+ 
               <div className="mt-8 space-y-4">
                 <ActivityItem
                   title="Project workspace reviewed"
                   description="The project overview and current project metrics were opened."
                   date="Today"
                 />
-
+ 
                 <ActivityItem
                   title="Project information updated"
                   description={`Project record last updated ${new Date(
@@ -1511,7 +1540,7 @@ export default function ProjectsPage() {
                   ).toLocaleString("en-US")}.`}
                   date="Latest update"
                 />
-
+ 
                 <ActivityItem
                   title="Project record created"
                   description={`Project record created ${new Date(
@@ -1519,7 +1548,7 @@ export default function ProjectsPage() {
                   ).toLocaleString("en-US")}.`}
                   date="Created"
                 />
-
+ 
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
                   <p className="font-black text-slate-900">
                     Full audit logging will appear here.
@@ -1534,16 +1563,16 @@ export default function ProjectsPage() {
             </section>
           )}
         </div>
-
+ 
         {renderProjectModal()}
         {renderToast()}
       </main>
     );
   }
-
+ 
   function renderToast() {
     if (!toast) return null;
-
+ 
     return (
       <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-cyan-200 bg-[#0B132B] px-5 py-4 text-sm font-bold text-white shadow-2xl">
         <div className="flex items-center gap-3">
@@ -1555,10 +1584,10 @@ export default function ProjectsPage() {
       </div>
     );
   }
-
+ 
   function renderProjectModal() {
     if (!modalMode) return null;
-
+ 
     return (
       <div
         className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/65 p-0 backdrop-blur-sm sm:items-center sm:p-4"
@@ -1580,7 +1609,7 @@ export default function ProjectsPage() {
                     : selectedProject?.projectName}
               </h2>
             </div>
-
+ 
             <button
               type="button"
               onClick={closeModal}
@@ -1590,7 +1619,7 @@ export default function ProjectsPage() {
               ×
             </button>
           </div>
-
+ 
           {modalMode === "view" && selectedProject ? (
             <div className="max-h-[calc(96vh-76px)] overflow-y-auto p-5 sm:p-7">
               <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start">
@@ -1603,21 +1632,21 @@ export default function ProjectsPage() {
                     >
                       {selectedProject.status}
                     </span>
-
+ 
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
                       {selectedProject.projectNumber}
                     </span>
                   </div>
-
+ 
                   <h3 className="mt-4 text-2xl font-black text-slate-950">
                     {selectedProject.projectName}
                   </h3>
-
+ 
                   <p className="mt-2 text-slate-600">
                     {selectedProject.client} • {selectedProject.projectType}
                   </p>
                 </div>
-
+ 
                 <button
                   type="button"
                   onClick={() => {
@@ -1629,7 +1658,7 @@ export default function ProjectsPage() {
                   Open Project Workspace
                 </button>
               </div>
-
+ 
               <dl className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 <DetailItem
                   label="Managing Company"
@@ -1668,7 +1697,7 @@ export default function ProjectsPage() {
                   value={formatNumber(selectedProject.totalManHours)}
                 />
               </dl>
-
+ 
               <div className="mt-7 rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Description
@@ -1678,7 +1707,7 @@ export default function ProjectsPage() {
                     "No project description has been entered."}
                 </p>
               </div>
-
+ 
               <div className="mt-7 flex flex-wrap justify-end gap-3">
                 <button
                   type="button"
@@ -1690,7 +1719,7 @@ export default function ProjectsPage() {
                 >
                   Duplicate
                 </button>
-
+ 
                 <button
                   type="button"
                   onClick={() => openEditModal(selectedProject)}
@@ -1714,7 +1743,7 @@ export default function ProjectsPage() {
                     {formError}
                   </div>
                 )}
-
+ 
                 <FormSection
                   title="Project Identity"
                   description="Enter the primary information used throughout ForemanFirst™."
@@ -1725,29 +1754,29 @@ export default function ProjectsPage() {
                     value={form.projectName}
                     onChange={(value) => updateForm("projectName", value)}
                   />
-
+ 
                   <TextField
                     label="Project Number"
                     required
                     value={form.projectNumber}
                     onChange={(value) => updateForm("projectNumber", value)}
                   />
-
+ 
                   <TextField
                     label="Client"
                     required
                     value={form.client}
                     onChange={(value) => updateForm("client", value)}
                   />
-
-                  <TextField
+ 
+                  <CompanySelectField
                     label="Managing Company"
-                    value={form.managingCompany}
-                    onChange={(value) =>
-                      updateForm("managingCompany", value)
-                    }
+                    required
+                    value={form.companyId}
+                    companies={companies}
+                    onChange={selectManagingCompany}
                   />
-
+ 
                   <SelectField
                     label="Project Type"
                     value={form.projectType}
@@ -1756,7 +1785,7 @@ export default function ProjectsPage() {
                       updateForm("projectType", value as ProjectType)
                     }
                   />
-
+ 
                   <SelectField
                     label="Project Status"
                     value={form.status}
@@ -1769,7 +1798,7 @@ export default function ProjectsPage() {
                     }
                   />
                 </FormSection>
-
+ 
                 <FormSection
                   title="Location and Schedule"
                   description="Define where the project is located and its planned duration."
@@ -1779,25 +1808,25 @@ export default function ProjectsPage() {
                     value={form.address}
                     onChange={(value) => updateForm("address", value)}
                   />
-
+ 
                   <TextField
                     label="City"
                     value={form.city}
                     onChange={(value) => updateForm("city", value)}
                   />
-
+ 
                   <TextField
                     label="State"
                     value={form.state}
                     onChange={(value) => updateForm("state", value)}
                   />
-
+ 
                   <TextField
                     label="Postal Code"
                     value={form.postalCode}
                     onChange={(value) => updateForm("postalCode", value)}
                   />
-
+ 
                   <TextField
                     label="Start Date"
                     type="date"
@@ -1805,7 +1834,7 @@ export default function ProjectsPage() {
                     value={form.startDate}
                     onChange={(value) => updateForm("startDate", value)}
                   />
-
+ 
                   <TextField
                     label="Target Completion Date"
                     type="date"
@@ -1816,7 +1845,7 @@ export default function ProjectsPage() {
                     }
                   />
                 </FormSection>
-
+ 
                 <FormSection
                   title="Project Leadership"
                   description="Assign the primary project leadership contacts."
@@ -1828,7 +1857,7 @@ export default function ProjectsPage() {
                       updateForm("projectManager", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Superintendent"
                     value={form.superintendent}
@@ -1836,14 +1865,14 @@ export default function ProjectsPage() {
                       updateForm("superintendent", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Safety Manager"
                     value={form.safetyManager}
                     onChange={(value) => updateForm("safetyManager", value)}
                   />
                 </FormSection>
-
+ 
                 <FormSection
                   title="Workforce and Progress"
                   description="Enter the latest workforce, progress, and operational metrics."
@@ -1857,7 +1886,7 @@ export default function ProjectsPage() {
                       updateForm("contractValue", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Planned Workforce"
                     type="number"
@@ -1867,7 +1896,7 @@ export default function ProjectsPage() {
                       updateForm("plannedWorkforce", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Current Workforce"
                     type="number"
@@ -1877,7 +1906,7 @@ export default function ProjectsPage() {
                       updateForm("currentWorkforce", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Workers Onsite"
                     type="number"
@@ -1887,7 +1916,7 @@ export default function ProjectsPage() {
                       updateForm("workersOnsite", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Active Contractors"
                     type="number"
@@ -1897,7 +1926,7 @@ export default function ProjectsPage() {
                       updateForm("activeContractors", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Total Man-Hours"
                     type="number"
@@ -1907,7 +1936,7 @@ export default function ProjectsPage() {
                       updateForm("totalManHours", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Project Progress %"
                     type="number"
@@ -1916,7 +1945,7 @@ export default function ProjectsPage() {
                     value={form.progress}
                     onChange={(value) => updateForm("progress", value)}
                   />
-
+ 
                   <TextField
                     label="Project Health Score %"
                     type="number"
@@ -1926,7 +1955,7 @@ export default function ProjectsPage() {
                     onChange={(value) => updateForm("healthScore", value)}
                   />
                 </FormSection>
-
+ 
                 <FormSection
                   title="Safety and Compliance"
                   description="Enter current leading indicators and compliance metrics."
@@ -1938,7 +1967,7 @@ export default function ProjectsPage() {
                     value={form.openActions}
                     onChange={(value) => updateForm("openActions", value)}
                   />
-
+ 
                   <TextField
                     label="Recordable Incidents"
                     type="number"
@@ -1948,7 +1977,7 @@ export default function ProjectsPage() {
                       updateForm("recordableIncidents", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Open Permits"
                     type="number"
@@ -1956,7 +1985,7 @@ export default function ProjectsPage() {
                     value={form.permitsOpen}
                     onChange={(value) => updateForm("permitsOpen", value)}
                   />
-
+ 
                   <TextField
                     label="Pending Planning Documents"
                     type="number"
@@ -1966,7 +1995,7 @@ export default function ProjectsPage() {
                       updateForm("planningDocumentsPending", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Training Compliance %"
                     type="number"
@@ -1977,7 +2006,7 @@ export default function ProjectsPage() {
                       updateForm("trainingCompliance", value)
                     }
                   />
-
+ 
                   <TextField
                     label="Access Compliance %"
                     type="number"
@@ -1989,7 +2018,7 @@ export default function ProjectsPage() {
                     }
                   />
                 </FormSection>
-
+ 
                 <div>
                   <label className="mb-2 block text-sm font-black text-slate-800">
                     Project Description
@@ -2005,7 +2034,7 @@ export default function ProjectsPage() {
                   />
                 </div>
               </div>
-
+ 
               <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
                 <button
                   type="button"
@@ -2014,7 +2043,7 @@ export default function ProjectsPage() {
                 >
                   Cancel
                 </button>
-
+ 
                 <button
                   type="submit"
                   className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-300"
@@ -2030,7 +2059,7 @@ export default function ProjectsPage() {
       </div>
     );
   }
-
+ 
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-white/10 bg-[#0B132B] text-white shadow-lg">
@@ -2046,16 +2075,8 @@ export default function ProjectsPage() {
               Create, manage, and monitor every project from one platform.
             </p>
           </div>
-
+ 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={resetDemoData}
-              className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
-            >
-              Reset Demo Data
-            </button>
-
             <button
               type="button"
               onClick={openCreateModal}
@@ -2066,7 +2087,7 @@ export default function ProjectsPage() {
           </div>
         </div>
       </header>
-
+ 
       <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="overflow-hidden rounded-3xl border border-blue-900/10 bg-gradient-to-r from-[#0B132B] via-[#15346F] to-[#0873BE] p-6 text-white shadow-xl sm:p-8">
           <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
@@ -2074,18 +2095,18 @@ export default function ProjectsPage() {
               <span className="inline-flex rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-cyan-200">
                 Project Portfolio
               </span>
-
+ 
               <h2 className="mt-4 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl">
                 One command center for every ForemanFirst™ project.
               </h2>
-
+ 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
                 Connect companies, contractors, workers, Access™, Planning™,
                 safety workflows, Shutdown™, Vision™, documents, and reporting
                 to a single project record.
               </p>
             </div>
-
+ 
             <button
               type="button"
               onClick={openCreateModal}
@@ -2095,39 +2116,39 @@ export default function ProjectsPage() {
             </button>
           </div>
         </section>
-
+ 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <PortfolioKpi
             label="Total Projects"
             value={projects.filter((project) => project.status !== "Archived").length}
             detail="Current project portfolio"
           />
-
+ 
           <PortfolioKpi
             label="Active"
             value={activeProjectCount}
             detail="Currently underway"
           />
-
+ 
           <PortfolioKpi
             label="Planning"
             value={planningProjectCount}
             detail="Preparing to begin"
           />
-
+ 
           <PortfolioKpi
             label="On Hold"
             value={onHoldProjectCount}
             detail="Temporarily paused"
           />
-
+ 
           <PortfolioKpi
             label="Completed"
             value={completedProjectCount}
             detail="Successfully completed"
           />
         </section>
-
+ 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
@@ -2142,7 +2163,7 @@ export default function ProjectsPage() {
                 {visibleProjects.length === 1 ? "" : "s"} shown
               </p>
             </div>
-
+ 
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -2158,7 +2179,7 @@ export default function ProjectsPage() {
               >
                 Current Projects
               </button>
-
+ 
               <button
                 type="button"
                 onClick={() => {
@@ -2175,7 +2196,7 @@ export default function ProjectsPage() {
               </button>
             </div>
           </div>
-
+ 
           <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="block xl:col-span-1">
               <span className="sr-only">Search projects</span>
@@ -2187,7 +2208,7 @@ export default function ProjectsPage() {
                 className="h-12 w-full rounded-xl border border-slate-300 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
             </label>
-
+ 
             <label className="block">
               <span className="sr-only">Filter by status</span>
               <select
@@ -2209,7 +2230,7 @@ export default function ProjectsPage() {
                 )}
               </select>
             </label>
-
+ 
             <label className="block">
               <span className="sr-only">Filter by project type</span>
               <select
@@ -2227,7 +2248,7 @@ export default function ProjectsPage() {
                 ))}
               </select>
             </label>
-
+ 
             <label className="block">
               <span className="sr-only">Sort projects</span>
               <select
@@ -2247,25 +2268,25 @@ export default function ProjectsPage() {
             </label>
           </div>
         </section>
-
+ 
         {visibleProjects.length === 0 ? (
           <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-2xl font-black text-slate-500">
               PR
             </div>
-
+ 
             <h2 className="mt-5 text-xl font-black text-slate-950">
               {projects.length === 0
                 ? "Create your first ForemanFirst™ project"
                 : "No projects match these filters"}
             </h2>
-
+ 
             <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
               {projects.length === 0
                 ? "Your companies, contractors, workers, planning documents, safety records, Access™, and Vision™ activity will connect to the project you create."
                 : "Adjust your search or filters to display additional projects."}
             </p>
-
+ 
             <button
               type="button"
               onClick={
@@ -2298,7 +2319,7 @@ export default function ProjectsPage() {
                       <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
-
+ 
                   <tbody className="divide-y divide-slate-200">
                     {visibleProjects.map((project) => (
                       <tr
@@ -2316,7 +2337,7 @@ export default function ProjectsPage() {
                                 .join("")
                                 .toUpperCase()}
                             </div>
-
+ 
                             <div>
                               <p className="font-black text-slate-950">
                                 {project.projectName}
@@ -2327,7 +2348,7 @@ export default function ProjectsPage() {
                             </div>
                           </div>
                         </td>
-
+ 
                         <td className="px-5 py-5">
                           <p className="font-bold text-slate-800">
                             {project.client || "Not entered"}
@@ -2336,7 +2357,7 @@ export default function ProjectsPage() {
                             {project.managingCompany || "No managing company"}
                           </p>
                         </td>
-
+ 
                         <td className="px-5 py-5">
                           <span
                             className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(
@@ -2346,7 +2367,7 @@ export default function ProjectsPage() {
                             {project.status}
                           </span>
                         </td>
-
+ 
                         <td className="px-5 py-5 text-sm">
                           <p className="font-bold text-slate-800">
                             {formatDate(project.startDate)}
@@ -2355,7 +2376,7 @@ export default function ProjectsPage() {
                             to {formatDate(project.targetCompletionDate)}
                           </p>
                         </td>
-
+ 
                         <td className="px-5 py-5">
                           <div className="flex items-center gap-3">
                             <div className="h-2.5 w-24 overflow-hidden rounded-full bg-slate-200">
@@ -2369,7 +2390,7 @@ export default function ProjectsPage() {
                             </span>
                           </div>
                         </td>
-
+ 
                         <td className="px-5 py-5">
                           <p className="font-black text-slate-900">
                             {formatNumber(project.currentWorkforce)}
@@ -2378,7 +2399,7 @@ export default function ProjectsPage() {
                             {formatNumber(project.workersOnsite)} onsite
                           </p>
                         </td>
-
+ 
                         <td className="px-6 py-5">
                           <div
                             className="flex justify-end gap-2"
@@ -2391,7 +2412,7 @@ export default function ProjectsPage() {
                             >
                               View
                             </button>
-
+ 
                             {project.status === "Archived" ? (
                               <button
                                 type="button"
@@ -2409,7 +2430,7 @@ export default function ProjectsPage() {
                                 >
                                   Edit
                                 </button>
-
+ 
                                 <button
                                   type="button"
                                   onClick={() => archiveProject(project)}
@@ -2427,7 +2448,7 @@ export default function ProjectsPage() {
                 </table>
               </div>
             </section>
-
+ 
             <section className="grid gap-4 lg:hidden">
               {visibleProjects.map((project) => (
                 <article
@@ -2449,7 +2470,7 @@ export default function ProjectsPage() {
                             .join("")
                             .toUpperCase()}
                         </div>
-
+ 
                         <div className="min-w-0">
                           <h3 className="truncate font-black text-slate-950">
                             {project.projectName}
@@ -2459,7 +2480,7 @@ export default function ProjectsPage() {
                           </p>
                         </div>
                       </div>
-
+ 
                       <span
                         className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black ${statusClass(
                           project.status,
@@ -2468,7 +2489,7 @@ export default function ProjectsPage() {
                         {project.status}
                       </span>
                     </div>
-
+ 
                     <div className="mt-5 grid grid-cols-2 gap-3">
                       <MobileStat label="Client" value={project.client} />
                       <MobileStat
@@ -2484,7 +2505,7 @@ export default function ProjectsPage() {
                         value={formatDate(project.targetCompletionDate)}
                       />
                     </div>
-
+ 
                     <div className="mt-5">
                       <div className="flex justify-between text-xs font-black text-slate-600">
                         <span>Project progress</span>
@@ -2498,7 +2519,7 @@ export default function ProjectsPage() {
                       </div>
                     </div>
                   </button>
-
+ 
                   <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-200 pt-4">
                     <button
                       type="button"
@@ -2507,7 +2528,7 @@ export default function ProjectsPage() {
                     >
                       View
                     </button>
-
+ 
                     {project.status === "Archived" ? (
                       <button
                         type="button"
@@ -2525,7 +2546,7 @@ export default function ProjectsPage() {
                         Edit
                       </button>
                     )}
-
+ 
                     {project.status !== "Archived" && (
                       <>
                         <button
@@ -2535,7 +2556,7 @@ export default function ProjectsPage() {
                         >
                           Duplicate
                         </button>
-
+ 
                         <button
                           type="button"
                           onClick={() => archiveProject(project)}
@@ -2552,13 +2573,13 @@ export default function ProjectsPage() {
           </>
         )}
       </div>
-
+ 
       {renderProjectModal()}
       {renderToast()}
     </main>
   );
 }
-
+ 
 function PortfolioKpi({
   label,
   value,
@@ -2578,7 +2599,7 @@ function PortfolioKpi({
     </div>
   );
 }
-
+ 
 function MetricCard({
   label,
   value,
@@ -2598,7 +2619,7 @@ function MetricCard({
     amber: "border-amber-200 bg-amber-50 text-amber-950",
     red: "border-rose-200 bg-rose-50 text-rose-950",
   };
-
+ 
   return (
     <div className={`rounded-2xl border p-5 shadow-sm ${tones[tone]}`}>
       <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
@@ -2609,7 +2630,7 @@ function MetricCard({
     </div>
   );
 }
-
+ 
 function HealthRow({
   label,
   value,
@@ -2628,7 +2649,7 @@ function HealthRow({
         </div>
         <p className="text-xl font-black text-[#0B132B]">{value}%</p>
       </div>
-
+ 
       <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
         <div
           className="h-full rounded-full bg-[#00C2FF]"
@@ -2638,7 +2659,7 @@ function HealthRow({
     </div>
   );
 }
-
+ 
 function SummaryRow({
   label,
   value,
@@ -2661,7 +2682,7 @@ function SummaryRow({
     </div>
   );
 }
-
+ 
 function ContactRow({ role, name }: { role: string; name: string }) {
   return (
     <div className="flex items-center gap-3">
@@ -2673,7 +2694,7 @@ function ContactRow({ role, name }: { role: string; name: string }) {
           .join("")
           .toUpperCase()}
       </div>
-
+ 
       <div>
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
           {role}
@@ -2685,7 +2706,7 @@ function ContactRow({ role, name }: { role: string; name: string }) {
     </div>
   );
 }
-
+ 
 function ReadinessCard({
   title,
   status,
@@ -2707,7 +2728,7 @@ function ReadinessCard({
     </div>
   );
 }
-
+ 
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -2720,7 +2741,7 @@ function DetailItem({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
+ 
 function ActivityItem({
   title,
   description,
@@ -2743,7 +2764,7 @@ function ActivityItem({
     </div>
   );
 }
-
+ 
 function FormSection({
   title,
   description,
@@ -2759,14 +2780,14 @@ function FormSection({
         <h3 className="text-lg font-black text-slate-950">{title}</h3>
         <p className="mt-1 text-sm text-slate-500">{description}</p>
       </div>
-
+ 
       <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {children}
       </div>
     </section>
   );
 }
-
+ 
 function TextField({
   label,
   value,
@@ -2790,7 +2811,7 @@ function TextField({
         {label}
         {required && <span className="ml-1 text-rose-600">*</span>}
       </span>
-
+ 
       <input
         type={type}
         required={required}
@@ -2800,6 +2821,43 @@ function TextField({
         onChange={(event) => onChange(event.target.value)}
         className="h-12 w-full rounded-xl border border-slate-300 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
       />
+    </label>
+  );
+}
+ 
+function CompanySelectField({
+  label,
+  value,
+  companies,
+  onChange,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  companies: CompanyOption[];
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-black text-slate-800">
+        {label}
+        {required && <span className="ml-1 text-rose-600">*</span>}
+      </span>
+
+      <select
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      >
+        <option value="">Select managing company</option>
+        {companies.map((company) => (
+          <option key={company.id} value={company.id}>
+            {company.name}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -2820,7 +2878,7 @@ function SelectField({
       <span className="mb-2 block text-sm font-black text-slate-800">
         {label}
       </span>
-
+ 
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -2835,7 +2893,7 @@ function SelectField({
     </label>
   );
 }
-
+ 
 function MobileStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-slate-50 p-3">
