@@ -51,9 +51,11 @@ export function formatContractorAddress(
     .filter(Boolean)
     .join(", ");
 
-  return [contractor.address, cityStateZip]
-    .filter(Boolean)
-    .join(" • ") || "No address entered";
+  return (
+    [contractor.address, cityStateZip]
+      .filter(Boolean)
+      .join(" • ") || "No address entered"
+  );
 }
 
 export function formatRiskRate(
@@ -135,6 +137,15 @@ export function contractorToFormData(
   };
 }
 
+/*
+ * CONTRACTOR APPROVAL STATUS
+ *
+ * Approved       = Green
+ * Conditional    = Amber
+ * Needs Revision = Amber
+ * Rejected       = Red
+ * Pending        = Blue / informational
+ */
 export function approvalStatusTone(
   status: string,
 ):
@@ -150,6 +161,12 @@ export function approvalStatusTone(
     case "Conditional":
       return "warning";
 
+    case "Needs Revision":
+      return "warning";
+
+    case "Revision Requested":
+      return "warning";
+
     case "Rejected":
       return "danger";
 
@@ -161,6 +178,14 @@ export function approvalStatusTone(
   }
 }
 
+/*
+ * CONTRACTOR COMPLIANCE STATUS
+ *
+ * Compliant       = Green
+ * Action Required = Amber
+ * Expired         = Red
+ * Pending         = Blue / informational
+ */
 export function complianceStatusTone(
   status: string,
 ):
@@ -176,7 +201,13 @@ export function complianceStatusTone(
     case "Action Required":
       return "warning";
 
+    case "Needs Revision":
+      return "warning";
+
     case "Expired":
+      return "danger";
+
+    case "Rejected":
       return "danger";
 
     case "Pending":
@@ -187,6 +218,14 @@ export function complianceStatusTone(
   }
 }
 
+/*
+ * CONTRACTOR ORIENTATION STATUS
+ *
+ * Complete     = Green
+ * Expired      = Red
+ * Pending      = Amber
+ * Not Required = Neutral
+ */
 export function orientationStatusTone(
   status: string,
 ):
@@ -231,14 +270,26 @@ export function contractorIsInsuranceExpired(
   return expirationDate.getTime() < Date.now();
 }
 
+/*
+ * Determines whether the contractor has
+ * a contractor-level compliance issue.
+ *
+ * Document-level compliance is calculated
+ * separately by the contractor document
+ * compliance system.
+ */
 export function contractorHasComplianceIssue(
   contractor: ContractorRecord,
 ): boolean {
   return (
-    contractor.complianceStatus === "Action Required" ||
-    contractor.complianceStatus === "Expired" ||
-    contractor.approvalStatus === "Rejected" ||
-    contractor.orientationStatus === "Expired" ||
+    contractor.complianceStatus ===
+      "Action Required" ||
+    contractor.complianceStatus ===
+      "Expired" ||
+    contractor.approvalStatus ===
+      "Rejected" ||
+    contractor.orientationStatus ===
+      "Expired" ||
     contractorIsInsuranceExpired(
       contractor.insuranceExpiresAt,
     )

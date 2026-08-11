@@ -266,6 +266,8 @@ model ContractorDocument {
   contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
   project    Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  events ContractorDocumentEvent[]
+
   @@index([tenantId])
   @@index([contractorId])
   @@index([projectId])
@@ -307,4 +309,34 @@ model ContractorDocumentRequirement {
   @@index([documentType])
   @@index([isRequired])
   @@index([isArchived])
+}
+
+model ContractorDocumentEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  contractorDocumentId String
+  contractorId         String
+
+  eventType String
+
+  previousApprovalStatus String?
+  newApprovalStatus      String?
+
+  previousReviewStatus String?
+  newReviewStatus      String?
+
+  comment String?
+
+  performedBy String?
+
+  createdAt DateTime @default(now())
+
+  contractorDocument ContractorDocument @relation(fields: [contractorDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([contractorDocumentId])
+  @@index([contractorId])
+  @@index([eventType])
+  @@index([createdAt])
 }

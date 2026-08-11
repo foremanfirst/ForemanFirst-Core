@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_TENANT_ID = "development-tenant";
+const DEFAULT_TENANT_ID =
+  "development-tenant";
 
 type RouteContext = {
   params: Promise<{
@@ -18,7 +19,8 @@ export async function GET(
   context: RouteContext,
 ) {
   try {
-    const { contractorId } = await context.params;
+    const { contractorId } =
+      await context.params;
 
     const cleanedContractorId =
       contractorId?.trim();
@@ -26,7 +28,8 @@ export async function GET(
     if (!cleanedContractorId) {
       return NextResponse.json(
         {
-          message: "Contractor ID is required.",
+          message:
+            "Contractor ID is required.",
         },
         {
           status: 400,
@@ -37,8 +40,11 @@ export async function GET(
     const contractor =
       await prisma.contractor.findFirst({
         where: {
-          id: cleanedContractorId,
-          tenantId: DEFAULT_TENANT_ID,
+          id:
+            cleanedContractorId,
+
+          tenantId:
+            DEFAULT_TENANT_ID,
         },
 
         select: {
@@ -59,12 +65,24 @@ export async function GET(
       );
     }
 
+    /*
+     * Load archived/replaced documents.
+     *
+     * These remain separate from lifecycle
+     * review events because they represent
+     * actual historical document versions.
+     */
     const archivedDocuments =
       await prisma.contractorDocument.findMany({
         where: {
-          contractorId: contractor.id,
-          tenantId: DEFAULT_TENANT_ID,
-          isArchived: true,
+          contractorId:
+            contractor.id,
+
+          tenantId:
+            DEFAULT_TENANT_ID,
+
+          isArchived:
+            true,
         },
 
         select: {
@@ -113,56 +131,249 @@ export async function GET(
 
         orderBy: [
           {
-            archivedAt: "desc",
+            archivedAt:
+              "desc",
           },
           {
-            updatedAt: "desc",
+            updatedAt:
+              "desc",
           },
         ],
       });
 
-    const documents = archivedDocuments.map(
-      (document) => ({
-        ...document,
+    /*
+     * Load structured lifecycle events.
+     *
+     * This includes events for ACTIVE and
+     * ARCHIVED documents.
+     *
+     * That allows the audit history to survive
+     * even after a document is replaced or
+     * archived.
+     */
+    const documentEvents =
+      await prisma.contractorDocumentEvent.findMany({
+        where: {
+          contractorId:
+            contractor.id,
 
-        effectiveDate:
-          document.effectiveDate?.toISOString() ??
-          null,
+          tenantId:
+            DEFAULT_TENANT_ID,
+        },
 
-        expirationDate:
-          document.expirationDate?.toISOString() ??
-          null,
+        select: {
+          id: true,
+          tenantId: true,
 
-        reviewedAt:
-          document.reviewedAt?.toISOString() ??
-          null,
+          contractorDocumentId: true,
+          contractorId: true,
 
-        archivedAt:
-          document.archivedAt?.toISOString() ??
-          null,
+          eventType: true,
 
-        createdAt:
-          document.createdAt.toISOString(),
+          previousApprovalStatus:
+            true,
 
-        updatedAt:
-          document.updatedAt.toISOString(),
+          newApprovalStatus:
+            true,
 
-        aiConfidence:
-          document.aiConfidence === null
-            ? null
-            : Number(document.aiConfidence),
-      }),
-    );
+          previousReviewStatus:
+            true,
+
+          newReviewStatus:
+            true,
+
+          comment: true,
+
+          performedBy: true,
+
+          createdAt: true,
+
+          contractorDocument: {
+            select: {
+              id: true,
+
+              documentType:
+                true,
+
+              documentName:
+                true,
+
+              fileName: true,
+
+              approvalStatus:
+                true,
+
+              reviewStatus:
+                true,
+
+              isActive: true,
+              isArchived: true,
+
+              archivedAt:
+                true,
+
+              createdAt:
+                true,
+            },
+          },
+        },
+
+        orderBy: {
+          createdAt:
+            "desc",
+        },
+      });
+
+    /*
+     * Convert Prisma DateTime and Decimal
+     * values into JSON-safe values.
+     */
+    const documents =
+      archivedDocuments.map(
+        (document) => ({
+          ...document,
+
+          effectiveDate:
+            document.effectiveDate?.toISOString() ??
+            null,
+
+          expirationDate:
+            document.expirationDate?.toISOString() ??
+            null,
+
+          reviewedAt:
+            document.reviewedAt?.toISOString() ??
+            null,
+
+          archivedAt:
+            document.archivedAt?.toISOString() ??
+            null,
+
+          createdAt:
+            document.createdAt.toISOString(),
+
+          updatedAt:
+            document.updatedAt.toISOString(),
+
+          aiConfidence:
+            document.aiConfidence ===
+            null
+              ? null
+              : Number(
+                  document.aiConfidence,
+                ),
+        }),
+      );
+
+    const events =
+      documentEvents.map(
+        (event) => ({
+          id:
+            event.id,
+
+          tenantId:
+            event.tenantId,
+
+          contractorDocumentId:
+            event.contractorDocumentId,
+
+          contractorId:
+            event.contractorId,
+
+          eventType:
+            event.eventType,
+
+          previousApprovalStatus:
+            event.previousApprovalStatus,
+
+          newApprovalStatus:
+            event.newApprovalStatus,
+
+          previousReviewStatus:
+            event.previousReviewStatus,
+
+          newReviewStatus:
+            event.newReviewStatus,
+
+          comment:
+            event.comment,
+
+          performedBy:
+            event.performedBy,
+
+          createdAt:
+            event.createdAt.toISOString(),
+
+          document: {
+            id:
+              event.contractorDocument.id,
+
+            documentType:
+              event.contractorDocument
+                .documentType,
+
+            documentName:
+              event.contractorDocument
+                .documentName,
+
+            fileName:
+              event.contractorDocument
+                .fileName,
+
+            approvalStatus:
+              event.contractorDocument
+                .approvalStatus,
+
+            reviewStatus:
+              event.contractorDocument
+                .reviewStatus,
+
+            isActive:
+              event.contractorDocument
+                .isActive,
+
+            isArchived:
+              event.contractorDocument
+                .isArchived,
+
+            archivedAt:
+              event.contractorDocument
+                .archivedAt?.toISOString() ??
+              null,
+
+            createdAt:
+              event.contractorDocument
+                .createdAt.toISOString(),
+          },
+        }),
+      );
 
     return NextResponse.json(
       {
         contractor: {
-          id: contractor.id,
-          name: contractor.name,
+          id:
+            contractor.id,
+
+          name:
+            contractor.name,
         },
 
-        total: documents.length,
+        /*
+         * Keep "total" for compatibility with
+         * the existing history UI.
+         */
+        total:
+          documents.length,
+
+        documentTotal:
+          documents.length,
+
+        eventTotal:
+          events.length,
+
         documents,
+
+        events,
       },
       {
         status: 200,
