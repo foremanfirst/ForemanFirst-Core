@@ -12,15 +12,27 @@ type StatusBadgeProps = {
 
 const toneClasses: Record<StatusTone, string> = {
   success:
-    "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
+
   warning:
-    "border-amber-200 bg-amber-50 text-amber-800",
+    "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]",
+
   danger:
-    "border-rose-200 bg-rose-50 text-rose-700",
+    "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
+
   info:
-    "border-cyan-200 bg-cyan-50 text-cyan-800",
+    "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
+
   neutral:
-    "border-slate-200 bg-slate-100 text-slate-600",
+    "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]",
+};
+
+const dotClasses: Record<StatusTone, string> = {
+  success: "bg-[var(--qoreva-success)]",
+  warning: "bg-[var(--qoreva-warning)]",
+  danger: "bg-[var(--qoreva-danger)]",
+  info: "bg-[var(--qoreva-violet)]",
+  neutral: "bg-[var(--qoreva-subtle)]",
 };
 
 export default function StatusBadge({
@@ -29,8 +41,34 @@ export default function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${toneClasses[tone]}`}
+      className={`
+        inline-flex
+        min-h-7
+        items-center
+        gap-1.5
+        whitespace-nowrap
+        rounded-full
+        border
+        px-2.5
+        py-1
+        text-[11px]
+        font-black
+        leading-none
+        tracking-[0.01em]
+        ${toneClasses[tone]}
+      `}
     >
+      <span
+        className={`
+          h-1.5
+          w-1.5
+          shrink-0
+          rounded-full
+          ${dotClasses[tone]}
+        `}
+        aria-hidden="true"
+      />
+
       {label}
     </span>
   );

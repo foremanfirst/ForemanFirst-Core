@@ -18,12 +18,28 @@ export default function TextField({
   disabled = false,
 }: TextFieldProps) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-slate-700">
+    <label className="group block">
+      <span
+        className="
+          mb-2
+          flex
+          items-center
+          gap-1
+          text-sm
+          font-bold
+          text-[var(--qoreva-text)]
+        "
+      >
         {label}
-        {required && (
-          <span className="ml-1 text-red-600">*</span>
-        )}
+
+        {required ? (
+          <span
+            className="text-[var(--qoreva-danger)]"
+            aria-hidden="true"
+          >
+            *
+          </span>
+        ) : null}
       </span>
 
       <input
@@ -32,8 +48,40 @@ export default function TextField({
         disabled={disabled}
         required={required}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100"
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        className="
+          min-h-12
+          w-full
+          rounded-xl
+          border
+          border-[var(--qoreva-border-strong)]
+          bg-white
+          px-4
+          py-3
+          text-sm
+          font-medium
+          text-[var(--qoreva-ink)]
+          shadow-[0_1px_2px_rgba(17,18,22,0.02)]
+          outline-none
+          transition-all
+          duration-150
+
+          placeholder:text-[var(--qoreva-subtle)]
+
+          hover:border-[#BBB6C6]
+
+          focus:border-[var(--qoreva-violet)]
+          focus:ring-4
+          focus:ring-[rgba(102,87,232,0.10)]
+
+          disabled:cursor-not-allowed
+          disabled:border-[var(--qoreva-border)]
+          disabled:bg-[var(--qoreva-surface-muted)]
+          disabled:text-[var(--qoreva-muted)]
+          disabled:shadow-none
+        "
       />
     </label>
   );

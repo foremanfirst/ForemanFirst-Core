@@ -1,26 +1,471 @@
 @import "tailwindcss";
 
+/*
+ * =========================================================
+ * QOREVA™ DESIGN SYSTEM
+ * =========================================================
+ *
+ * Brand philosophy:
+ *
+ * Obsidian / Deep Navy
+ *   Navigation, command surfaces, premium structure
+ *
+ * Bone / Warm White
+ *   Primary working surfaces
+ *
+ * Signal Violet
+ *   Qoreva actions, navigation, Vision™, intelligence
+ *
+ * Green
+ *   Approved / Ready / Verified
+ *
+ * Amber
+ *   Attention / Revision / Expiring
+ *
+ * Red
+ *   Blocked / Rejected / Critical
+ *
+ * Cyan
+ *   Informational / Viewed / neutral system activity
+ *
+ * IMPORTANT:
+ * Green, amber, and red are operational colors.
+ * They are not primary Qoreva brand colors.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /*
+   * Core application colors
+   */
+  --background: #f4f1ea;
+  --foreground: #18181b;
+
+  /*
+   * Qoreva Brand
+   */
+  --qoreva-obsidian: #111216;
+  --qoreva-carbon: #18191f;
+  --qoreva-graphite: #24252d;
+
+  --qoreva-violet: #6657e8;
+  --qoreva-violet-hover: #5949dc;
+  --qoreva-violet-dark: #4538b9;
+  --qoreva-violet-soft: #eeecff;
+  --qoreva-violet-faint: #f6f5ff;
+
+  --qoreva-bone: #f4f1ea;
+  --qoreva-porcelain: #fbfaf7;
+  --qoreva-white: #ffffff;
+
+  /*
+   * Neutral system
+   */
+  --qoreva-ink: #18181b;
+  --qoreva-text: #27272a;
+  --qoreva-muted: #71717a;
+  --qoreva-subtle: #a1a1aa;
+
+  --qoreva-border: #e4e1da;
+  --qoreva-border-strong: #d4d0c8;
+  --qoreva-surface-muted: #efede7;
+
+  /*
+   * Operational status colors
+   */
+  --qoreva-success: #16865c;
+  --qoreva-success-soft: #e8f6ef;
+
+  --qoreva-warning: #d58a20;
+  --qoreva-warning-soft: #fff5df;
+
+  --qoreva-danger: #c83e4d;
+  --qoreva-danger-soft: #fdecef;
+
+  --qoreva-info: #277da1;
+  --qoreva-info-soft: #e7f4f8;
+
+  /*
+   * Shadows
+   */
+  --qoreva-shadow-sm:
+    0 1px 2px rgba(17, 18, 22, 0.04),
+    0 1px 4px rgba(17, 18, 22, 0.03);
+
+  --qoreva-shadow:
+    0 8px 24px rgba(17, 18, 22, 0.06),
+    0 2px 6px rgba(17, 18, 22, 0.04);
+
+  --qoreva-shadow-lg:
+    0 20px 50px rgba(17, 18, 22, 0.10),
+    0 6px 18px rgba(17, 18, 22, 0.06);
+
+  /*
+   * Vision™ intelligence treatment
+   */
+  --qoreva-vision-start: #6657e8;
+  --qoreva-vision-end: #8b7cf6;
+  --qoreva-vision-soft: #f0eeff;
 }
+
+
+/*
+ * =========================================================
+ * TAILWIND THEME TOKENS
+ * =========================================================
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-qoreva-obsidian: var(--qoreva-obsidian);
+  --color-qoreva-carbon: var(--qoreva-carbon);
+  --color-qoreva-graphite: var(--qoreva-graphite);
+
+  --color-qoreva-violet: var(--qoreva-violet);
+  --color-qoreva-violet-hover: var(--qoreva-violet-hover);
+  --color-qoreva-violet-dark: var(--qoreva-violet-dark);
+  --color-qoreva-violet-soft: var(--qoreva-violet-soft);
+  --color-qoreva-violet-faint: var(--qoreva-violet-faint);
+
+  --color-qoreva-bone: var(--qoreva-bone);
+  --color-qoreva-porcelain: var(--qoreva-porcelain);
+
+  --color-qoreva-ink: var(--qoreva-ink);
+  --color-qoreva-text: var(--qoreva-text);
+  --color-qoreva-muted: var(--qoreva-muted);
+  --color-qoreva-subtle: var(--qoreva-subtle);
+
+  --color-qoreva-border: var(--qoreva-border);
+  --color-qoreva-border-strong: var(--qoreva-border-strong);
+  --color-qoreva-surface-muted: var(--qoreva-surface-muted);
+
+  --color-qoreva-success: var(--qoreva-success);
+  --color-qoreva-success-soft: var(--qoreva-success-soft);
+
+  --color-qoreva-warning: var(--qoreva-warning);
+  --color-qoreva-warning-soft: var(--qoreva-warning-soft);
+
+  --color-qoreva-danger: var(--qoreva-danger);
+  --color-qoreva-danger-soft: var(--qoreva-danger-soft);
+
+  --color-qoreva-info: var(--qoreva-info);
+  --color-qoreva-info-soft: var(--qoreva-info-soft);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+
+/*
+ * =========================================================
+ * BASE
+ * =========================================================
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--qoreva-bone);
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+
+  background:
+    radial-gradient(
+      circle at 85% -10%,
+      rgba(102, 87, 232, 0.045),
+      transparent 26rem
+    ),
+    var(--qoreva-bone);
+
+  color: var(--qoreva-ink);
+
+  font-family:
+    var(--font-geist-sans),
+    Arial,
+    Helvetica,
+    sans-serif;
+
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+
+/*
+ * =========================================================
+ * TEXT SELECTION
+ * =========================================================
+ */
+
+::selection {
+  background: rgba(102, 87, 232, 0.22);
+  color: var(--qoreva-obsidian);
+}
+
+
+/*
+ * =========================================================
+ * FOCUS / ACCESSIBILITY
+ * =========================================================
+ */
+
+:focus-visible {
+  outline: 3px solid rgba(102, 87, 232, 0.32);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(102, 87, 232, 0.28);
+  outline-offset: 2px;
+}
+
+
+/*
+ * =========================================================
+ * FORM DEFAULTS
+ * =========================================================
+ */
+
+input,
+textarea,
+select {
+  color: var(--qoreva-ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #a7a4ad;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled,
+button:disabled {
+  cursor: not-allowed;
+}
+
+
+/*
+ * =========================================================
+ * SCROLLBARS
+ * =========================================================
+ */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color:
+    #c9c5d2
+    transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbc7d2;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #aaa4ba;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+
+/*
+ * =========================================================
+ * QOREVA SHARED SURFACES
+ * =========================================================
+ */
+
+.qoreva-surface {
+  border: 1px solid var(--qoreva-border);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--qoreva-shadow-sm);
+}
+
+.qoreva-surface-elevated {
+  border: 1px solid var(--qoreva-border);
+  border-radius: 1.5rem;
+  background: var(--qoreva-white);
+  box-shadow: var(--qoreva-shadow);
+}
+
+.qoreva-command-surface {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 1.5rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      #17181e 0%,
+      #111216 100%
+    );
+
+  color: white;
+
+  box-shadow:
+    0 20px 45px rgba(17, 18, 22, 0.16);
+}
+
+
+/*
+ * =========================================================
+ * QOREVA VISION™
+ * =========================================================
+ */
+
+.qoreva-vision-surface {
+  position: relative;
+  overflow: hidden;
+
+  border:
+    1px solid
+    rgba(102, 87, 232, 0.20);
+
+  border-radius: 1.5rem;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(102, 87, 232, 0.08),
+      rgba(139, 124, 246, 0.03)
+    ),
+    white;
+}
+
+.qoreva-vision-surface::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+
+  width: 4px;
+
+  content: "";
+
+  background:
+    linear-gradient(
+      180deg,
+      var(--qoreva-vision-start),
+      var(--qoreva-vision-end)
+    );
+}
+
+
+/*
+ * =========================================================
+ * STATUS UTILITIES
+ * =========================================================
+ */
+
+.qoreva-status-ready {
+  border-color: #bde8d4;
+  background: var(--qoreva-success-soft);
+  color: var(--qoreva-success);
+}
+
+.qoreva-status-attention {
+  border-color: #f0d5a4;
+  background: var(--qoreva-warning-soft);
+  color: #9b6212;
+}
+
+.qoreva-status-blocked {
+  border-color: #f0bdc4;
+  background: var(--qoreva-danger-soft);
+  color: var(--qoreva-danger);
+}
+
+.qoreva-status-info {
+  border-color: #b9dce8;
+  background: var(--qoreva-info-soft);
+  color: var(--qoreva-info);
+}
+
+
+/*
+ * =========================================================
+ * INTERACTION
+ * =========================================================
+ */
+
+.qoreva-interactive {
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.qoreva-interactive:hover {
+  transform: translateY(-1px);
+}
+
+.qoreva-interactive:active {
+  transform: translateY(0);
+}
+
+
+/*
+ * =========================================================
+ * MOTION ACCESSIBILITY
+ * =========================================================
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

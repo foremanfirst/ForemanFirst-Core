@@ -82,7 +82,7 @@ export default function ViewContractorModal({
       <button
         type="button"
         onClick={openModal}
-        className="text-sm font-black text-slate-700 transition hover:text-cyan-700"
+        className="text-sm font-black text-[var(--qoreva-text)] transition hover:text-[var(--qoreva-violet)]"
       >
         View
       </button>
@@ -90,25 +90,25 @@ export default function ViewContractorModal({
       <ModalShell
         isOpen={isOpen}
         title={contractor.name}
-        eyebrow="Contractor Management"
+        eyebrow="Qoreva™ Contractor Management"
         onClose={closeModal}
         maxWidthClass="max-w-5xl"
       >
-        <div className="space-y-7 p-5 sm:p-7">
-          <div className="flex flex-col justify-between gap-5 border-b border-slate-200 pb-6 sm:flex-row sm:items-start">
+        <div className="space-y-7 bg-[var(--qoreva-porcelain)] p-5 sm:p-7">
+          <div className="flex flex-col justify-between gap-5 border-b border-[var(--qoreva-border)] pb-6 sm:flex-row sm:items-start">
             <div className="flex items-start gap-4">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xl font-black text-[#00C2FF]">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-obsidian)] text-xl font-black text-[#B9B0FF] shadow-sm">
                 {contractorInitials(
                   contractor.name,
                 )}
               </div>
 
               <div>
-                <h3 className="text-2xl font-black text-slate-950">
+                <h3 className="text-2xl font-black tracking-[-0.03em] text-[var(--qoreva-obsidian)]">
                   {contractor.name}
                 </h3>
 
-                <p className="mt-1 text-slate-600">
+                <p className="mt-1 font-medium text-[var(--qoreva-muted)]">
                   {contractor.trade ||
                     "Trade not entered"}
 
@@ -160,6 +160,33 @@ export default function ViewContractorModal({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-4">
+            <ReadinessSummaryCard
+              label="Approval"
+              value={contractor.approvalStatus}
+              tone={approvalStatusTone(contractor.approvalStatus)}
+            />
+
+            <ReadinessSummaryCard
+              label="Compliance"
+              value={contractor.complianceStatus}
+              tone={complianceStatusTone(contractor.complianceStatus)}
+            />
+
+            <ReadinessSummaryCard
+              label="Orientation"
+              value={contractor.orientationStatus}
+              tone={orientationStatusTone(contractor.orientationStatus)}
+            />
+
+            <ReadinessSummaryCard
+              label="Documents"
+              value={`${contractor.documents.length}`}
+              detail={contractor.documents.length === 1 ? "uploaded document" : "uploaded documents"}
+              tone="info"
+            />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
@@ -338,22 +365,22 @@ export default function ViewContractorModal({
             }
           />
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+            <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
               Description
             </p>
 
-            <p className="mt-2 leading-6 text-slate-700">
+            <p className="mt-2 leading-6 text-[var(--qoreva-text)]">
               {contractor.description ||
                 "No contractor description has been entered."}
             </p>
           </div>
 
-          <div className="flex justify-end border-t border-slate-200 pt-6">
+          <div className="flex justify-end border-t border-[var(--qoreva-border)] pt-6">
             <button
               type="button"
               onClick={closeModal}
-              className="rounded-xl bg-[#0B132B] px-6 py-3 text-sm font-black text-white transition hover:bg-blue-950"
+              className="rounded-xl bg-[var(--qoreva-violet)] px-6 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[var(--qoreva-violet-hover)]"
             >
               Close
             </button>
@@ -664,20 +691,20 @@ function ContractorDocumentsSection({
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
+    <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+      <div className="flex flex-col justify-between gap-4 border-b border-[var(--qoreva-border)] pb-4 sm:flex-row sm:items-center">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-700">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
             Contractor Documents
           </p>
 
-          <h3 className="mt-1 text-lg font-black text-slate-950">
+          <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
             Uploaded Documentation
           </h3>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+          <div className="rounded-full bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
             {documents.length}{" "}
             {documents.length === 1
               ? "document"
@@ -724,11 +751,11 @@ function ContractorDocumentsSection({
 
       {documents.length === 0 ? (
         <div className="py-8 text-center">
-          <p className="font-black text-slate-800">
+          <p className="font-black text-[var(--qoreva-text)]">
             No documents uploaded
           </p>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
             Contractor qualification and
             compliance documents will
             appear here.
@@ -831,7 +858,7 @@ function ContractorDocumentsSection({
                   key={
                     document.id
                   }
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 shadow-[var(--qoreva-shadow-sm)]"
                 >
                   <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                     <div className="min-w-0">
@@ -847,14 +874,14 @@ function ContractorDocumentsSection({
                             reviewStatus,
                           )
                         }
-                        className="break-words font-black text-slate-900 transition hover:text-cyan-700 hover:underline"
+                        className="break-words font-black text-[var(--qoreva-obsidian)] transition hover:text-[var(--qoreva-violet)] hover:underline"
                       >
                         {
                           displayName
                         }
                       </a>
 
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                         {getDocumentTypeLabel(
                           document,
                         )}
@@ -943,18 +970,18 @@ function ContractorDocumentsSection({
                   </div>
 
                   {notes ? (
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                    <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-white px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                         Notes
                       </p>
 
-                      <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+                      <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
                         {notes}
                       </p>
                     </div>
                   ) : null}
 
-                  <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-200 pt-4">
+                  <div className="mt-4 flex flex-wrap gap-3 border-t border-[var(--qoreva-border)] pt-4">
                     <a
                       href={
                         viewUrl
@@ -967,7 +994,7 @@ function ContractorDocumentsSection({
                           reviewStatus,
                         )
                       }
-                      className="inline-flex items-center justify-center rounded-xl bg-[#0B132B] px-4 py-2 text-xs font-black text-white transition hover:bg-blue-950"
+                      className="inline-flex items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-4 py-2 text-xs font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                     >
                       View Document
                     </a>
@@ -976,7 +1003,7 @@ function ContractorDocumentsSection({
                       href={
                         downloadUrl
                       }
-                      className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
+                      className="inline-flex items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-faint)] hover:text-[var(--qoreva-violet-dark)]"
                     >
                       Download
                     </a>
@@ -1012,26 +1039,26 @@ function ContractorDocumentsSection({
                     />
                   </div>
 
-                  <div className="mt-4 border-t border-slate-200 pt-4">
+                  <div className="mt-4 border-t border-[var(--qoreva-border)] pt-4">
                     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+                        <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
                           Review Decision
                         </p>
 
                         {!canMakeReviewDecision ? (
-                          <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                            <p className="text-sm font-black text-amber-800">
+                          <div className="mt-2 rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-4 py-3">
+                            <p className="text-sm font-black text-[#9B6212]">
                               Review required
                             </p>
 
-                            <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
+                            <p className="mt-1 text-xs font-semibold leading-5 text-[#9B6212]">
                               Open this document before
                               making an approval decision.
                             </p>
                           </div>
                         ) : (
-                          <p className="mt-1 text-xs font-semibold text-slate-500">
+                          <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
                             The document has been viewed.
                             Make the appropriate review
                             decision below.
@@ -1053,7 +1080,7 @@ function ContractorDocumentsSection({
                               "approve",
                             )
                           }
-                          className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-2 text-xs font-black text-[var(--qoreva-success)] transition hover:brightness-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isApproved
                             ? "Approved"
@@ -1072,7 +1099,7 @@ function ContractorDocumentsSection({
                               "needs-revision",
                             )
                           }
-                          className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-black text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-black text-[#9B6212] transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {needsRevision
                             ? "Revision Requested"
@@ -1091,7 +1118,7 @@ function ContractorDocumentsSection({
                               "reject",
                             )
                           }
-                          className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-2 text-xs font-black text-[var(--qoreva-danger)] transition hover:brightness-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isRejected
                             ? "Rejected"
@@ -1103,15 +1130,15 @@ function ContractorDocumentsSection({
                     {isReviewPanelOpen &&
                     activeReviewAction &&
                     canMakeReviewDecision ? (
-                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-                        <p className="font-black text-slate-900">
+                      <div className="mt-4 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+                        <p className="font-black text-[var(--qoreva-ink)]">
                           {activeReviewAction ===
                           "needs-revision"
                             ? "Request Document Revision"
                             : "Reject Document"}
                         </p>
 
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                           {activeReviewAction ===
                           "needs-revision"
                             ? "Explain what must be corrected or resubmitted."
@@ -1119,7 +1146,7 @@ function ContractorDocumentsSection({
                         </p>
 
                         <label className="mt-4 block">
-                          <span className="text-xs font-black uppercase tracking-wide text-slate-600">
+                          <span className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                             Reviewer Comment *
                           </span>
 
@@ -1143,7 +1170,7 @@ function ContractorDocumentsSection({
                                 ? "Example: Please upload a revised COI showing the required coverage and project information."
                                 : "Example: This document is expired and cannot be accepted."
                             }
-                            className="mt-2 w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            className="mt-2 w-full resize-y rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-3 text-sm font-medium text-[var(--qoreva-ink)] outline-none transition placeholder:text-[var(--qoreva-subtle)] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
                           />
                         </label>
 
@@ -1164,7 +1191,7 @@ function ContractorDocumentsSection({
                             onClick={
                               resetReviewForm
                             }
-                            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Cancel
                           </button>
@@ -1184,8 +1211,8 @@ function ContractorDocumentsSection({
                             className={
                               activeReviewAction ===
                               "reject"
-                                ? "rounded-xl bg-rose-700 px-4 py-2 text-xs font-black text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                : "rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                ? "rounded-xl bg-[var(--qoreva-danger)] px-4 py-2 text-xs font-black text-white transition hover:bg-[#B63341] disabled:cursor-not-allowed disabled:opacity-50"
+                                : "rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-[var(--qoreva-obsidian)] transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
                             }
                           >
                             {isSubmittingReview
@@ -1216,11 +1243,11 @@ function ReviewResultBanner({
 }) {
   const className =
     result.action === "approve"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
       : result.action ===
           "needs-revision"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-rose-200 bg-rose-50 text-rose-800";
+        ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
+        : "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
 
   const symbol =
     result.action === "approve"
@@ -1254,6 +1281,50 @@ function ReviewResultBanner({
           {message}
         </span>
       </div>
+    </div>
+  );
+}
+
+
+function ReadinessSummaryCard({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone: "success" | "warning" | "danger" | "info" | "neutral";
+}) {
+  const classes = {
+    success:
+      "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
+    warning:
+      "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]",
+    danger:
+      "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
+    info:
+      "border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
+    neutral:
+      "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]",
+  } as const;
+
+  return (
+    <div className={`rounded-xl border p-3 ${classes[tone]}`}>
+      <p className="text-[9px] font-black uppercase tracking-[0.12em] opacity-70">
+        {label}
+      </p>
+
+      <p className="mt-1 text-sm font-black">
+        {value}
+      </p>
+
+      {detail ? (
+        <p className="mt-0.5 text-[10px] font-bold opacity-70">
+          {detail}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1331,17 +1402,17 @@ function DocumentExpirationBadge({
 }) {
   const className =
     status === "Expired"
-      ? "bg-rose-100 text-rose-700"
+      ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
       : status ===
           "Expiring Soon"
-        ? "bg-amber-100 text-amber-700"
+        ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
         : status === "Current"
-          ? "bg-emerald-100 text-emerald-700"
-          : "bg-slate-200 text-slate-700";
+          ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+          : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
 
   return (
     <span
-      className={`inline-flex shrink-0 rounded-full px-3 py-1 text-xs font-black ${className}`}
+      className={`inline-flex shrink-0 rounded-full border px-3 py-1 text-xs font-black ${className}`}
     >
       {status}
     </span>
@@ -1360,28 +1431,28 @@ function DocumentReviewBadge({
     normalized.includes(
       "approved",
     )
-      ? "bg-emerald-100 text-emerald-700"
+      ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
       : normalized.includes(
             "rejected",
           )
-        ? "bg-rose-100 text-rose-700"
+        ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
         : normalized.includes(
               "viewed",
             )
-          ? "bg-cyan-100 text-cyan-700"
+          ? "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet)]"
           : normalized.includes(
                 "revision",
               )
-            ? "bg-amber-100 text-amber-800"
+            ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
             : normalized.includes(
                   "review",
                 )
-              ? "bg-amber-100 text-amber-700"
-              : "bg-slate-200 text-slate-700";
+              ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
+              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
 
   return (
     <span
-      className={`inline-flex shrink-0 rounded-full px-3 py-1 text-xs font-black ${className}`}
+      className={`inline-flex shrink-0 rounded-full border px-3 py-1 text-xs font-black ${className}`}
     >
       {status ||
         "Not Reviewed"}
@@ -1398,11 +1469,11 @@ function DocumentDetail({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+      <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </p>
 
-      <p className="mt-1 break-words text-sm font-black text-slate-800">
+      <p className="mt-1 break-words text-sm font-black text-[var(--qoreva-text)]">
         {value ||
           "Not entered"}
       </p>
@@ -1473,8 +1544,8 @@ function ViewSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="text-lg font-black text-slate-950">
+    <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+      <h3 className="text-lg font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
         {title}
       </h3>
 
@@ -1494,11 +1565,11 @@ function DetailItem({
 }) {
   return (
     <div>
-      <dt className="text-xs font-black uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </dt>
 
-      <dd className="mt-1 break-words font-black text-slate-900">
+      <dd className="mt-1 break-words font-black text-[var(--qoreva-ink)]">
         {value ||
           "Not entered"}
       </dd>

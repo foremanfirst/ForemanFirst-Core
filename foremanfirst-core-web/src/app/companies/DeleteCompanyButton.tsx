@@ -72,16 +72,23 @@ export default function ArchiveCompanyButton({
     setErrorMessage("");
 
     try {
-      const response = await fetch(`/api/companies/${companyId}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/companies/${companyId}`,
+        {
+          method: "DELETE",
+        },
+      );
 
-      const result = await response.json().catch(() => null);
+      const result = await response
+        .json()
+        .catch(() => null);
 
       if (!response.ok) {
         setErrorMessage(
-          result?.message || "Unable to archive the company.",
+          result?.message ||
+            "Unable to archive the company.",
         );
+
         return;
       }
 
@@ -99,7 +106,10 @@ export default function ArchiveCompanyButton({
         }, DIALOG_ANIMATION_MS);
       }, SUCCESS_DELAY_MS);
     } catch (error) {
-      console.error("Company archive failed:", error);
+      console.error(
+        "Company archive failed:",
+        error,
+      );
 
       setErrorMessage(
         "Unable to connect to the server. Please try again.",
@@ -114,25 +124,41 @@ export default function ArchiveCompanyButton({
       return;
     }
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const previousOverflow =
+      document.body.style.overflow;
+
+    document.body.style.overflow =
+      "hidden";
 
     window.requestAnimationFrame(() => {
       cancelButtonRef.current?.focus();
     });
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !isPending) {
+    function handleKeyDown(
+      event: KeyboardEvent,
+    ) {
+      if (
+        event.key === "Escape" &&
+        !isPending
+      ) {
         event.preventDefault();
         closeDialog();
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
 
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow =
+        previousOverflow;
+
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
     };
   }, [isMounted, isPending]);
 
@@ -144,20 +170,52 @@ export default function ArchiveCompanyButton({
 
   return (
     <>
-      {/* Dark-red action beside View and Edit */}
       <button
         type="button"
         onClick={openDialog}
-        className="rounded-md px-1.5 py-1 text-sm font-semibold text-red-800 transition-colors duration-150 hover:bg-red-50 hover:text-red-950 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2"
+        className="
+          rounded-lg
+          px-1.5
+          py-1
+          text-sm
+          font-black
+          text-[var(--qoreva-danger)]
+          transition-colors
+          duration-150
+          hover:bg-[var(--qoreva-danger-soft)]
+          hover:text-[#A72F3C]
+          hover:underline
+          focus:outline-none
+          focus-visible:ring-2
+          focus-visible:ring-[rgba(200,62,77,0.35)]
+          focus-visible:ring-offset-2
+        "
       >
         Archive
       </button>
 
-      {isMounted && (
+      {isMounted ? (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-md transition-opacity duration-200 ${
-            isVisible ? "opacity-100" : "opacity-0"
-          }`}
+          className={`
+            fixed
+            inset-0
+            z-50
+            flex
+            items-end
+            justify-center
+            bg-[rgba(17,18,22,0.72)]
+            p-0
+            backdrop-blur-[6px]
+            transition-opacity
+            duration-200
+            sm:items-center
+            sm:p-5
+            ${
+              isVisible
+                ? "opacity-100"
+                : "opacity-0"
+            }
+          `}
           onMouseDown={closeDialog}
         >
           <div
@@ -165,172 +223,448 @@ export default function ArchiveCompanyButton({
             aria-modal="true"
             aria-labelledby="archive-company-title"
             aria-describedby="archive-company-description"
-            className={`max-h-[calc(100vh-2rem)] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-2xl transition-all duration-200 ease-out ${
-              isVisible
-                ? "translate-y-0 scale-100 opacity-100"
-                : "translate-y-2 scale-[0.96] opacity-0"
-            }`}
-            onMouseDown={(event) => event.stopPropagation()}
+            className={`
+              max-h-[96vh]
+              w-full
+              max-w-3xl
+              overflow-hidden
+              rounded-t-[1.75rem]
+              border
+              border-white/10
+              bg-[var(--qoreva-porcelain)]
+              shadow-[var(--qoreva-shadow-lg)]
+              transition-all
+              duration-200
+              ease-out
+              sm:rounded-[1.75rem]
+              ${
+                isVisible
+                  ? "translate-y-0 scale-100 opacity-100"
+                  : "translate-y-2 scale-[0.97] opacity-0"
+              }
+            `}
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
           >
             {/* Header */}
-            <header className="border-b border-slate-300 bg-slate-50/80 px-6 py-7 sm:px-10 sm:py-9">
-              <div className="flex items-start gap-5">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-700 shadow-sm">
+            <header
+              className="
+                relative
+                overflow-hidden
+                border-b
+                border-white/10
+                bg-[var(--qoreva-obsidian)]
+                px-5
+                py-5
+                text-white
+                sm:px-7
+                sm:py-6
+              "
+            >
+              <div
+                className="
+                  pointer-events-none
+                  absolute
+                  -right-12
+                  -top-20
+                  h-52
+                  w-52
+                  rounded-full
+                  bg-[rgba(200,62,77,0.12)]
+                  blur-3xl
+                "
+                aria-hidden="true"
+              />
+
+              <div className="relative flex items-start gap-4">
+                <div
+                  className="
+                    flex
+                    h-12
+                    w-12
+                    shrink-0
+                    items-center
+                    justify-center
+                    rounded-2xl
+                    border
+                    border-[rgba(200,62,77,0.20)]
+                    bg-[rgba(200,62,77,0.14)]
+                    text-[#FFB8C0]
+                  "
+                >
                   <ArchiveIcon />
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-700">
-                    Company Management
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="
+                        h-1.5
+                        w-1.5
+                        rounded-full
+                        bg-[var(--qoreva-danger)]
+                      "
+                      aria-hidden="true"
+                    />
+
+                    <p
+                      className="
+                        text-[11px]
+                        font-black
+                        uppercase
+                        tracking-[0.18em]
+                        text-[#FFB8C0]
+                      "
+                    >
+                      Qoreva™ Companies
+                    </p>
+                  </div>
 
                   <h2
                     id="archive-company-title"
-                    className="mt-1 text-3xl font-bold tracking-tight text-[#0B132B] sm:text-4xl"
+                    className="
+                      mt-1.5
+                      text-2xl
+                      font-black
+                      tracking-[-0.035em]
+                      text-white
+                      sm:text-3xl
+                    "
                   >
                     Archive Company
                   </h2>
 
                   <p
                     id="archive-company-description"
-                    className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base"
+                    className="
+                      mt-2
+                      max-w-2xl
+                      text-sm
+                      font-medium
+                      leading-6
+                      text-white/60
+                    "
                   >
-                    Archiving removes this company from active
-                    operations while preserving its projects, workers,
-                    documents, relationships, and historical records.
+                    Remove this company from active operations
+                    while preserving its connected records,
+                    history, and audit trail.
                   </p>
                 </div>
               </div>
             </header>
 
-            <div className="space-y-8 px-6 py-7 sm:px-10 sm:py-9">
-              {/* Company identity card */}
-              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:p-7">
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500">
-                  Company
-                </p>
+            <div
+              className="
+                max-h-[calc(96vh-132px)]
+                overflow-y-auto
+                px-5
+                py-6
+                sm:px-7
+                sm:py-7
+              "
+            >
+              <div className="space-y-6">
+                {/* Company identity */}
+                <section
+                  className="
+                    rounded-2xl
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-white
+                    p-5
+                    shadow-[var(--qoreva-shadow-sm)]
+                  "
+                >
+                  <p
+                    className="
+                      text-[10px]
+                      font-black
+                      uppercase
+                      tracking-[0.14em]
+                      text-[var(--qoreva-muted)]
+                    "
+                  >
+                    Company
+                  </p>
 
-                <div className="mt-4 flex items-center gap-5">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-700">
-                    <BuildingIcon />
+                  <div className="mt-4 flex items-center gap-4">
+                    <div
+                      className="
+                        flex
+                        h-12
+                        w-12
+                        shrink-0
+                        items-center
+                        justify-center
+                        rounded-2xl
+                        bg-[var(--qoreva-violet-soft)]
+                        text-[var(--qoreva-violet-dark)]
+                      "
+                    >
+                      <BuildingIcon />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p
+                        className="
+                          break-words
+                          text-2xl
+                          font-black
+                          tracking-[-0.03em]
+                          text-[var(--qoreva-obsidian)]
+                        "
+                      >
+                        {companyName}
+                      </p>
+
+                      <span
+                        className="
+                          mt-2
+                          inline-flex
+                          rounded-full
+                          border
+                          border-[rgba(102,87,232,0.18)]
+                          bg-[var(--qoreva-violet-soft)]
+                          px-3
+                          py-1
+                          text-xs
+                          font-black
+                          text-[var(--qoreva-violet-dark)]
+                        "
+                      >
+                        {companyType}
+                      </span>
+                    </div>
                   </div>
+                </section>
 
-                  <div className="min-w-0">
-                    <p className="break-words text-3xl font-bold tracking-tight text-[#0B132B] sm:text-4xl">
-                      {companyName}
-                    </p>
+                {/* Preservation information */}
+                <section
+                  className="
+                    rounded-2xl
+                    border
+                    border-[rgba(102,87,232,0.16)]
+                    bg-[var(--qoreva-violet-faint)]
+                    p-5
+                  "
+                >
+                  <div className="flex items-start gap-4">
+                    <div
+                      className="
+                        flex
+                        h-10
+                        w-10
+                        shrink-0
+                        items-center
+                        justify-center
+                        rounded-full
+                        bg-[var(--qoreva-violet-soft)]
+                        text-[var(--qoreva-violet-dark)]
+                      "
+                    >
+                      <InformationIcon />
+                    </div>
 
-                    <span className="mt-2 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-sm font-semibold text-cyan-800">
-                      {companyType}
+                    <div className="min-w-0">
+                      <p className="font-black text-[var(--qoreva-obsidian)]">
+                        Historical records stay intact
+                      </p>
+
+                      <ul
+                        className="
+                          mt-4
+                          space-y-3
+                          text-sm
+                          font-medium
+                          leading-6
+                          text-[var(--qoreva-text)]
+                        "
+                      >
+                        <ArchiveDetail>
+                          Hidden from the active Companies directory
+                        </ArchiveDetail>
+
+                        <ArchiveDetail>
+                          Projects, workers, documents, and relationships remain preserved
+                        </ArchiveDetail>
+
+                        <ArchiveDetail>
+                          Historical records and audit information remain intact
+                        </ArchiveDetail>
+
+                        <ArchiveDetail>
+                          The company can be restored from Archived Companies
+                        </ArchiveDetail>
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+
+                {errorMessage ? (
+                  <div
+                    role="alert"
+                    className="
+                      rounded-xl
+                      border
+                      border-[#F0BDC4]
+                      bg-[var(--qoreva-danger-soft)]
+                      px-4
+                      py-3
+                      text-sm
+                      font-bold
+                      text-[var(--qoreva-danger)]
+                    "
+                  >
+                    {errorMessage}
+                  </div>
+                ) : null}
+
+                {isSuccessful ? (
+                  <div
+                    role="status"
+                    className="
+                      flex
+                      items-center
+                      gap-3
+                      rounded-xl
+                      border
+                      border-[#BDE8D4]
+                      bg-[var(--qoreva-success-soft)]
+                      px-4
+                      py-3
+                      text-sm
+                      font-black
+                      text-[var(--qoreva-success)]
+                    "
+                  >
+                    <SuccessIcon />
+
+                    <span>
+                      Company archived successfully.
                     </span>
                   </div>
-                </div>
-              </section>
+                ) : null}
 
-              {/* Preservation information */}
-              <section className="rounded-2xl border border-cyan-200 bg-cyan-50 p-6 sm:p-7">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
-                    <InformationIcon />
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="text-base font-bold text-[#0B132B]">
-                      Archiving preserves all historical company data
-                    </p>
-
-                    <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-700 sm:text-base">
-                      <ArchiveDetail>
-                        Hidden from the active Companies directory
-                      </ArchiveDetail>
-
-                      <ArchiveDetail>
-                        Projects, workers, documents, and relationships
-                        remain preserved
-                      </ArchiveDetail>
-
-                      <ArchiveDetail>
-                        Historical records and audit information remain
-                        intact
-                      </ArchiveDetail>
-
-                      <ArchiveDetail>
-                        The company can be restored from Archived
-                        Companies at any time
-                      </ArchiveDetail>
-                    </ul>
-                  </div>
-                </div>
-              </section>
-
-              {errorMessage && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+                {/* Footer */}
+                <footer
+                  className="
+                    flex
+                    flex-col-reverse
+                    gap-4
+                    border-t
+                    border-[var(--qoreva-border)]
+                    pt-5
+                    sm:flex-row
+                    sm:items-center
+                    sm:justify-between
+                  "
                 >
-                  {errorMessage}
-                </div>
-              )}
-
-              {isSuccessful && (
-                <div
-                  role="status"
-                  className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800"
-                >
-                  <SuccessIcon />
-
-                  <span>Company archived successfully.</span>
-                </div>
-              )}
-
-              {/* Footer */}
-              <footer className="flex flex-col-reverse gap-4 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-center text-xs text-slate-400 sm:text-left">
-                  Press Esc or click outside the dialog to cancel.
-                </p>
-
-                <div className="flex flex-col-reverse gap-3 sm:flex-row">
-                  <button
-                    ref={cancelButtonRef}
-                    type="button"
-                    onClick={closeDialog}
-                    disabled={isPending || isSuccessful}
-                    className="min-h-12 min-w-36 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:border-slate-400 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  <p
+                    className="
+                      text-center
+                      text-xs
+                      font-medium
+                      text-[var(--qoreva-subtle)]
+                      sm:text-left
+                    "
                   >
-                    Cancel
-                  </button>
+                    Press Esc or click outside the dialog to cancel.
+                  </p>
 
-                  <button
-                    type="button"
-                    onClick={handleArchive}
-                    disabled={isPending || isSuccessful}
-                    className="min-h-12 min-w-48 rounded-xl bg-[#0B132B] px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#132044] hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00C2FF] focus-visible:ring-offset-2 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                  >
-                    <span className="flex items-center justify-center gap-2">
-                      {isSuccessful ? (
-                        <>
-                          <SuccessIcon />
-                          Archived
-                        </>
-                      ) : isPending ? (
-                        <>
-                          <LoadingSpinner />
-                          Archiving...
-                        </>
-                      ) : (
-                        <>
-                          <SmallArchiveIcon />
-                          Archive Company
-                        </>
-                      )}
-                    </span>
-                  </button>
-                </div>
-              </footer>
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                    <button
+                      ref={cancelButtonRef}
+                      type="button"
+                      onClick={closeDialog}
+                      disabled={
+                        isPending ||
+                        isSuccessful
+                      }
+                      className="
+                        inline-flex
+                        min-h-11
+                        min-w-32
+                        items-center
+                        justify-center
+                        rounded-xl
+                        border
+                        border-[var(--qoreva-border-strong)]
+                        bg-white
+                        px-5
+                        py-2.5
+                        text-sm
+                        font-black
+                        text-[var(--qoreva-text)]
+                        transition-all
+                        duration-150
+                        hover:border-[#BBB6C6]
+                        hover:bg-[var(--qoreva-surface-muted)]
+                        disabled:cursor-not-allowed
+                        disabled:opacity-50
+                      "
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleArchive}
+                      disabled={
+                        isPending ||
+                        isSuccessful
+                      }
+                      className="
+                        inline-flex
+                        min-h-11
+                        min-w-44
+                        items-center
+                        justify-center
+                        rounded-xl
+                        bg-[var(--qoreva-danger)]
+                        px-6
+                        py-2.5
+                        text-sm
+                        font-black
+                        text-white
+                        shadow-sm
+                        transition-all
+                        duration-150
+                        hover:-translate-y-px
+                        hover:bg-[#B63341]
+                        hover:shadow-[0_8px_20px_rgba(200,62,77,0.18)]
+                        active:translate-y-0
+                        disabled:cursor-not-allowed
+                        disabled:opacity-50
+                        disabled:hover:translate-y-0
+                      "
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        {isSuccessful ? (
+                          <>
+                            <SuccessIcon />
+                            Archived
+                          </>
+                        ) : isPending ? (
+                          <>
+                            <LoadingSpinner />
+                            Archiving...
+                          </>
+                        ) : (
+                          <>
+                            <SmallArchiveIcon />
+                            Archive Company
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  </div>
+                </footer>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }
@@ -342,7 +676,20 @@ function ArchiveDetail({
 }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+      <span
+        className="
+          mt-0.5
+          flex
+          h-5
+          w-5
+          shrink-0
+          items-center
+          justify-center
+          rounded-full
+          bg-[var(--qoreva-violet-soft)]
+          text-[var(--qoreva-violet-dark)]
+        "
+      >
         <CheckIcon />
       </span>
 

@@ -1,378 +1,1306 @@
+const overviewMetrics = [
+  {
+    label: "Workers Onsite",
+    value: "74",
+    detail: "Live project headcount",
+    trend: "+8 today",
+    tone: "success",
+  },
+  {
+    label: "Contractors",
+    value: "2",
+    detail: "Active on this project",
+    trend: "2 reporting",
+    tone: "neutral",
+  },
+  {
+    label: "Active Work",
+    value: "3",
+    detail: "Work packages underway",
+    trend: "All staffed",
+    tone: "success",
+  },
+  {
+    label: "Project Ready",
+    value: "94%",
+    detail: "Overall work readiness",
+    trend: "+2% this week",
+    tone: "success",
+  },
+];
+
+const nextActions = [
+  {
+    title: "COI needs revision",
+    detail: "SEGLC Construction",
+    meta: "Insurance documentation",
+    action: "Review",
+    severity: "danger",
+  },
+  {
+    title: "PTP awaiting approval",
+    detail: "Unit 2 – Electrical Installation",
+    meta: "Submitted today",
+    action: "Approve",
+    severity: "warning",
+  },
+  {
+    title: "3 worker credentials expire soon",
+    detail: "Across 2 contractors",
+    meta: "Within 14 days",
+    action: "Review",
+    severity: "warning",
+  },
+];
+
+const activeWork = [
+  {
+    scope: "Unit 2 – Electrical Installation",
+    contractor: "SEGLC Construction",
+    location: "Building C • Zone 4",
+    workers: "28",
+    ptp: "Approved",
+    permits: "2 / 2",
+    status: "Ready",
+  },
+  {
+    scope: "Site Civil & Underground",
+    contractor: "Niles",
+    location: "Exterior • North Area",
+    workers: "19",
+    ptp: "Approved",
+    permits: "1 / 1",
+    status: "Ready",
+  },
+  {
+    scope: "Caisson Layout Verification",
+    contractor: "Rohrscheib Sons",
+    location: "Building A • East",
+    workers: "6",
+    ptp: "Review",
+    permits: "0 / 1",
+    status: "Attention",
+  },
+];
+
+const pulse = [
+  {
+    label: "Observations",
+    value: "128",
+    change: "+23%",
+  },
+  {
+    label: "Good Catches",
+    value: "57",
+    change: "+18%",
+  },
+  {
+    label: "PTPs Approved",
+    value: "15",
+    change: "+36%",
+  },
+  {
+    label: "Incidents",
+    value: "1",
+    change: "-50%",
+  },
+];
+
+const visionInsights = [
+  {
+    title: "Insurance expiration approaching",
+    detail:
+      "One contractor insurance document expires within 18 days. Review replacement documentation.",
+    tone: "violet",
+  },
+  {
+    title: "Higher foot traffic detected",
+    detail:
+      "Gate 5 activity is elevated during the morning start window. Consider reviewing traffic controls.",
+    tone: "warning",
+  },
+  {
+    title: "Observation activity increased",
+    detail:
+      "Observation participation is up 23% this week compared with the previous period.",
+    tone: "info",
+  },
+  {
+    title: "Permits currently valid",
+    detail:
+      "No expired active permits are currently identified for today's work.",
+    tone: "success",
+  },
+];
+
 export default function DashboardPage() {
-  const metrics = [
-    {
-      label: "Active Projects",
-      value: "3",
-      note: "Across the current portfolio",
-    },
-    {
-      label: "Workers Onsite",
-      value: "74",
-      note: "Live project headcount",
-    },
-    {
-      label: "Open Observations",
-      value: "6",
-      note: "Awaiting review or closure",
-    },
-    {
-      label: "Open Actions",
-      value: "6",
-      note: "2 due this week",
-    },
-    {
-      label: "Inspections Due",
-      value: "3",
-      note: "Scheduled within 48 hours",
-    },
-    {
-      label: "Days Since Recordable",
-      value: "117",
-      note: "50,240 safe man-hours",
-    },
-  ];
-
-  const quickActions = [
-    "Create PTP",
-    "Record Observation",
-    "Start Inspection",
-    "Report Incident",
-    "Add Worker",
-    "Issue Permit",
-  ];
-
-  const activity = [
-    {
-      title: "AI PTP approved",
-      detail: "Electrical conduit installation plan approved.",
-      time: "18 minutes ago",
-    },
-    {
-      title: "Observation submitted",
-      detail: "Positive recognition submitted for coordinated field work.",
-      time: "42 minutes ago",
-    },
-    {
-      title: "Worker credential updated",
-      detail: "Training and project access eligibility refreshed.",
-      time: "1 hour ago",
-    },
-  ];
-
   return (
-    <main className="min-h-screen bg-slate-100 p-4 text-slate-950 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1600px] space-y-6">
-        <header className="flex flex-col justify-between gap-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center">
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-              <img
-                src="/foremanfirst-logo-v2.jpeg"
-                alt="ForemanFirst logo"
-                className="h-full w-full object-contain p-1"
-              />
-            </div>
-
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
-                ForemanFirst™ Command Center
-              </p>
-
-              <h1 className="mt-1 text-3xl font-black">
-                Good afternoon, Robert
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Safety, workforce, planning, access, and field intelligence.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[520px]">
-            <label>
-              <span className="mb-2 block text-xs font-black uppercase text-slate-500">
-                Dashboard View
-              </span>
-
-              <select className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 font-bold">
-                <option>Project View</option>
-                <option>Portfolio View</option>
-              </select>
-            </label>
-
-            <label>
-              <span className="mb-2 block text-xs font-black uppercase text-slate-500">
-                Project
-              </span>
-
-              <select className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 font-bold">
-                <option>GM Lansing Delta Township</option>
-                <option>North Campus Data Center</option>
-                <option>Industrial Energy Modernization</option>
-              </select>
-            </label>
-          </div>
-        </header>
-
-        <section className="rounded-3xl bg-gradient-to-br from-[#081426] via-[#123B75] to-[#00A6E8] p-7 text-white shadow-xl">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200">
-            Project Operations Snapshot
+    <div className="space-y-5">
+      {/* Welcome / Project Context */}
+      <section
+        className="
+          flex
+          flex-col
+          gap-5
+          rounded-2xl
+          border
+          border-[var(--qoreva-border)]
+          bg-white
+          p-5
+          shadow-[var(--qoreva-shadow-sm)]
+          lg:flex-row
+          lg:items-center
+          lg:justify-between
+        "
+      >
+        <div>
+          <p
+            className="
+              text-[10px]
+              font-black
+              uppercase
+              tracking-[0.18em]
+              text-[var(--qoreva-violet)]
+            "
+          >
+            Qoreva Command™
           </p>
 
-          <h2 className="mt-2 text-3xl font-black sm:text-5xl">
-            GM Lansing Delta Township
+          <h2
+            className="
+              mt-1
+              text-2xl
+              font-black
+              tracking-[-0.035em]
+              text-[var(--qoreva-obsidian)]
+              sm:text-3xl
+            "
+          >
+            Good afternoon, Robert
           </h2>
 
-          <p className="mt-4 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
-            Monitor project safety, workforce readiness, planning approvals,
-            corrective actions, training, access, and field activity.
+          <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
+            Here&apos;s what needs attention across your project today.
           </p>
+        </div>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard
-              label="Project Health"
-              value="92%"
-              note="Strong overall condition"
-            />
-
-            <SummaryCard
-              label="Current Status"
-              value="Active"
-              note="General Motors • Lansing, Michigan"
-            />
-
-            <SummaryCard
-              label="Training Compliance"
-              value="96%"
-              note="4 credentials require review"
-            />
-
-            <SummaryCard
-              label="Access Eligibility"
-              value="94%"
-              note="Live worker readiness"
-            />
-          </div>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          {metrics.map((metric) => (
-            <article
-              key={metric.label}
-              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[460px]">
+          <label>
+            <span
+              className="
+                mb-1.5
+                block
+                text-[9px]
+                font-black
+                uppercase
+                tracking-[0.14em]
+                text-[var(--qoreva-subtle)]
+              "
             >
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                {metric.label}
+              View
+            </span>
+
+            <select
+              className="
+                h-11
+                w-full
+                rounded-xl
+                border
+                border-[var(--qoreva-border)]
+                bg-white
+                px-3
+                text-sm
+                font-bold
+                text-[var(--qoreva-text)]
+                outline-none
+                transition
+                focus:border-[var(--qoreva-violet)]
+                focus:ring-4
+                focus:ring-[rgba(102,87,232,0.10)]
+              "
+            >
+              <option>Project Command</option>
+              <option>Portfolio Overview</option>
+            </select>
+          </label>
+
+          <label>
+            <span
+              className="
+                mb-1.5
+                block
+                text-[9px]
+                font-black
+                uppercase
+                tracking-[0.14em]
+                text-[var(--qoreva-subtle)]
+              "
+            >
+              Active Project
+            </span>
+
+            <select
+              className="
+                h-11
+                w-full
+                rounded-xl
+                border
+                border-[var(--qoreva-border)]
+                bg-white
+                px-3
+                text-sm
+                font-bold
+                text-[var(--qoreva-text)]
+                outline-none
+                transition
+                focus:border-[var(--qoreva-violet)]
+                focus:ring-4
+                focus:ring-[rgba(102,87,232,0.10)]
+              "
+            >
+              <option>GM Lansing Delta Township</option>
+              <option>North Campus Data Center</option>
+              <option>Industrial Energy Modernization</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      {/* Primary Metrics */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {overviewMetrics.map((metric) => (
+          <MetricCard key={metric.label} {...metric} />
+        ))}
+      </section>
+
+      {/* Command Workspace */}
+      <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Project Command Map */}
+        <article
+          className="
+            overflow-hidden
+            rounded-2xl
+            border
+            border-[var(--qoreva-border)]
+            bg-white
+            shadow-[var(--qoreva-shadow-sm)]
+          "
+        >
+          <div
+            className="
+              flex
+              flex-col
+              gap-3
+              border-b
+              border-[var(--qoreva-border)]
+              px-5
+              py-4
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+            "
+          >
+            <div>
+              <p
+                className="
+                  text-[9px]
+                  font-black
+                  uppercase
+                  tracking-[0.16em]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                Project Command Map
               </p>
 
-              <p className="mt-5 text-4xl font-black">{metric.value}</p>
+              <h3
+                className="
+                  mt-1
+                  text-lg
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                GM Lansing Delta Township
+              </h3>
+            </div>
 
-              <p className="mt-2 text-sm text-slate-500">{metric.note}</p>
-            </article>
+            <button
+              type="button"
+              className="
+                inline-flex
+                h-9
+                items-center
+                justify-center
+                rounded-lg
+                border
+                border-[var(--qoreva-border)]
+                bg-white
+                px-3
+                text-xs
+                font-black
+                text-[var(--qoreva-text)]
+                transition
+                hover:border-[rgba(102,87,232,0.25)]
+                hover:text-[var(--qoreva-violet)]
+              "
+            >
+              Manage Layers
+            </button>
+          </div>
+
+          <div
+            className="
+              relative
+              flex
+              min-h-[410px]
+              items-center
+              justify-center
+              overflow-hidden
+              bg-[#F5F3EE]
+              p-6
+            "
+          >
+            {/* Background grid only — not a fake project drawing */}
+            <div
+              className="
+                pointer-events-none
+                absolute
+                inset-0
+                opacity-[0.35]
+              "
+              style={{
+                backgroundImage:
+                  "linear-gradient(rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.06) 1px, transparent 1px)",
+                backgroundSize: "28px 28px",
+              }}
+            />
+
+            <div
+              className="
+                relative
+                z-10
+                max-w-lg
+                rounded-2xl
+                border
+                border-[var(--qoreva-border)]
+                bg-white/95
+                p-7
+                text-center
+                shadow-[var(--qoreva-shadow)]
+                backdrop-blur
+              "
+            >
+              <div
+                className="
+                  mx-auto
+                  flex
+                  h-12
+                  w-12
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-[var(--qoreva-violet-soft)]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path d="M4 19V5l5-2 6 2 5-2v14l-5 2-6-2-5 2Z" />
+                  <path d="M9 3v14M15 5v14" />
+                </svg>
+              </div>
+
+              <h4
+                className="
+                  mt-4
+                  text-lg
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                Project drawing not configured
+              </h4>
+
+              <p
+                className="
+                  mx-auto
+                  mt-2
+                  max-w-md
+                  text-sm
+                  leading-6
+                  text-[var(--qoreva-muted)]
+                "
+              >
+                Upload the project&apos;s architectural, engineering, site,
+                or floor-plan drawing to activate the live Command Map.
+              </p>
+
+              <button
+                type="button"
+                className="
+                  mt-5
+                  rounded-xl
+                  bg-[var(--qoreva-violet)]
+                  px-4
+                  py-2.5
+                  text-sm
+                  font-black
+                  text-white
+                  transition
+                  hover:bg-[var(--qoreva-violet-dark)]
+                "
+              >
+                Configure Project Map
+              </button>
+            </div>
+
+            <div
+              className="
+                absolute
+                bottom-4
+                left-4
+                right-4
+                z-10
+                flex
+                flex-wrap
+                gap-2
+              "
+            >
+              {[
+                "Work Areas",
+                "Contractors",
+                "Workers",
+                "PTPs",
+                "Permits",
+                "LOTO",
+                "Hazards",
+              ].map((layer) => (
+                <span
+                  key={layer}
+                  className="
+                    rounded-lg
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-white/90
+                    px-2.5
+                    py-1.5
+                    text-[10px]
+                    font-black
+                    text-[var(--qoreva-muted)]
+                    shadow-sm
+                    backdrop-blur
+                  "
+                >
+                  {layer}
+                </span>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        {/* Next Actions */}
+        <article
+          className="
+            rounded-2xl
+            border
+            border-[var(--qoreva-border)]
+            bg-white
+            shadow-[var(--qoreva-shadow-sm)]
+          "
+        >
+          <div
+            className="
+              flex
+              items-center
+              justify-between
+              border-b
+              border-[var(--qoreva-border)]
+              px-5
+              py-4
+            "
+          >
+            <div>
+              <p
+                className="
+                  text-[9px]
+                  font-black
+                  uppercase
+                  tracking-[0.16em]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                Priority Queue
+              </p>
+
+              <h3
+                className="
+                  mt-1
+                  text-lg
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                Your Next Actions
+              </h3>
+            </div>
+
+            <span
+              className="
+                flex
+                h-7
+                min-w-7
+                items-center
+                justify-center
+                rounded-full
+                bg-[var(--qoreva-violet-soft)]
+                px-2
+                text-xs
+                font-black
+                text-[var(--qoreva-violet)]
+              "
+            >
+              {nextActions.length}
+            </span>
+          </div>
+
+          <div className="divide-y divide-[var(--qoreva-border)]">
+            {nextActions.map((item) => (
+              <ActionItem key={item.title} {...item} />
+            ))}
+          </div>
+
+          <div className="p-4">
+            <button
+              type="button"
+              className="
+                w-full
+                rounded-xl
+                border
+                border-[var(--qoreva-border)]
+                px-4
+                py-2.5
+                text-xs
+                font-black
+                text-[var(--qoreva-text)]
+                transition
+                hover:bg-[var(--qoreva-bone)]
+              "
+            >
+              View All Actions
+            </button>
+          </div>
+        </article>
+      </section>
+
+      {/* Active Work */}
+      <section
+        className="
+          overflow-hidden
+          rounded-2xl
+          border
+          border-[var(--qoreva-border)]
+          bg-white
+          shadow-[var(--qoreva-shadow-sm)]
+        "
+      >
+        <div
+          className="
+            flex
+            flex-col
+            gap-3
+            border-b
+            border-[var(--qoreva-border)]
+            px-5
+            py-4
+            sm:flex-row
+            sm:items-center
+            sm:justify-between
+          "
+        >
+          <div>
+            <p
+              className="
+                text-[9px]
+                font-black
+                uppercase
+                tracking-[0.16em]
+                text-[var(--qoreva-violet)]
+              "
+            >
+              Field Operations
+            </p>
+
+            <h3
+              className="
+                mt-1
+                text-lg
+                font-black
+                text-[var(--qoreva-obsidian)]
+              "
+            >
+              Active Work Today
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            className="
+              text-xs
+              font-black
+              text-[var(--qoreva-violet)]
+              hover:text-[var(--qoreva-violet-dark)]
+            "
+          >
+            View All Work
+          </button>
+        </div>
+
+        <div className="grid gap-3 p-4 xl:grid-cols-3">
+          {activeWork.map((work) => (
+            <WorkCard key={work.scope} {...work} />
           ))}
-        </section>
+        </div>
+      </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]">
-          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
-              Executive Intelligence
-            </p>
+      {/* Safety + Vision */}
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        {/* Safety Pulse */}
+        <article
+          className="
+            rounded-2xl
+            border
+            border-[var(--qoreva-border)]
+            bg-white
+            p-5
+            shadow-[var(--qoreva-shadow-sm)]
+          "
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p
+                className="
+                  text-[9px]
+                  font-black
+                  uppercase
+                  tracking-[0.16em]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                Safety
+              </p>
 
-            <h2 className="mt-1 text-2xl font-black">
-              Safety and Operations Overview
-            </h2>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <ProgressCard label="Training Compliance" value={96} />
-
-              <ProgressCard label="Access Eligibility" value={94} />
-
-              <ProgressCard label="Planning Approval Rate" value={91} />
-
-              <ProgressCard label="Inspection Completion" value={88} />
+              <h3
+                className="
+                  mt-1
+                  text-lg
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                Project Pulse
+              </h3>
             </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SmallCard label="Total Man-Hours" value="50,240" />
-              <SmallCard label="Recordables" value="0" />
-              <SmallCard label="Open Permits" value="4" />
-              <SmallCard label="Pending PTPs" value="3" />
-            </div>
-          </article>
+            <span
+              className="
+                rounded-lg
+                bg-[var(--qoreva-bone)]
+                px-3
+                py-1.5
+                text-[10px]
+                font-black
+                text-[var(--qoreva-muted)]
+              "
+            >
+              This Week
+            </span>
+          </div>
 
-          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
-              Quick Actions
-            </p>
-
-            <h2 className="mt-1 text-2xl font-black">Start Field Work</h2>
-
-            <div className="mt-6 space-y-3">
-              {quickActions.map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-black hover:border-cyan-300 hover:bg-cyan-50"
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            {pulse.map((item) => (
+              <div
+                key={item.label}
+                className="
+                  rounded-xl
+                  border
+                  border-[var(--qoreva-border)]
+                  p-4
+                "
+              >
+                <p
+                  className="
+                    text-[10px]
+                    font-bold
+                    text-[var(--qoreva-muted)]
+                  "
                 >
-                  {action}
-                  <span>→</span>
-                </button>
-              ))}
-            </div>
-          </article>
-        </section>
+                  {item.label}
+                </p>
 
-        <section className="grid gap-6 xl:grid-cols-2">
-          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
-              Vision™ AI
-            </p>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <span
+                    className="
+                      text-2xl
+                      font-black
+                      text-[var(--qoreva-obsidian)]
+                    "
+                  >
+                    {item.value}
+                  </span>
 
-            <h2 className="mt-1 text-2xl font-black">
-              Priority Intelligence
-            </h2>
-
-            <div className="mt-6 space-y-4">
-              <AlertCard
-                title="Planning document mismatch"
-                detail="One work scope references roof access but does not describe roof work in the task analysis."
-                level="High"
-              />
-
-              <AlertCard
-                title="Credentials approaching expiration"
-                detail="Four workers require updated training or eligibility verification."
-                level="Medium"
-              />
-
-              <AlertCard
-                title="Workforce trend"
-                detail="Current onsite workforce is higher than last week's average."
-                level="Advisory"
-              />
-            </div>
-          </article>
-
-          <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
-              Recent Activity
-            </p>
-
-            <h2 className="mt-1 text-2xl font-black">What Changed Today</h2>
-
-            <div className="mt-6 space-y-4">
-              {activity.map((item) => (
-                <div
-                  key={item.title}
-                  className="flex gap-4 rounded-2xl border border-slate-200 p-4"
-                >
-                  <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-cyan-500 ring-4 ring-cyan-100" />
-
-                  <div>
-                    <p className="font-black">{item.title}</p>
-
-                    <p className="mt-1 text-sm text-slate-600">
-                      {item.detail}
-                    </p>
-
-                    <p className="mt-2 text-xs font-bold text-slate-400">
-                      {item.time}
-                    </p>
-                  </div>
+                  <span
+                    className="
+                      text-[10px]
+                      font-black
+                      text-emerald-700
+                    "
+                  >
+                    {item.change}
+                  </span>
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="
+              mt-4
+              flex
+              items-center
+              justify-between
+              rounded-xl
+              bg-[var(--qoreva-bone)]
+              px-4
+              py-3
+            "
+          >
+            <div>
+              <p
+                className="
+                  text-[10px]
+                  font-bold
+                  text-[var(--qoreva-muted)]
+                "
+              >
+                Days Since Last Recordable
+              </p>
+
+              <p
+                className="
+                  mt-1
+                  text-2xl
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                117
+              </p>
             </div>
-          </article>
-        </section>
-      </div>
-    </main>
-  );
-}
 
-function SummaryCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-      <p className="text-xs font-black uppercase tracking-wide text-cyan-100">
-        {label}
-      </p>
+            <div className="text-right">
+              <p
+                className="
+                  text-[10px]
+                  font-bold
+                  text-[var(--qoreva-muted)]
+                "
+              >
+                Safe Man-Hours
+              </p>
 
-      <p className="mt-2 text-2xl font-black">{value}</p>
+              <p
+                className="
+                  mt-1
+                  text-sm
+                  font-black
+                  text-emerald-700
+                "
+              >
+                50,240
+              </p>
+            </div>
+          </div>
+        </article>
 
-      <p className="mt-1 text-xs text-blue-100">{note}</p>
+        {/* Vision */}
+        <article
+          className="
+            rounded-2xl
+            border
+            border-[var(--qoreva-border)]
+            bg-white
+            shadow-[var(--qoreva-shadow-sm)]
+          "
+        >
+          <div
+            className="
+              flex
+              items-center
+              justify-between
+              border-b
+              border-[var(--qoreva-border)]
+              px-5
+              py-4
+            "
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <p
+                  className="
+                    text-[9px]
+                    font-black
+                    uppercase
+                    tracking-[0.16em]
+                    text-[var(--qoreva-violet)]
+                  "
+                >
+                  Qoreva Vision™
+                </p>
+
+                <span
+                  className="
+                    rounded-full
+                    bg-[var(--qoreva-violet-soft)]
+                    px-2
+                    py-0.5
+                    text-[8px]
+                    font-black
+                    uppercase
+                    tracking-[0.10em]
+                    text-[var(--qoreva-violet)]
+                  "
+                >
+                  AI
+                </span>
+              </div>
+
+              <h3
+                className="
+                  mt-1
+                  text-lg
+                  font-black
+                  text-[var(--qoreva-obsidian)]
+                "
+              >
+                Project Insights
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              className="
+                text-xs
+                font-black
+                text-[var(--qoreva-violet)]
+              "
+            >
+              View All
+            </button>
+          </div>
+
+          <div className="divide-y divide-[var(--qoreva-border)] px-5">
+            {visionInsights.map((insight) => (
+              <VisionInsight key={insight.title} {...insight} />
+            ))}
+          </div>
+
+          <div
+            className="
+              border-t
+              border-[var(--qoreva-border)]
+              p-4
+            "
+          >
+            <button
+              type="button"
+              className="
+                flex
+                w-full
+                items-center
+                justify-between
+                rounded-xl
+                bg-[var(--qoreva-violet-soft)]
+                px-4
+                py-3
+                text-left
+                text-xs
+                font-black
+                text-[var(--qoreva-violet-dark)]
+                transition
+                hover:bg-[rgba(102,87,232,0.14)]
+              "
+            >
+              <span>Ask Vision™ about this project</span>
+              <span>→</span>
+            </button>
+          </div>
+        </article>
+      </section>
     </div>
   );
 }
 
-function ProgressCard({
+function MetricCard({
   label,
   value,
+  detail,
+  trend,
+  tone,
 }: {
   label: string;
-  value: number;
+  value: string;
+  detail: string;
+  trend: string;
+  tone: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 p-5">
-      <div className="flex items-center justify-between">
-        <p className="font-black">{label}</p>
+    <article
+      className="
+        rounded-2xl
+        border
+        border-[var(--qoreva-border)]
+        bg-white
+        p-4
+        shadow-[var(--qoreva-shadow-sm)]
+      "
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p
+            className="
+              text-[9px]
+              font-black
+              uppercase
+              tracking-[0.14em]
+              text-[var(--qoreva-subtle)]
+            "
+          >
+            {label}
+          </p>
 
-        <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-black text-blue-700">
-          {value}%
+          <p
+            className="
+              mt-2
+              text-3xl
+              font-black
+              tracking-[-0.04em]
+              text-[var(--qoreva-obsidian)]
+            "
+          >
+            {value}
+          </p>
+        </div>
+
+        <div
+          className={`
+            flex
+            h-9
+            w-9
+            items-center
+            justify-center
+            rounded-xl
+            ${
+              tone === "success"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet)]"
+            }
+          `}
+        >
+          <span className="text-sm font-black">✓</span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-[10px] text-[var(--qoreva-muted)]">
+          {detail}
+        </p>
+
+        <span
+          className="
+            shrink-0
+            text-[9px]
+            font-black
+            text-emerald-700
+          "
+        >
+          {trend}
         </span>
       </div>
-
-      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-[#0B132B] to-[#00C2FF]"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-    </div>
+    </article>
   );
 }
 
-function SmallCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-black uppercase text-slate-500">{label}</p>
-
-      <p className="mt-2 text-2xl font-black">{value}</p>
-    </div>
-  );
-}
-
-function AlertCard({
+function ActionItem({
   title,
   detail,
-  level,
+  meta,
+  action,
+  severity,
 }: {
   title: string;
   detail: string;
-  level: string;
+  meta: string;
+  action: string;
+  severity: string;
 }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 p-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="font-black">{title}</p>
+  const danger = severity === "danger";
 
-        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
-          {level}
+  return (
+    <div className="p-4">
+      <div className="flex gap-3">
+        <div
+          className={`
+            mt-0.5
+            flex
+            h-8
+            w-8
+            shrink-0
+            items-center
+            justify-center
+            rounded-lg
+            ${
+              danger
+                ? "bg-rose-50 text-rose-700"
+                : "bg-amber-50 text-amber-700"
+            }
+          `}
+        >
+          <span className="text-sm font-black">!</span>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p
+            className="
+              text-sm
+              font-black
+              text-[var(--qoreva-obsidian)]
+            "
+          >
+            {title}
+          </p>
+
+          <p className="mt-0.5 text-xs text-[var(--qoreva-muted)]">
+            {detail}
+          </p>
+
+          <p className="mt-1 text-[9px] font-bold text-[var(--qoreva-subtle)]">
+            {meta}
+          </p>
+
+          <button
+            type="button"
+            className={`
+              mt-3
+              rounded-lg
+              px-3
+              py-1.5
+              text-[10px]
+              font-black
+              transition
+              ${
+                danger
+                  ? "bg-rose-600 text-white hover:bg-rose-700"
+                  : "bg-amber-500 text-white hover:bg-amber-600"
+              }
+            `}
+          >
+            {action}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkCard({
+  scope,
+  contractor,
+  location,
+  workers,
+  ptp,
+  permits,
+  status,
+}: {
+  scope: string;
+  contractor: string;
+  location: string;
+  workers: string;
+  ptp: string;
+  permits: string;
+  status: string;
+}) {
+  const ready = status === "Ready";
+
+  return (
+    <article
+      className="
+        rounded-xl
+        border
+        border-[var(--qoreva-border)]
+        p-4
+      "
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4
+            className="
+              truncate
+              text-sm
+              font-black
+              text-[var(--qoreva-obsidian)]
+            "
+          >
+            {scope}
+          </h4>
+
+          <p className="mt-1 text-[10px] text-[var(--qoreva-muted)]">
+            {contractor}
+          </p>
+
+          <p className="mt-0.5 text-[10px] text-[var(--qoreva-subtle)]">
+            {location}
+          </p>
+        </div>
+
+        <span
+          className={`
+            rounded-full
+            px-2.5
+            py-1
+            text-[9px]
+            font-black
+            ${
+              ready
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-700"
+            }
+          `}
+        >
+          {status}
         </span>
       </div>
 
-      <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <WorkStat label="Workers" value={workers} />
+        <WorkStat label="PTP" value={ptp} />
+        <WorkStat label="Permits" value={permits} />
+      </div>
+
+      <button
+        type="button"
+        className="
+          mt-4
+          w-full
+          rounded-lg
+          bg-[var(--qoreva-bone)]
+          px-3
+          py-2
+          text-[10px]
+          font-black
+          text-[var(--qoreva-text)]
+          transition
+          hover:bg-[var(--qoreva-violet-soft)]
+          hover:text-[var(--qoreva-violet)]
+        "
+      >
+        Open Work Package
+      </button>
+    </article>
+  );
+}
+
+function WorkStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg bg-[var(--qoreva-bone)] p-2.5">
+      <p className="text-[8px] font-bold uppercase text-[var(--qoreva-subtle)]">
+        {label}
+      </p>
+
+      <p
+        className="
+          mt-1
+          truncate
+          text-[10px]
+          font-black
+          text-[var(--qoreva-obsidian)]
+        "
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function VisionInsight({
+  title,
+  detail,
+  tone,
+}: {
+  title: string;
+  detail: string;
+  tone: string;
+}) {
+  const toneClass =
+    tone === "success"
+      ? "bg-emerald-50 text-emerald-700"
+      : tone === "warning"
+        ? "bg-amber-50 text-amber-700"
+        : tone === "info"
+          ? "bg-sky-50 text-sky-700"
+          : "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet)]";
+
+  return (
+    <div className="flex gap-3 py-4">
+      <div
+        className={`
+          flex
+          h-8
+          w-8
+          shrink-0
+          items-center
+          justify-center
+          rounded-lg
+          ${toneClass}
+        `}
+      >
+        <span className="text-xs font-black">✦</span>
+      </div>
+
+      <div>
+        <p
+          className="
+            text-sm
+            font-black
+            text-[var(--qoreva-obsidian)]
+          "
+        >
+          {title}
+        </p>
+
+        <p
+          className="
+            mt-1
+            text-xs
+            leading-5
+            text-[var(--qoreva-muted)]
+          "
+        >
+          {detail}
+        </p>
+      </div>
     </div>
   );
 }

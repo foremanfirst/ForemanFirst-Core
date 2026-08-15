@@ -211,7 +211,7 @@ export default function ContractorDocumentHistoryModal({
       <button
         type="button"
         onClick={openModal}
-        className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
+        className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2.5 text-sm font-black text-[var(--qoreva-text)] transition-all duration-150 hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-faint)] hover:text-[var(--qoreva-violet-dark)]"
       >
         Document History
       </button>
@@ -219,31 +219,31 @@ export default function ContractorDocumentHistoryModal({
       <ModalShell
         isOpen={isOpen}
         title="Document History"
-        eyebrow="Contractor Documentation"
+        eyebrow="Qoreva™ Contractor Documentation"
         onClose={closeModal}
         maxWidthClass="max-w-5xl"
       >
-        <div className="space-y-6 p-5 sm:p-7">
-          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center">
+        <div className="space-y-6 bg-[var(--qoreva-porcelain)] p-5 sm:p-7">
+          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 shadow-[var(--qoreva-shadow-sm)] sm:flex-row sm:items-center">
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                 Contractor
               </p>
 
-              <p className="mt-1 text-lg font-black text-slate-950">
+              <p className="mt-1 text-lg font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
                 {contractorName}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
+              <div className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
                 {events.length}{" "}
                 {events.length === 1
                   ? "event"
                   : "events"}
               </div>
 
-              <div className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
+              <div className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
                 {documents.length}{" "}
                 historical{" "}
                 {documents.length === 1
@@ -259,12 +259,30 @@ export default function ContractorDocumentHistoryModal({
                 disabled={
                   isLoading
                 }
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition-all duration-150 hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-faint)] hover:text-[var(--qoreva-violet-dark)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading
                   ? "Refreshing..."
                   : "Refresh"}
               </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]">
+                <AuditIcon />
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Qoreva™ Audit Trail
+                </p>
+
+                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                  Review decisions, replacements, archived versions, comments, and status changes remain preserved for contractor recordkeeping.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -275,13 +293,13 @@ export default function ContractorDocumentHistoryModal({
           ) : null}
 
           {isLoading ? (
-            <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
-              <p className="font-black text-slate-800">
+            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white py-12 text-center">
+              <p className="font-black text-[var(--qoreva-text)]">
                 Loading document
                 history...
               </p>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                 Retrieving document
                 activity and historical
                 versions.
@@ -292,12 +310,12 @@ export default function ContractorDocumentHistoryModal({
           {!isLoading &&
           !error &&
           !hasHistory ? (
-            <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
-              <p className="font-black text-slate-800">
+            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white py-12 text-center">
+              <p className="font-black text-[var(--qoreva-text)]">
                 No document history
               </p>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                 Review activity,
                 archived documents, and
                 replaced versions will
@@ -309,17 +327,17 @@ export default function ContractorDocumentHistoryModal({
           {!isLoading &&
           !error &&
           events.length > 0 ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="border-b border-slate-200 pb-4">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-700">
+            <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+              <div className="border-b border-[var(--qoreva-border)] pb-4">
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
                   Lifecycle Timeline
                 </p>
 
-                <h3 className="mt-1 text-lg font-black text-slate-950">
+                <h3 className="mt-1 text-lg font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
                   Document Activity
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                   Review decisions and
                   document activity are
                   retained as part of the
@@ -359,7 +377,7 @@ export default function ContractorDocumentHistoryModal({
                       >
                         <div className="relative flex w-8 shrink-0 justify-center">
                           {!isLast ? (
-                            <div className="absolute bottom-0 top-8 w-px bg-slate-200" />
+                            <div className="absolute bottom-0 top-8 w-px bg-[var(--qoreva-surface-muted)]" />
                           ) : null}
 
                           <div
@@ -378,7 +396,7 @@ export default function ContractorDocumentHistoryModal({
                               : "pb-6"
                           }`}
                         >
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 shadow-[var(--qoreva-shadow-sm)]">
                             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -393,20 +411,20 @@ export default function ContractorDocumentHistoryModal({
                                   {event
                                     .document
                                     .isArchived ? (
-                                    <span className="inline-flex rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
+                                    <span className="inline-flex rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
                                       Historical
                                       Version
                                     </span>
                                   ) : null}
                                 </div>
 
-                                <p className="mt-3 break-words font-black text-slate-950">
+                                <p className="mt-3 break-words font-black text-[var(--qoreva-obsidian)]">
                                   {
                                     displayName
                                   }
                                 </p>
 
-                                <p className="mt-1 text-xs font-semibold text-slate-500">
+                                <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
                                   {
                                     event
                                       .document
@@ -416,13 +434,13 @@ export default function ContractorDocumentHistoryModal({
                               </div>
 
                               <div className="shrink-0 text-left sm:text-right">
-                                <p className="text-sm font-black text-slate-800">
+                                <p className="text-sm font-black text-[var(--qoreva-text)]">
                                   {formatDateTime(
                                     event.createdAt,
                                   )}
                                 </p>
 
-                                <p className="mt-1 text-xs font-semibold text-slate-500">
+                                <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
                                   Eastern
                                   Time
                                 </p>
@@ -432,20 +450,20 @@ export default function ContractorDocumentHistoryModal({
                             {shouldShowStatusTransition(
                               event,
                             ) ? (
-                              <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                                <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                              <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                                   Status
                                   Change
                                 </p>
 
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-700">
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--qoreva-text)]">
                                   <span>
                                     {getPreviousStatus(
                                       event,
                                     )}
                                   </span>
 
-                                  <span className="text-slate-400">
+                                  <span className="text-[var(--qoreva-subtle)]">
                                     →
                                   </span>
 
@@ -463,13 +481,13 @@ export default function ContractorDocumentHistoryModal({
                             ) : null}
 
                             {event.comment ? (
-                              <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                                <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                              <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                                   Reviewer
                                   Comment
                                 </p>
 
-                                <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+                                <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
                                   {
                                     event.comment
                                   }
@@ -477,9 +495,9 @@ export default function ContractorDocumentHistoryModal({
                               </div>
                             ) : null}
 
-                            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+                            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[var(--qoreva-muted)]">
                               <span>
-                                <span className="font-black text-slate-600">
+                                <span className="font-black text-[var(--qoreva-muted)]">
                                   Performed
                                   By:
                                 </span>{" "}
@@ -488,7 +506,7 @@ export default function ContractorDocumentHistoryModal({
                               </span>
 
                               <span>
-                                <span className="font-black text-slate-600">
+                                <span className="font-black text-[var(--qoreva-muted)]">
                                   Document
                                   Status:
                                 </span>{" "}
@@ -513,13 +531,13 @@ export default function ContractorDocumentHistoryModal({
           !error &&
           events.length === 0 &&
           documents.length > 0 ? (
-            <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3">
-              <p className="text-sm font-black text-cyan-900">
+            <div className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-4 py-3">
+              <p className="text-sm font-black text-[var(--qoreva-violet-dark)]">
                 Lifecycle tracking is
                 ready
               </p>
 
-              <p className="mt-1 text-sm font-semibold leading-6 text-cyan-800">
+              <p className="mt-1 text-sm font-semibold leading-6 text-[var(--qoreva-violet-dark)]">
                 These documents were
                 created before structured
                 document-event tracking
@@ -535,16 +553,16 @@ export default function ContractorDocumentHistoryModal({
           documents.length > 0 ? (
             <section className="space-y-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--qoreva-muted)]">
                   Historical Files
                 </p>
 
-                <h3 className="mt-1 text-lg font-black text-slate-950">
+                <h3 className="mt-1 text-lg font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
                   Archived & Replaced
                   Documents
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                   Previous file versions
                   remain preserved for
                   audit and recordkeeping.
@@ -568,17 +586,17 @@ export default function ContractorDocumentHistoryModal({
                       key={
                         document.id
                       }
-                      className="rounded-2xl border border-slate-200 bg-white p-5"
+                      className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]"
                     >
                       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                         <div className="min-w-0">
-                          <p className="break-words font-black text-slate-950">
+                          <p className="break-words font-black text-[var(--qoreva-obsidian)]">
                             {
                               displayName
                             }
                           </p>
 
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                             {getDocumentTypeLabel(
                               document,
                             )}
@@ -591,7 +609,7 @@ export default function ContractorDocumentHistoryModal({
                           </p>
                         </div>
 
-                        <span className="inline-flex shrink-0 rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-700">
+                        <span className="inline-flex shrink-0 rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
                           Archived
                         </span>
                       </div>
@@ -659,13 +677,13 @@ export default function ContractorDocumentHistoryModal({
                       </div>
 
                       {document.notes ? (
-                        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                        <div className="mt-5 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3">
+                          <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                             Document
                             Notes
                           </p>
 
-                          <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+                          <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
                             {
                               document.notes
                             }
@@ -673,7 +691,7 @@ export default function ContractorDocumentHistoryModal({
                         </div>
                       ) : null}
 
-                      <div className="mt-5 flex flex-wrap gap-3 border-t border-slate-200 pt-4">
+                      <div className="mt-5 flex flex-wrap gap-3 border-t border-[var(--qoreva-border)] pt-4">
                         {/*
                          * Archived documents are
                          * intentionally download-only
@@ -689,7 +707,7 @@ export default function ContractorDocumentHistoryModal({
                           href={
                             downloadUrl
                           }
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
+                          className="inline-flex items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition-all duration-150 hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-faint)] hover:text-[var(--qoreva-violet-dark)]"
                         >
                           Download
                           Historical
@@ -703,13 +721,13 @@ export default function ContractorDocumentHistoryModal({
             </section>
           ) : null}
 
-          <div className="flex justify-end border-t border-slate-200 pt-5">
+          <div className="flex justify-end border-t border-[var(--qoreva-border)] pt-5">
             <button
               type="button"
               onClick={
                 closeModal
               }
-              className="rounded-xl bg-[#0B132B] px-6 py-3 text-sm font-black text-white transition hover:bg-blue-950"
+              className="rounded-xl bg-[var(--qoreva-violet)] px-6 py-3 text-sm font-black text-white shadow-sm transition-all duration-150 hover:-translate-y-px hover:bg-[var(--qoreva-violet-hover)] hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]"
             >
               Close
             </button>
@@ -717,6 +735,30 @@ export default function ContractorDocumentHistoryModal({
         </div>
       </ModalShell>
     </>
+  );
+}
+
+function AuditIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-5 w-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3 5 6v5c0 4.8 2.9 8.4 7 10 4.1-1.6 7-5.2 7-10V6l-7-3Z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m9.5 12 1.7 1.7 3.6-4"
+      />
+    </svg>
   );
 }
 
@@ -729,11 +771,11 @@ function HistoryDetail({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+      <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </p>
 
-      <div className="mt-1 break-words text-sm font-black text-slate-800">
+      <div className="mt-1 break-words text-sm font-black text-[var(--qoreva-text)]">
         {value ||
           "Not entered"}
       </div>
@@ -756,13 +798,13 @@ function getEventDisplay(
         symbol: "V",
 
         circleClassName:
-          "bg-cyan-100 text-cyan-800",
+          "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         badgeClassName:
-          "bg-cyan-100 text-cyan-800",
+          "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         textClassName:
-          "text-cyan-800",
+          "text-[var(--qoreva-violet-dark)]",
       };
 
     case "APPROVED":
@@ -771,13 +813,13 @@ function getEventDisplay(
         symbol: "✓",
 
         circleClassName:
-          "bg-emerald-100 text-emerald-800",
+          "border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
 
         badgeClassName:
-          "bg-emerald-100 text-emerald-800",
+          "border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
 
         textClassName:
-          "text-emerald-800",
+          "text-[var(--qoreva-success)]",
       };
 
     case "NEEDS_REVISION":
@@ -788,13 +830,13 @@ function getEventDisplay(
         symbol: "!",
 
         circleClassName:
-          "bg-amber-100 text-amber-800",
+          "border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]",
 
         badgeClassName:
-          "bg-amber-100 text-amber-800",
+          "border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]",
 
         textClassName:
-          "text-amber-800",
+          "text-[#9B6212]",
       };
 
     case "REJECTED":
@@ -803,13 +845,13 @@ function getEventDisplay(
         symbol: "×",
 
         circleClassName:
-          "bg-rose-100 text-rose-800",
+          "border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
 
         badgeClassName:
-          "bg-rose-100 text-rose-800",
+          "border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
 
         textClassName:
-          "text-rose-800",
+          "text-[var(--qoreva-danger)]",
       };
 
     case "UPLOADED":
@@ -818,13 +860,13 @@ function getEventDisplay(
         symbol: "↑",
 
         circleClassName:
-          "bg-blue-100 text-blue-800",
+          "border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         badgeClassName:
-          "bg-blue-100 text-blue-800",
+          "border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         textClassName:
-          "text-blue-800",
+          "text-[var(--qoreva-violet-dark)]",
       };
 
     case "REPLACED":
@@ -833,13 +875,13 @@ function getEventDisplay(
         symbol: "R",
 
         circleClassName:
-          "bg-violet-100 text-violet-800",
+          "border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         badgeClassName:
-          "bg-violet-100 text-violet-800",
+          "border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
 
         textClassName:
-          "text-violet-800",
+          "text-[var(--qoreva-violet-dark)]",
       };
 
     case "ARCHIVED":
@@ -848,13 +890,13 @@ function getEventDisplay(
         symbol: "A",
 
         circleClassName:
-          "bg-slate-200 text-slate-700",
+          "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-text)]",
 
         badgeClassName:
-          "bg-slate-200 text-slate-700",
+          "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-text)]",
 
         textClassName:
-          "text-slate-700",
+          "text-[var(--qoreva-text)]",
       };
 
     default:
@@ -867,13 +909,13 @@ function getEventDisplay(
         symbol: "•",
 
         circleClassName:
-          "bg-slate-200 text-slate-700",
+          "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-text)]",
 
         badgeClassName:
-          "bg-slate-200 text-slate-700",
+          "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-text)]",
 
         textClassName:
-          "text-slate-700",
+          "text-[var(--qoreva-text)]",
       };
   }
 }

@@ -11,7 +11,6 @@ import {
 import { useRouter } from "next/navigation";
 
 import {
-  FormSection,
   ModalShell,
   SelectField,
   TextField,
@@ -107,7 +106,9 @@ export default function AddContractorDocumentModal({
   const fileInputRef =
     useRef<HTMLInputElement | null>(null);
 
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] =
+    useState(false);
+
   const [isUploading, setIsUploading] =
     useState(false);
 
@@ -123,14 +124,21 @@ export default function AddContractorDocumentModal({
   const [expirationDate, setExpirationDate] =
     useState("");
 
-  const [notes, setNotes] = useState("");
-
-  const [selectedDocuments, setSelectedDocuments] =
-    useState<File[]>([]);
-
-  const [error, setError] = useState("");
-  const [documentError, setDocumentError] =
+  const [notes, setNotes] =
     useState("");
+
+  const [
+    selectedDocuments,
+    setSelectedDocuments,
+  ] = useState<File[]>([]);
+
+  const [error, setError] =
+    useState("");
+
+  const [
+    documentError,
+    setDocumentError,
+  ] = useState("");
 
   function openModal() {
     resetForm();
@@ -161,7 +169,9 @@ export default function AddContractorDocumentModal({
     }
   }
 
-  function addDocuments(files: File[]) {
+  function addDocuments(
+    files: File[],
+  ) {
     setDocumentError("");
 
     const acceptedFiles: File[] = [];
@@ -179,9 +189,14 @@ export default function AddContractorDocumentModal({
         );
 
       const allowedMimeType =
-        ALLOWED_DOCUMENT_TYPES.includes(file.type);
+        ALLOWED_DOCUMENT_TYPES.includes(
+          file.type,
+        );
 
-      if (!allowedExtension && !allowedMimeType) {
+      if (
+        !allowedExtension &&
+        !allowedMimeType
+      ) {
         rejectedFiles.push(
           `${file.name} — unsupported file type`,
         );
@@ -197,7 +212,10 @@ export default function AddContractorDocumentModal({
         continue;
       }
 
-      if (file.size > MAX_DOCUMENT_SIZE) {
+      if (
+        file.size >
+        MAX_DOCUMENT_SIZE
+      ) {
         rejectedFiles.push(
           `${file.name} — exceeds 20 MB`,
         );
@@ -208,26 +226,32 @@ export default function AddContractorDocumentModal({
       acceptedFiles.push(file);
     }
 
-    setSelectedDocuments((currentFiles) => {
-      const combinedFiles = [
-        ...currentFiles,
-        ...acceptedFiles,
-      ];
+    setSelectedDocuments(
+      (currentFiles) => {
+        const combinedFiles = [
+          ...currentFiles,
+          ...acceptedFiles,
+        ];
 
-      return combinedFiles.filter(
-        (file, index, allFiles) =>
-          index ===
-          allFiles.findIndex(
-            (candidate) =>
-              candidate.name === file.name &&
-              candidate.size === file.size &&
-              candidate.lastModified ===
-                file.lastModified,
-          ),
-      );
-    });
+        return combinedFiles.filter(
+          (file, index, allFiles) =>
+            index ===
+            allFiles.findIndex(
+              (candidate) =>
+                candidate.name ===
+                  file.name &&
+                candidate.size ===
+                  file.size &&
+                candidate.lastModified ===
+                  file.lastModified,
+            ),
+        );
+      },
+    );
 
-    if (rejectedFiles.length > 0) {
+    if (
+      rejectedFiles.length > 0
+    ) {
       setDocumentError(
         rejectedFiles.join(", "),
       );
@@ -266,11 +290,15 @@ export default function AddContractorDocumentModal({
     event.stopPropagation();
   }
 
-  function removeDocument(indexToRemove: number) {
-    setSelectedDocuments((currentFiles) =>
-      currentFiles.filter(
-        (_, index) => index !== indexToRemove,
-      ),
+  function removeDocument(
+    indexToRemove: number,
+  ) {
+    setSelectedDocuments(
+      (currentFiles) =>
+        currentFiles.filter(
+          (_, index) =>
+            index !== indexToRemove,
+        ),
     );
   }
 
@@ -283,11 +311,15 @@ export default function AddContractorDocumentModal({
     setDocumentError("");
 
     if (!documentType) {
-      setError("Select a document type.");
+      setError(
+        "Select a document type.",
+      );
       return;
     }
 
-    if (selectedDocuments.length === 0) {
+    if (
+      selectedDocuments.length === 0
+    ) {
       setError(
         "Select at least one document to upload.",
       );
@@ -321,7 +353,8 @@ export default function AddContractorDocumentModal({
     setIsUploading(true);
 
     try {
-      const formData = new FormData();
+      const formData =
+        new FormData();
 
       formData.append(
         "contractorId",
@@ -329,7 +362,10 @@ export default function AddContractorDocumentModal({
       );
 
       if (projectId) {
-        formData.append("projectId", projectId);
+        formData.append(
+          "projectId",
+          projectId,
+        );
       }
 
       formData.append(
@@ -365,8 +401,13 @@ export default function AddContractorDocumentModal({
         );
       }
 
-      for (const file of selectedDocuments) {
-        formData.append("files", file);
+      for (
+        const file of selectedDocuments
+      ) {
+        formData.append(
+          "files",
+          file,
+        );
       }
 
       const response = await fetch(
@@ -377,13 +418,14 @@ export default function AddContractorDocumentModal({
         },
       );
 
-      const responseData = (await response
-        .json()
-        .catch(() => null)) as
-        | {
-            message?: string;
-          }
-        | null;
+      const responseData =
+        (await response
+          .json()
+          .catch(() => null)) as
+          | {
+              message?: string;
+            }
+          | null;
 
       if (!response.ok) {
         throw new Error(
@@ -411,7 +453,25 @@ export default function AddContractorDocumentModal({
       <button
         type="button"
         onClick={openModal}
-        className="inline-flex items-center justify-center rounded-xl bg-[#00C2FF] px-4 py-2.5 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300"
+        className="
+          inline-flex
+          min-h-11
+          items-center
+          justify-center
+          rounded-xl
+          bg-[var(--qoreva-violet)]
+          px-4
+          py-2.5
+          text-sm
+          font-black
+          text-white
+          shadow-sm
+          transition-all
+          duration-150
+          hover:-translate-y-px
+          hover:bg-[var(--qoreva-violet-hover)]
+          hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]
+        "
       >
         + Add Document
       </button>
@@ -419,227 +479,720 @@ export default function AddContractorDocumentModal({
       <ModalShell
         isOpen={isOpen}
         title="Add Contractor Document"
-        eyebrow="Contractor Documentation"
+        eyebrow="Qoreva™ Contractor Documentation"
         onClose={closeModal}
         maxWidthClass="max-w-4xl"
       >
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-7 p-5 sm:p-7">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                Contractor
-              </p>
+        <form
+          onSubmit={handleSubmit}
+        >
+          <div
+            className="
+              space-y-6
+              bg-[var(--qoreva-porcelain)]
+              p-5
+              sm:p-7
+            "
+          >
+            {/* Contractor */}
+            <div
+              className="
+                flex
+                flex-col
+                gap-4
+                rounded-2xl
+                border
+                border-[var(--qoreva-border)]
+                bg-white
+                p-4
+                shadow-[var(--qoreva-shadow-sm)]
+                sm:flex-row
+                sm:items-center
+                sm:justify-between
+              "
+            >
+              <div>
+                <p
+                  className="
+                    text-[10px]
+                    font-black
+                    uppercase
+                    tracking-[0.14em]
+                    text-[var(--qoreva-muted)]
+                  "
+                >
+                  Contractor
+                </p>
 
-              <p className="mt-1 font-black text-slate-950">
-                {contractorName}
-              </p>
+                <p
+                  className="
+                    mt-1
+                    text-lg
+                    font-black
+                    tracking-[-0.02em]
+                    text-[var(--qoreva-obsidian)]
+                  "
+                >
+                  {contractorName}
+                </p>
+              </div>
+
+              <span
+                className="
+                  inline-flex
+                  self-start
+                  rounded-full
+                  border
+                  border-[rgba(102,87,232,0.18)]
+                  bg-[var(--qoreva-violet-soft)]
+                  px-3
+                  py-1
+                  text-[10px]
+                  font-black
+                  uppercase
+                  tracking-[0.1em]
+                  text-[var(--qoreva-violet-dark)]
+                "
+              >
+                New Document
+              </span>
             </div>
 
             {error ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+              <div
+                className="
+                  rounded-2xl
+                  border
+                  border-[#F0BDC4]
+                  bg-[var(--qoreva-danger-soft)]
+                  px-4
+                  py-3
+                  text-sm
+                  font-black
+                  text-[var(--qoreva-danger)]
+                "
+              >
                 {error}
               </div>
             ) : null}
 
-            <FormSection
-              title="Document Information"
+            {/* 01 Document Details */}
+            <DocumentSection
+              number="01"
+              title="Document Details"
               description="Classify the document and enter any applicable dates."
             >
-              <SelectField
-                label="Document Type"
-                value={documentType}
-                options={documentTypeOptions}
-                required
-                onChange={setDocumentType}
-              />
-
-              <TextField
-                label="Custom Document Name"
-                value={documentName}
-                onChange={setDocumentName}
-              />
-
-              <TextField
-                label="Effective Date"
-                type="date"
-                value={effectiveDate}
-                onChange={setEffectiveDate}
-              />
-
-              <TextField
-                label="Expiration Date"
-                type="date"
-                value={expirationDate}
-                onChange={setExpirationDate}
-              />
-            </FormSection>
-
-            <FormSection
-              title="Upload Documents"
-              description="Upload one or more PDF or image files."
-            >
-              <div className="col-span-full">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                  onChange={handleFileSelection}
-                  className="hidden"
+              <div
+                className="
+                  grid
+                  gap-5
+                  sm:grid-cols-2
+                "
+              >
+                <SelectField
+                  label="Document Type"
+                  value={documentType}
+                  options={
+                    documentTypeOptions
+                  }
+                  required
+                  onChange={
+                    setDocumentType
+                  }
                 />
 
+                <TextField
+                  label="Custom Document Name"
+                  value={documentName}
+                  onChange={
+                    setDocumentName
+                  }
+                />
+
+                <TextField
+                  label="Effective Date"
+                  type="date"
+                  value={effectiveDate}
+                  onChange={
+                    setEffectiveDate
+                  }
+                />
+
+                <TextField
+                  label="Expiration Date"
+                  type="date"
+                  value={expirationDate}
+                  onChange={
+                    setExpirationDate
+                  }
+                />
+              </div>
+            </DocumentSection>
+
+            {/* 02 Upload */}
+            <DocumentSection
+              number="02"
+              title="Upload"
+              description="Add one or more PDF or image files."
+              highlight
+            >
+              <div
+                className="
+                  rounded-2xl
+                  border
+                  border-[rgba(102,87,232,0.18)]
+                  bg-[var(--qoreva-violet-faint)]
+                  p-4
+                  sm:p-5
+                "
+              >
                 <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" ||
-                      event.key === " "
-                    ) {
-                      event.preventDefault();
-
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                  onDrop={handleDocumentDrop}
-                  onDragOver={
-                    handleDocumentDragOver
-                  }
-                  className="cursor-pointer rounded-2xl border-2 border-dashed border-cyan-200 bg-cyan-50/40 px-6 py-8 text-center transition hover:border-cyan-400 hover:bg-cyan-50"
+                  className="
+                    flex
+                    flex-col
+                    gap-3
+                    sm:flex-row
+                    sm:items-start
+                    sm:justify-between
+                  "
                 >
-                  <p className="font-black text-slate-800">
-                    Drop contractor documents here
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="
+                          flex
+                          h-8
+                          w-8
+                          items-center
+                          justify-center
+                          rounded-xl
+                          bg-[var(--qoreva-violet)]
+                          text-xs
+                          font-black
+                          text-white
+                        "
+                      >
+                        AI
+                      </span>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    or click to select files
-                  </p>
-
-                  <p className="mt-3 text-xs font-bold text-slate-400">
-                    PDF, JPG, JPEG, or PNG • Maximum
-                    20 MB per file
-                  </p>
-                </div>
-
-                {documentError ? (
-                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
-                    {documentError}
-                  </div>
-                ) : null}
-
-                {selectedDocuments.length > 0 ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm font-black text-slate-800">
-                        Selected Documents
-                      </p>
-
-                      <p className="text-xs font-bold text-slate-500">
-                        {selectedDocuments.length}{" "}
-                        {selectedDocuments.length === 1
-                          ? "document"
-                          : "documents"}
+                      <p
+                        className="
+                          font-black
+                          text-[var(--qoreva-obsidian)]
+                        "
+                      >
+                        Qoreva™ Document
+                        Intelligence
                       </p>
                     </div>
 
+                    <p
+                      className="
+                        mt-3
+                        max-w-2xl
+                        text-sm
+                        font-medium
+                        leading-6
+                        text-[var(--qoreva-muted)]
+                      "
+                    >
+                      Qoreva can assist with
+                      classifying contractor
+                      documents and extracting
+                      useful information such as
+                      insurance details,
+                      qualification data,
+                      expiration dates, and
+                      contacts.
+                    </p>
+                  </div>
+
+                  <span
+                    className="
+                      shrink-0
+                      self-start
+                      rounded-full
+                      border
+                      border-[rgba(102,87,232,0.18)]
+                      bg-white
+                      px-3
+                      py-1
+                      text-[10px]
+                      font-black
+                      uppercase
+                      tracking-[0.1em]
+                      text-[var(--qoreva-violet-dark)]
+                    "
+                  >
+                    Review Required
+                  </span>
+                </div>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={
+                  handleFileSelection
+                }
+                className="hidden"
+              />
+
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() =>
+                  fileInputRef.current?.click()
+                }
+                onKeyDown={(
+                  event,
+                ) => {
+                  if (
+                    event.key ===
+                      "Enter" ||
+                    event.key === " "
+                  ) {
+                    event.preventDefault();
+
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDrop={
+                  handleDocumentDrop
+                }
+                onDragOver={
+                  handleDocumentDragOver
+                }
+                className="
+                  mt-5
+                  cursor-pointer
+                  rounded-2xl
+                  border-2
+                  border-dashed
+                  border-[rgba(102,87,232,0.30)]
+                  bg-white
+                  px-6
+                  py-10
+                  text-center
+                  transition-all
+                  duration-150
+                  hover:border-[var(--qoreva-violet)]
+                  hover:bg-[var(--qoreva-violet-faint)]
+                "
+              >
+                <div
+                  className="
+                    mx-auto
+                    flex
+                    h-12
+                    w-12
+                    items-center
+                    justify-center
+                    rounded-2xl
+                    bg-[var(--qoreva-violet-soft)]
+                    text-[var(--qoreva-violet-dark)]
+                  "
+                >
+                  <UploadIcon />
+                </div>
+
+                <p
+                  className="
+                    mt-4
+                    text-base
+                    font-black
+                    text-[var(--qoreva-obsidian)]
+                  "
+                >
+                  Drop contractor
+                  documents here
+                </p>
+
+                <p
+                  className="
+                    mt-1
+                    text-sm
+                    font-medium
+                    text-[var(--qoreva-muted)]
+                  "
+                >
+                  or click to select files
+                </p>
+
+                <p
+                  className="
+                    mt-3
+                    text-[10px]
+                    font-black
+                    uppercase
+                    tracking-[0.1em]
+                    text-[var(--qoreva-subtle)]
+                  "
+                >
+                  PDF, JPG, JPEG or PNG •
+                  20 MB maximum per file
+                </p>
+              </div>
+
+              {documentError ? (
+                <div
+                  className="
+                    mt-4
+                    rounded-xl
+                    border
+                    border-[#F0BDC4]
+                    bg-[var(--qoreva-danger-soft)]
+                    px-4
+                    py-3
+                    text-sm
+                    font-black
+                    text-[var(--qoreva-danger)]
+                  "
+                >
+                  {documentError}
+                </div>
+              ) : null}
+
+              {selectedDocuments.length >
+              0 ? (
+                <div className="mt-5">
+                  <div
+                    className="
+                      flex
+                      items-center
+                      justify-between
+                      gap-4
+                    "
+                  >
+                    <p
+                      className="
+                        text-sm
+                        font-black
+                        text-[var(--qoreva-obsidian)]
+                      "
+                    >
+                      Documents ready to
+                      upload
+                    </p>
+
+                    <span
+                      className="
+                        rounded-full
+                        bg-[var(--qoreva-violet-soft)]
+                        px-3
+                        py-1
+                        text-xs
+                        font-black
+                        text-[var(--qoreva-violet-dark)]
+                      "
+                    >
+                      {
+                        selectedDocuments.length
+                      }{" "}
+                      {selectedDocuments.length ===
+                      1
+                        ? "file"
+                        : "files"}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
                     {selectedDocuments.map(
                       (file, index) => (
                         <div
                           key={`${file.name}-${file.size}-${file.lastModified}`}
-                          className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                          className="
+                            flex
+                            items-center
+                            justify-between
+                            gap-4
+                            rounded-xl
+                            border
+                            border-[var(--qoreva-border)]
+                            bg-white
+                            px-4
+                            py-3
+                            shadow-[var(--qoreva-shadow-sm)]
+                          "
                         >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-slate-800">
-                              {file.name}
-                            </p>
+                          <div
+                            className="
+                              flex
+                              min-w-0
+                              items-center
+                              gap-3
+                            "
+                          >
+                            <div
+                              className="
+                                flex
+                                h-9
+                                w-9
+                                shrink-0
+                                items-center
+                                justify-center
+                                rounded-xl
+                                bg-[var(--qoreva-surface-muted)]
+                                text-[var(--qoreva-violet-dark)]
+                              "
+                            >
+                              <DocumentIcon />
+                            </div>
 
-                            <p className="mt-1 text-xs text-slate-500">
-                              {formatFileSize(
-                                file.size,
-                              )}
-                            </p>
+                            <div className="min-w-0">
+                              <p
+                                className="
+                                  truncate
+                                  text-sm
+                                  font-black
+                                  text-[var(--qoreva-text)]
+                                "
+                              >
+                                {file.name}
+                              </p>
+
+                              <p
+                                className="
+                                  mt-0.5
+                                  text-xs
+                                  font-medium
+                                  text-[var(--qoreva-muted)]
+                                "
+                              >
+                                {formatFileSize(
+                                  file.size,
+                                )}
+                              </p>
+                            </div>
                           </div>
 
                           <button
                             type="button"
                             onClick={() =>
-                              removeDocument(index)
+                              removeDocument(
+                                index,
+                              )
                             }
-                            className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                            className="
+                              shrink-0
+                              rounded-lg
+                              px-3
+                              py-1.5
+                              text-xs
+                              font-black
+                              text-[var(--qoreva-muted)]
+                              transition
+                              hover:bg-[var(--qoreva-danger-soft)]
+                              hover:text-[var(--qoreva-danger)]
+                            "
                           >
                             Remove
                           </button>
                         </div>
                       ),
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        fileInputRef.current?.click()
-                      }
-                      className="text-sm font-black text-cyan-700 transition hover:text-cyan-900"
-                    >
-                      + Add more documents
-                    </button>
                   </div>
-                ) : null}
-              </div>
-            </FormSection>
 
-            <div>
-              <label className="mb-2 block text-sm font-black text-slate-800">
-                Notes
-              </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fileInputRef.current?.click()
+                    }
+                    className="
+                      mt-3
+                      text-sm
+                      font-black
+                      text-[var(--qoreva-violet)]
+                      transition
+                      hover:text-[var(--qoreva-violet-dark)]
+                    "
+                  >
+                    + Add more documents
+                  </button>
+                </div>
+              ) : null}
+            </DocumentSection>
 
+            {/* 03 Notes & Review */}
+            <DocumentSection
+              number="03"
+              title="Notes & Review"
+              description="Add context for reviewers before the document enters the contractor record."
+            >
               <textarea
                 rows={4}
                 value={notes}
                 onChange={(event) =>
-                  setNotes(event.target.value)
+                  setNotes(
+                    event.target.value,
+                  )
                 }
-                placeholder="Add document notes, qualification details, restrictions, or review instructions."
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                placeholder="Add document notes, qualification details, restrictions, or review instructions..."
+                className="
+                  w-full
+                  resize-y
+                  rounded-xl
+                  border
+                  border-[var(--qoreva-border-strong)]
+                  bg-white
+                  px-4
+                  py-3
+                  text-sm
+                  font-medium
+                  text-[var(--qoreva-text)]
+                  outline-none
+                  transition-all
+
+                  placeholder:text-[var(--qoreva-subtle)]
+
+                  hover:border-[#BBB6C6]
+
+                  focus:border-[var(--qoreva-violet)]
+                  focus:ring-4
+                  focus:ring-[rgba(102,87,232,0.10)]
+                "
               />
-            </div>
 
-            <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3">
-              <p className="text-sm font-black text-slate-800">
-                ForemanFirst™ Document Intelligence
-              </p>
+              <div
+                className="
+                  mt-4
+                  rounded-xl
+                  border
+                  border-[var(--qoreva-border)]
+                  bg-[var(--qoreva-surface-muted)]
+                  px-4
+                  py-3
+                "
+              >
+                <p
+                  className="
+                    text-xs
+                    font-black
+                    text-[var(--qoreva-obsidian)]
+                  "
+                >
+                  Qualified review remains
+                  required.
+                </p>
 
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Uploaded documentation will later be
-                classified and analyzed for important
-                contractor information. Extracted values
-                will require user review before becoming
-                official records.
-              </p>
-            </div>
+                <p
+                  className="
+                    mt-1
+                    text-xs
+                    font-medium
+                    leading-5
+                    text-[var(--qoreva-muted)]
+                  "
+                >
+                  AI-assisted classification
+                  or extracted information
+                  should be reviewed before
+                  becoming part of the
+                  official contractor record.
+                </p>
+              </div>
+            </DocumentSection>
           </div>
 
-          <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
-            <button
-              type="button"
-              onClick={closeModal}
-              disabled={isUploading}
-              className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+          {/* Footer */}
+          <div
+            className="
+              sticky
+              bottom-0
+              z-10
+              flex
+              flex-col-reverse
+              gap-3
+              border-t
+              border-[var(--qoreva-border)]
+              bg-white/95
+              px-5
+              py-4
+              backdrop-blur
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+              sm:px-7
+            "
+          >
+            <p
+              className="
+                hidden
+                text-xs
+                font-medium
+                text-[var(--qoreva-muted)]
+                sm:block
+              "
             >
-              Cancel
-            </button>
+              Document metadata and files
+              will be saved to the
+              contractor record.
+            </p>
 
-            <button
-              type="submit"
-              disabled={isUploading}
-              className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            <div
+              className="
+                flex
+                flex-col-reverse
+                gap-3
+                sm:flex-row
+              "
             >
-              {isUploading
-                ? "Uploading Documents..."
-                : "Upload Documents"}
-            </button>
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isUploading}
+                className="
+                  min-h-11
+                  rounded-xl
+                  border
+                  border-[var(--qoreva-border-strong)]
+                  bg-white
+                  px-5
+                  py-2.5
+                  text-sm
+                  font-black
+                  text-[var(--qoreva-text)]
+                  transition
+                  hover:bg-[var(--qoreva-surface-muted)]
+                  disabled:opacity-50
+                "
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isUploading}
+                className="
+                  inline-flex
+                  min-h-11
+                  min-w-44
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-[var(--qoreva-violet)]
+                  px-6
+                  py-2.5
+                  text-sm
+                  font-black
+                  text-white
+                  shadow-sm
+                  transition-all
+                  hover:-translate-y-px
+                  hover:bg-[var(--qoreva-violet-hover)]
+                  hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]
+                  disabled:cursor-not-allowed
+                  disabled:opacity-60
+                  disabled:hover:translate-y-0
+                "
+              >
+                {isUploading
+                  ? "Uploading Documents..."
+                  : "Upload Documents"}
+              </button>
+            </div>
           </div>
         </form>
       </ModalShell>
@@ -647,13 +1200,152 @@ export default function AddContractorDocumentModal({
   );
 }
 
-function formatFileSize(bytes: number) {
+function DocumentSection({
+  number,
+  title,
+  description,
+  children,
+  highlight = false,
+}: {
+  number: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  highlight?: boolean;
+}) {
+  return (
+    <section
+      className={`
+        overflow-hidden
+        rounded-2xl
+        border
+        bg-white
+        shadow-[var(--qoreva-shadow-sm)]
+        ${
+          highlight
+            ? "border-[rgba(102,87,232,0.22)]"
+            : "border-[var(--qoreva-border)]"
+        }
+      `}
+    >
+      <div
+        className={`
+          flex
+          items-start
+          gap-4
+          border-b
+          px-5
+          py-4
+          sm:px-6
+          ${
+            highlight
+              ? "border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)]"
+              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+          }
+        `}
+      >
+        <div
+          className="
+            flex
+            h-9
+            w-9
+            shrink-0
+            items-center
+            justify-center
+            rounded-xl
+            bg-[var(--qoreva-obsidian)]
+            text-[11px]
+            font-black
+            text-[#B9B0FF]
+          "
+        >
+          {number}
+        </div>
+
+        <div>
+          <h3
+            className="
+              text-base
+              font-black
+              text-[var(--qoreva-obsidian)]
+            "
+          >
+            {title}
+          </h3>
+
+          <p
+            className="
+              mt-0.5
+              text-xs
+              font-medium
+              leading-5
+              text-[var(--qoreva-muted)]
+            "
+          >
+            {description}
+          </p>
+        </div>
+      </div>
+
+      <div className="p-5 sm:p-6">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-6 w-6"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4.5"
+      />
+    </svg>
+  );
+}
+
+function DocumentIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-5 w-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M7 3h7l4 4v14H7V3Zm7 0v5h5M10 13h5M10 17h5"
+      />
+    </svg>
+  );
+}
+
+function formatFileSize(
+  bytes: number,
+) {
   if (bytes < 1024) {
     return `${bytes} B`;
   }
 
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
+  if (
+    bytes <
+    1024 * 1024
+  ) {
+    return `${(
+      bytes / 1024
+    ).toFixed(1)} KB`;
   }
 
   return `${(

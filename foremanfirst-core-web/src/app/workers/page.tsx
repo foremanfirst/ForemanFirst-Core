@@ -77,7 +77,8 @@ interface Worker {
 
 type WorkerForm = Omit<Worker, "id" | "createdAt" | "updatedAt">;
 
-const STORAGE_KEY = "foremanfirst-workers-v1";
+const STORAGE_KEY = "qoreva-workers-v1";
+const LEGACY_STORAGE_KEY = "foremanfirst-workers-v1";
 
 const emptyForm: WorkerForm = {
   firstName: "",
@@ -127,7 +128,7 @@ const seedWorkers: Worker[] = [
     employeeNumber: "FF-0001",
     email: "robertwillis612@gmail.com",
     phone: "5862924432",
-    company: "ForemanFirst Technologies",
+    company: "Qoreva",
     project: "GM Lansing Delta Township",
     trade: "Safety",
     jobTitle: "Senior Safety Professional",
@@ -155,7 +156,7 @@ const seedWorkers: Worker[] = [
     status: "Active",
     isOnsite: true,
     notes:
-      "Demonstration worker record for the ForemanFirst™ Workers module.",
+      "Demonstration worker record for the Qoreva™ Workers module.",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -235,43 +236,190 @@ function formatDate(value: string): string {
 function badgeTone(status: BadgeStatus): string {
   switch (status) {
     case "Active":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]";
     case "Expired":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
     case "Suspended":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]";
     default:
-      return "border-slate-200 bg-slate-100 text-slate-600";
+      return "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
   }
 }
 
 function accessTone(status: AccessStatus): string {
   switch (status) {
     case "Approved":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]";
     case "Restricted":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]";
     case "Denied":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
     default:
-      return "border-blue-200 bg-blue-50 text-blue-700";
+      return "border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]";
   }
 }
 
 function complianceTone(status: string): string {
   if (status === "Complete" || status === "Current") {
-    return "bg-emerald-100 text-emerald-700";
+    return "bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]";
   }
 
   if (status === "Expired" || status === "Denied") {
-    return "bg-rose-100 text-rose-700";
+    return "bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
   }
 
   if (status === "Not Required") {
-    return "bg-slate-100 text-slate-600";
+    return "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
   }
 
-  return "bg-amber-100 text-amber-800";
+  return "bg-[var(--qoreva-warning-soft)] text-[#9B6212]";
+}
+
+
+type WorkerReadinessTone =
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral";
+
+type WorkerReadiness = {
+  label: "Ready" | "Review" | "Action Required" | "Archived";
+  tone: WorkerReadinessTone;
+  reasons: string[];
+};
+
+function workerReadiness(worker: Worker): WorkerReadiness {
+  if (worker.status === "Archived") {
+    return {
+      label: "Archived",
+      tone: "neutral",
+      reasons: ["Archived worker record"],
+    };
+  }
+
+  const criticalReasons: string[] = [];
+  const warningReasons: string[] = [];
+
+  if (worker.accessStatus === "Denied") {
+    criticalReasons.push("Access denied");
+  }
+
+  if (worker.badgeStatus === "Expired") {
+    criticalReasons.push("Badge expired");
+  }
+
+  if (worker.orientationStatus === "Expired") {
+    criticalReasons.push("Orientation expired");
+  }
+
+  if (worker.trainingStatus === "Expired") {
+    criticalReasons.push("Training expired");
+  }
+
+  if (worker.drugScreenStatus === "Expired") {
+    criticalReasons.push("Drug screen expired");
+  }
+
+  if (worker.accessStatus === "Restricted") {
+    warningReasons.push("Access restricted");
+  }
+
+  if (
+    worker.badgeStatus === "Inactive" ||
+    worker.badgeStatus === "Suspended"
+  ) {
+    warningReasons.push(`Badge ${worker.badgeStatus.toLowerCase()}`);
+  }
+
+  if (
+    worker.orientationStatus === "Pending" ||
+    worker.orientationStatus === "Not Started"
+  ) {
+    warningReasons.push(`Orientation ${worker.orientationStatus.toLowerCase()}`);
+  }
+
+  if (worker.trainingStatus === "Pending") {
+    warningReasons.push("Training pending");
+  }
+
+  if (worker.drugScreenStatus === "Pending") {
+    warningReasons.push("Drug screen pending");
+  }
+
+  if (worker.accessStatus === "Pending") {
+    warningReasons.push("Access pending");
+  }
+
+  if (worker.status === "Inactive") {
+    warningReasons.push("Worker inactive");
+  }
+
+  if (criticalReasons.length > 0) {
+    return {
+      label: "Action Required",
+      tone: "danger",
+      reasons: criticalReasons,
+    };
+  }
+
+  if (warningReasons.length > 0) {
+    return {
+      label: "Review",
+      tone: "warning",
+      reasons: warningReasons,
+    };
+  }
+
+  const orientationReady =
+    worker.orientationStatus === "Complete";
+
+  const trainingReady =
+    worker.trainingStatus === "Current" ||
+    worker.trainingStatus === "Not Required";
+
+  const drugScreenReady =
+    worker.drugScreenStatus === "Current" ||
+    worker.drugScreenStatus === "Not Required";
+
+  const badgeReady =
+    worker.badgeStatus === "Active";
+
+  const accessReady =
+    worker.accessStatus === "Approved";
+
+  if (
+    orientationReady &&
+    trainingReady &&
+    drugScreenReady &&
+    badgeReady &&
+    accessReady &&
+    worker.status === "Active"
+  ) {
+    return {
+      label: "Ready",
+      tone: "success",
+      reasons: [],
+    };
+  }
+
+  return {
+    label: "Review",
+    tone: "neutral",
+    reasons: ["Review worker readiness"],
+  };
+}
+
+function readinessClasses(tone: WorkerReadinessTone): string {
+  switch (tone) {
+    case "success":
+      return "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]";
+    case "warning":
+      return "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]";
+    case "danger":
+      return "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
+    default:
+      return "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
+  }
 }
 
 function validateWorker(form: WorkerForm): string | null {
@@ -295,6 +443,7 @@ export default function WorkersPage() {
   const [projectFilter, setProjectFilter] = useState("All");
   const [tradeFilter, setTradeFilter] = useState("All");
   const [accessFilter, setAccessFilter] = useState<AccessStatus | "All">("All");
+  const [readinessFilter, setReadinessFilter] = useState<"All" | "Ready" | "Review" | "Action Required">("All");
   const [sortOption, setSortOption] = useState<SortOption>("name-asc");
   const [showArchived, setShowArchived] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -305,7 +454,9 @@ export default function WorkersPage() {
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const saved =
+        window.localStorage.getItem(STORAGE_KEY) ??
+        window.localStorage.getItem(LEGACY_STORAGE_KEY);
 
       if (saved) {
         const parsed = JSON.parse(saved) as Worker[];
@@ -393,6 +544,10 @@ export default function WorkersPage() {
       const accessMatch =
         accessFilter === "All" || worker.accessStatus === accessFilter;
 
+      const readiness = workerReadiness(worker);
+      const readinessMatch =
+        readinessFilter === "All" || readiness.label === readinessFilter;
+
       const searchMatch =
         !normalizedSearch ||
         [
@@ -419,6 +574,7 @@ export default function WorkersPage() {
         projectMatch &&
         tradeMatch &&
         accessMatch &&
+        readinessMatch &&
         searchMatch
       );
     });
@@ -445,6 +601,7 @@ export default function WorkersPage() {
     projectFilter,
     tradeFilter,
     accessFilter,
+    readinessFilter,
     sortOption,
     showArchived,
   ]);
@@ -455,15 +612,29 @@ export default function WorkersPage() {
   const onsiteWorkers = workers.filter(
     (worker) => worker.status !== "Archived" && worker.isOnsite,
   ).length;
-  const approvedWorkers = workers.filter(
-    (worker) =>
-      worker.status !== "Archived" && worker.accessStatus === "Approved",
-  ).length;
-  const badgeIssues = workers.filter(
+  const readyWorkers = workers.filter((worker) => {
+    if (worker.status === "Archived") return false;
+    return workerReadiness(worker).label === "Ready";
+  }).length;
+
+  const attentionWorkers = workers.filter((worker) => {
+    if (worker.status === "Archived") return false;
+
+    const readiness = workerReadiness(worker);
+
+    return (
+      readiness.label === "Action Required" ||
+      readiness.label === "Review"
+    );
+  }).length;
+
+  const restrictedWorkers = workers.filter(
     (worker) =>
       worker.status !== "Archived" &&
-      ["Expired", "Suspended"].includes(worker.badgeStatus),
+      (worker.accessStatus === "Restricted" ||
+        worker.accessStatus === "Denied"),
   ).length;
+
   const archivedWorkers = workers.filter(
     (worker) => worker.status === "Archived",
   ).length;
@@ -612,49 +783,87 @@ export default function WorkersPage() {
     setProjectFilter("All");
     setTradeFilter("All");
     setAccessFilter("All");
+    setReadinessFilter("All");
     setSortOption("name-asc");
   }
 
   if (!hydrated) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-[1600px] space-y-6">
-          <div className="h-36 animate-pulse rounded-3xl bg-white" />
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-28 animate-pulse rounded-2xl bg-white"
-              />
-            ))}
-          </div>
-          <div className="h-96 animate-pulse rounded-3xl bg-white" />
+      <div className="space-y-6">
+        <div className="h-36 animate-pulse rounded-[1.75rem] bg-white" />
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-28 animate-pulse rounded-2xl bg-white"
+            />
+          ))}
         </div>
-      </main>
+
+        <div className="h-96 animate-pulse rounded-[1.75rem] bg-white" />
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-white/10 bg-[#0B132B] text-white shadow-lg">
-        <div className="mx-auto flex max-w-[1600px] flex-col justify-between gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:px-8">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#00C2FF]">
-              ForemanFirst™ Workforce
-            </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
+    <div className="space-y-6">
+      <section
+        className="
+          relative
+          overflow-hidden
+          rounded-[1.75rem]
+          border
+          border-[var(--qoreva-border)]
+          bg-white
+          p-5
+          shadow-[var(--qoreva-shadow-sm)]
+          sm:p-6
+        "
+      >
+        <div
+          aria-hidden="true"
+          className="
+            pointer-events-none
+            absolute
+            -right-20
+            -top-24
+            h-64
+            w-64
+            rounded-full
+            bg-[rgba(102,87,232,0.08)]
+            blur-3xl
+          "
+        />
+
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full bg-[var(--qoreva-violet)]"
+              />
+
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
+                Qoreva™ Workforce
+              </p>
+            </div>
+
+            <h1 className="mt-2 text-3xl font-black tracking-[-0.045em] text-[var(--qoreva-obsidian)] sm:text-4xl">
               Workers
             </h1>
-            <p className="mt-1 text-sm text-blue-100">
-              Manage worker profiles, compliance, credentials, and site access.
+
+            <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+              Manage workforce readiness, qualifications, credentials,
+              assignments, and site access from one worker record.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={resetDemoData}
-              className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2.5 text-sm font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
             >
               Reset Demo Data
             </button>
@@ -662,80 +871,59 @@ export default function WorkersPage() {
             <button
               type="button"
               onClick={openCreateModal}
-              className="rounded-xl bg-[#00C2FF] px-5 py-2.5 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-300"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-2.5 text-sm font-black text-white shadow-sm transition-all hover:-translate-y-px hover:bg-[var(--qoreva-violet-hover)] hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]"
             >
               + Add Worker
             </button>
           </div>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-3xl bg-gradient-to-r from-[#0B132B] via-[#15346F] to-[#0873BE] p-6 text-white shadow-xl sm:p-8">
-          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-            <div>
-              <span className="inline-flex rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-cyan-200">
-                ForemanFirst Access™ Ready
-              </span>
-              <h2 className="mt-4 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl">
-                One worker record for safety, training, and site access.
-              </h2>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
-                Connect each worker to their company, project, trade,
-                orientation, training, drug-screen eligibility, badge, and QR
-                credential.
-              </p>
-            </div>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <KpiCard
+          label="Total Workers"
+          value={workers.filter((worker) => worker.status !== "Archived").length}
+          detail="Current workforce directory"
+        />
 
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="min-h-12 rounded-xl bg-white px-6 py-3 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-50"
-            >
-              Add Your Next Worker
-            </button>
-          </div>
-        </section>
+        <ReadinessMetric
+          label="Ready for Work"
+          value={readyWorkers}
+          detail="Cleared for current work"
+          tone="success"
+        />
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <KpiCard
-            label="Total Workers"
-            value={workers.filter((worker) => worker.status !== "Archived").length}
-            detail="Current workforce directory"
-          />
-          <KpiCard
-            label="Active Workers"
-            value={activeWorkers}
-            detail="Available for assignment"
-          />
-          <KpiCard
-            label="Onsite Now"
-            value={onsiteWorkers}
-            detail="Live headcount"
-          />
-          <KpiCard
-            label="Access Approved"
-            value={approvedWorkers}
-            detail="Eligible for entry"
-          />
-          <KpiCard
-            label="Badge Issues"
-            value={badgeIssues}
-            detail="Expired or suspended"
-            danger={badgeIssues > 0}
-          />
-        </section>
+        <KpiCard
+          label="Onsite Now"
+          value={onsiteWorkers}
+          detail="Current onsite headcount"
+        />
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <ReadinessMetric
+          label="Needs Attention"
+          value={attentionWorkers}
+          detail="Review before field work"
+          tone={attentionWorkers > 0 ? "danger" : "neutral"}
+        />
+
+        <ReadinessMetric
+          label="Access Restricted"
+          value={restrictedWorkers}
+          detail="Restricted or denied"
+          tone={restrictedWorkers > 0 ? "warning" : "neutral"}
+        />
+      </section>
+
+        <section className="overflow-hidden rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
                 Worker Directory
               </p>
-              <h2 className="mt-1 text-2xl font-black text-slate-950">
+              <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] text-[var(--qoreva-obsidian)]">
                 {showArchived ? "Archived Workers" : "Current Workers"}
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm font-medium text-[var(--qoreva-muted)]">
                 {visibleWorkers.length} worker
                 {visibleWorkers.length === 1 ? "" : "s"} shown
               </p>
@@ -747,8 +935,8 @@ export default function WorkersPage() {
                 onClick={() => setShowArchived(false)}
                 className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${
                   !showArchived
-                    ? "bg-[#0B132B] text-white"
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-100"
+                    ? "bg-[var(--qoreva-obsidian)] text-white"
+                    : "border border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
                 }`}
               >
                 Current Workers
@@ -759,8 +947,8 @@ export default function WorkersPage() {
                 onClick={() => setShowArchived(true)}
                 className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${
                   showArchived
-                    ? "bg-[#0B132B] text-white"
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-100"
+                    ? "bg-[var(--qoreva-obsidian)] text-white"
+                    : "border border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
                 }`}
               >
                 Archived ({archivedWorkers})
@@ -768,13 +956,13 @@ export default function WorkersPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search workers..."
-              className="h-12 rounded-xl border border-slate-300 px-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 2xl:col-span-2"
+              className="h-12 rounded-xl border border-[var(--qoreva-border-strong)] px-4 text-sm outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)] 2xl:col-span-2"
             />
 
             <FilterSelect
@@ -803,7 +991,7 @@ export default function WorkersPage() {
               onChange={(event) =>
                 setAccessFilter(event.target.value as AccessStatus | "All")
               }
-              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              className="h-12 rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
             >
               <option value="All">All access statuses</option>
               {accessOptions.map((status) => (
@@ -814,11 +1002,30 @@ export default function WorkersPage() {
             </select>
 
             <select
+              value={readinessFilter}
+              onChange={(event) =>
+                setReadinessFilter(
+                  event.target.value as
+                    | "All"
+                    | "Ready"
+                    | "Review"
+                    | "Action Required",
+                )
+              }
+              className="h-12 rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
+            >
+              <option value="All">All readiness</option>
+              <option value="Ready">Ready</option>
+              <option value="Review">Review</option>
+              <option value="Action Required">Action Required</option>
+            </select>
+
+            <select
               value={sortOption}
               onChange={(event) =>
                 setSortOption(event.target.value as SortOption)
               }
-              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              className="h-12 rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
             >
               <option value="name-asc">Name: A to Z</option>
               <option value="name-desc">Name: Z to A</option>
@@ -830,14 +1037,14 @@ export default function WorkersPage() {
         </section>
 
         {visibleWorkers.length === 0 ? (
-          <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-xl font-black text-slate-500">
+          <section className="rounded-3xl border border-dashed border-[var(--qoreva-border-strong)] bg-white px-6 py-16 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--qoreva-surface-muted)] text-xl font-black text-[var(--qoreva-muted)]">
               WK
             </div>
-            <h2 className="mt-5 text-xl font-black text-slate-950">
+            <h2 className="mt-5 text-xl font-black text-[var(--qoreva-obsidian)]">
               No workers match the current view
             </h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[var(--qoreva-muted)]">
               Add a worker or clear the filters to display more workforce
               records.
             </p>
@@ -845,14 +1052,14 @@ export default function WorkersPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700"
+                className="rounded-xl border border-[var(--qoreva-border-strong)] px-5 py-3 text-sm font-black text-[var(--qoreva-text)]"
               >
                 Clear Filters
               </button>
               <button
                 type="button"
                 onClick={openCreateModal}
-                className="rounded-xl bg-[#00C2FF] px-5 py-3 text-sm font-black text-[#0B132B]"
+                className="rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[var(--qoreva-violet-hover)]"
               >
                 Add Worker
               </button>
@@ -860,15 +1067,15 @@ export default function WorkersPage() {
           </section>
         ) : (
           <>
-            <section className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm xl:block">
+            <section className="hidden overflow-hidden rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)] xl:block">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-100 text-xs font-black uppercase tracking-wide text-slate-500">
+                  <thead className="bg-[var(--qoreva-surface-muted)] text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
                     <tr>
                       <th className="px-6 py-4">Worker</th>
                       <th className="px-5 py-4">Company / Project</th>
                       <th className="px-5 py-4">Trade / Crew</th>
-                      <th className="px-5 py-4">Compliance</th>
+                      <th className="px-5 py-4">Readiness</th>
                       <th className="px-5 py-4">Badge</th>
                       <th className="px-5 py-4">Access</th>
                       <th className="px-6 py-4 text-right">Actions</th>
@@ -879,21 +1086,21 @@ export default function WorkersPage() {
                     {visibleWorkers.map((worker) => (
                       <tr
                         key={worker.id}
-                        className="transition hover:bg-cyan-50/50"
+                        className="transition hover:bg-[var(--qoreva-violet-faint)]"
                       >
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-4">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-sm font-black text-[#00C2FF]">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-obsidian)] text-sm font-black text-[#B9B0FF]">
                               {initials(worker)}
                             </div>
                             <div>
-                              <p className="font-black text-slate-950">
+                              <p className="font-black text-[var(--qoreva-obsidian)]">
                                 {fullName(worker)}
                               </p>
-                              <p className="mt-1 text-xs text-slate-500">
+                              <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                                 {worker.employeeNumber || "No employee number"}
                               </p>
-                              <p className="mt-1 text-xs text-slate-500">
+                              <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                                 {worker.isOnsite ? "Currently onsite" : "Offsite"}
                               </p>
                             </div>
@@ -901,42 +1108,25 @@ export default function WorkersPage() {
                         </td>
 
                         <td className="px-5 py-5">
-                          <p className="font-bold text-slate-800">
+                          <p className="font-bold text-[var(--qoreva-text)]">
                             {worker.company || "No company"}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                             {worker.project || "No project assigned"}
                           </p>
                         </td>
 
                         <td className="px-5 py-5">
-                          <p className="font-bold text-slate-800">
+                          <p className="font-bold text-[var(--qoreva-text)]">
                             {worker.trade || "No trade"}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                             {worker.crew || worker.jobTitle || "No crew entered"}
                           </p>
                         </td>
 
                         <td className="px-5 py-5">
-                          <div className="flex flex-wrap gap-1.5">
-                            <StatusPill
-                              value={worker.orientationStatus}
-                              className={complianceTone(
-                                worker.orientationStatus,
-                              )}
-                            />
-                            <StatusPill
-                              value={worker.trainingStatus}
-                              className={complianceTone(worker.trainingStatus)}
-                            />
-                            <StatusPill
-                              value={worker.drugScreenStatus}
-                              className={complianceTone(
-                                worker.drugScreenStatus,
-                              )}
-                            />
-                          </div>
+                          <WorkerReadinessSummary worker={worker} />
                         </td>
 
                         <td className="px-5 py-5">
@@ -947,7 +1137,7 @@ export default function WorkersPage() {
                           >
                             {worker.badgeStatus}
                           </span>
-                          <p className="mt-2 text-xs text-slate-500">
+                          <p className="mt-2 text-xs text-[var(--qoreva-muted)]">
                             {worker.badgeNumber || "No badge number"}
                           </p>
                         </td>
@@ -967,7 +1157,7 @@ export default function WorkersPage() {
                             <button
                               type="button"
                               onClick={() => openViewModal(worker)}
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"
+                              className="rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
                             >
                               View
                             </button>
@@ -985,14 +1175,14 @@ export default function WorkersPage() {
                                 <button
                                   type="button"
                                   onClick={() => openEditModal(worker)}
-                                  className="rounded-lg bg-[#0B132B] px-3 py-2 text-xs font-black text-white hover:bg-blue-950"
+                                  className="rounded-lg bg-[var(--qoreva-violet)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                                 >
                                   Edit
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openArchiveModal(worker)}
-                                  className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"
+                                  className="rounded-lg border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-black text-[var(--qoreva-danger)] hover:bg-[var(--qoreva-danger-soft)]"
                                 >
                                   Archive
                                 </button>
@@ -1011,18 +1201,18 @@ export default function WorkersPage() {
               {visibleWorkers.map((worker) => (
                 <article
                   key={worker.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                  className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-sm font-black text-[#00C2FF]">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-obsidian)] text-sm font-black text-[#B9B0FF]">
                         {initials(worker)}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="truncate font-black text-slate-950">
+                        <h3 className="truncate font-black text-[var(--qoreva-obsidian)]">
                           {fullName(worker)}
                         </h3>
-                        <p className="mt-1 truncate text-sm text-slate-500">
+                        <p className="mt-1 truncate text-sm text-[var(--qoreva-muted)]">
                           {worker.company || "No company"}
                         </p>
                       </div>
@@ -1037,6 +1227,10 @@ export default function WorkersPage() {
                     </span>
                   </div>
 
+                  <div className="mt-4">
+                    <WorkerReadinessSummary worker={worker} compact />
+                  </div>
+
                   <div className="mt-5 grid grid-cols-2 gap-3">
                     <MobileStat label="Project" value={worker.project} />
                     <MobileStat label="Trade" value={worker.trade} />
@@ -1047,11 +1241,11 @@ export default function WorkersPage() {
                     />
                   </div>
 
-                  <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-200 pt-4">
+                  <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[var(--qoreva-border)] pt-4">
                     <button
                       type="button"
                       onClick={() => openViewModal(worker)}
-                      className="min-h-11 rounded-xl border border-slate-300 text-sm font-black text-slate-700"
+                      className="min-h-11 rounded-xl border border-[var(--qoreva-border-strong)] text-sm font-black text-[var(--qoreva-text)]"
                     >
                       View
                     </button>
@@ -1069,14 +1263,14 @@ export default function WorkersPage() {
                         <button
                           type="button"
                           onClick={() => openEditModal(worker)}
-                          className="min-h-11 rounded-xl bg-[#0B132B] text-sm font-black text-white"
+                          className="min-h-11 rounded-xl bg-[var(--qoreva-violet)] text-sm font-black text-white"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => openArchiveModal(worker)}
-                          className="col-span-2 min-h-11 rounded-xl border border-rose-200 bg-rose-50 text-sm font-black text-rose-700"
+                          className="col-span-2 min-h-11 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-sm font-black text-[var(--qoreva-danger)]"
                         >
                           Archive Worker
                         </button>
@@ -1088,20 +1282,18 @@ export default function WorkersPage() {
             </section>
           </>
         )}
-      </div>
-
       {modalMode && renderModal()}
       {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-cyan-200 bg-[#0B132B] px-5 py-4 text-sm font-bold text-white shadow-2xl">
+        <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-obsidian)] px-5 py-4 text-sm font-bold text-white shadow-[var(--qoreva-shadow-lg)]">
           <div className="flex items-center gap-3">
-            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00C2FF] font-black text-[#0B132B]">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-violet)] font-black text-white">
               ✓
             </span>
             <span>{toast}</span>
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 
   function renderModal() {
@@ -1113,10 +1305,10 @@ export default function WorkersPage() {
         }}
       >
         <div className="max-h-[96vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-5xl sm:rounded-3xl">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-[#0B132B] px-5 py-4 text-white sm:px-7">
+          <div className="flex items-center justify-between border-b border-[var(--qoreva-border)] bg-[var(--qoreva-obsidian)] px-5 py-4 text-white sm:px-7">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
-                ForemanFirst™ Workers
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#B9B0FF]">
+                Qoreva™ Workforce
               </p>
               <h2 className="mt-1 text-xl font-black">
                 {modalMode === "create"
@@ -1156,7 +1348,7 @@ export default function WorkersPage() {
             >
               <div className="space-y-8 p-5 sm:p-7">
                 {formError && (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                  <div className="rounded-2xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
                     {formError}
                   </div>
                 )}
@@ -1314,7 +1506,7 @@ export default function WorkersPage() {
 
                 <FormSection
                   title="Access Credential"
-                  description="Configure ForemanFirst Access™ badge and QR eligibility."
+                  description="Configure Qoreva Access™ badge and QR eligibility."
                 >
                   <TextField
                     label="Badge Number"
@@ -1356,16 +1548,16 @@ export default function WorkersPage() {
                       updateForm("status", value as WorkerStatus)
                     }
                   />
-                  <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-300 px-4">
+                  <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--qoreva-border-strong)] px-4">
                     <input
                       type="checkbox"
                       checked={form.isOnsite}
                       onChange={(event) =>
                         updateForm("isOnsite", event.target.checked)
                       }
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-[var(--qoreva-border-strong)]"
                     />
-                    <span className="text-sm font-black text-slate-800">
+                    <span className="text-sm font-black text-[var(--qoreva-text)]">
                       Worker is currently onsite
                     </span>
                   </label>
@@ -1424,7 +1616,7 @@ export default function WorkersPage() {
                 </FormSection>
 
                 <div>
-                  <label className="mb-2 block text-sm font-black text-slate-800">
+                  <label className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
                     Notes
                   </label>
                   <textarea
@@ -1432,22 +1624,22 @@ export default function WorkersPage() {
                     value={form.notes}
                     onChange={(event) => updateForm("notes", event.target.value)}
                     placeholder="Add important worker notes, restrictions, or assignment details."
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-[var(--qoreva-border-strong)] px-4 py-3 text-sm outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
                   />
                 </div>
               </div>
 
-              <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
+              <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-[var(--qoreva-border)] bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-100"
+                  className="rounded-xl border border-[var(--qoreva-border-strong)] px-5 py-3 text-sm font-black text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] hover:bg-cyan-300"
+                  className="rounded-xl bg-[var(--qoreva-violet)] px-6 py-3 text-sm font-black text-white hover:bg-[var(--qoreva-violet-hover)]"
                 >
                   {modalMode === "create"
                     ? "Add Worker"
@@ -1460,6 +1652,115 @@ export default function WorkersPage() {
       </div>
     );
   }
+}
+
+
+function WorkerReadinessSummary({
+  worker,
+  compact = false,
+}: {
+  worker: Worker;
+  compact?: boolean;
+}) {
+  const readiness = workerReadiness(worker);
+
+  return (
+    <div
+      className={`rounded-xl border ${
+        compact ? "px-3 py-2.5" : "p-3"
+      } ${readinessClasses(readiness.tone)}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="inline-flex items-center gap-1.5 text-xs font-black">
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-current"
+          />
+          {readiness.label}
+        </span>
+
+        {!compact ? (
+          <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-60">
+            Readiness
+          </span>
+        ) : null}
+      </div>
+
+      {readiness.reasons.length > 0 ? (
+        <p className="mt-1.5 text-[10px] font-bold leading-4 opacity-80">
+          {readiness.reasons.slice(0, compact ? 1 : 2).join(" • ")}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-[10px] font-bold opacity-75">
+          Orientation, training, screening, badge, and access are current.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ReadinessMetric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone: "success" | "warning" | "danger" | "neutral";
+}) {
+  const toneMap = {
+    success: {
+      border: "border-[#BDE8D4]",
+      value: "text-[var(--qoreva-success)]",
+      dot: "bg-[var(--qoreva-success)]",
+    },
+    warning: {
+      border: "border-[#F0D5A4]",
+      value: "text-[#9B6212]",
+      dot: "bg-[var(--qoreva-warning)]",
+    },
+    danger: {
+      border: "border-[#F0BDC4]",
+      value: "text-[var(--qoreva-danger)]",
+      dot: "bg-[var(--qoreva-danger)]",
+    },
+    neutral: {
+      border: "border-[var(--qoreva-border)]",
+      value: "text-[var(--qoreva-obsidian)]",
+      dot: "bg-[var(--qoreva-muted)]",
+    },
+  } as const;
+
+  const classes = toneMap[tone];
+
+  return (
+    <div
+      className={`rounded-2xl border bg-white p-5 shadow-[var(--qoreva-shadow-sm)] ${classes.border}`}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={`h-1.5 w-1.5 rounded-full ${classes.dot}`}
+        />
+
+        <p className="text-sm font-bold text-[var(--qoreva-muted)]">
+          {label}
+        </p>
+      </div>
+
+      <p
+        className={`mt-2 text-3xl font-black tracking-[-0.04em] ${classes.value}`}
+      >
+        {value}
+      </p>
+
+      <p className="mt-1 text-sm font-medium text-[var(--qoreva-muted)]">
+        {detail}
+      </p>
+    </div>
+  );
 }
 
 function KpiCard({
@@ -1475,21 +1776,21 @@ function KpiCard({
 }) {
   return (
     <div
-      className={`rounded-2xl border bg-white p-5 shadow-sm ${
-        danger ? "border-rose-200" : "border-slate-200"
+      className={`rounded-2xl border bg-white p-5 shadow-[var(--qoreva-shadow-sm)] ${
+        danger ? "border-[#F0BDC4]" : "border-[var(--qoreva-border)]"
       }`}
     >
-      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--qoreva-muted)]">
         {label}
       </p>
       <p
         className={`mt-2 text-3xl font-black ${
-          danger ? "text-rose-700" : "text-[#0B132B]"
+          danger ? "text-[var(--qoreva-danger)]" : "text-[var(--qoreva-obsidian)]"
         }`}
       >
         {value}
       </p>
-      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+      <p className="mt-1 text-sm text-[var(--qoreva-muted)]">{detail}</p>
     </div>
   );
 }
@@ -1509,7 +1810,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      className="h-12 rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
     >
       <option value="All">{placeholder}</option>
       {options.map((option) => (
@@ -1537,11 +1838,11 @@ function StatusPill({
 
 function MobileStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+    <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </p>
-      <p className="mt-1 truncate text-sm font-black text-slate-900">
+      <p className="mt-1 truncate text-sm font-black text-[var(--qoreva-ink)]">
         {value || "Not entered"}
       </p>
     </div>
@@ -1556,17 +1857,17 @@ function WorkerView({
   onEdit: () => void;
 }) {
   return (
-    <div className="max-h-[calc(96vh-76px)] overflow-y-auto p-5 sm:p-7">
-      <div className="flex flex-col justify-between gap-5 border-b border-slate-200 pb-6 sm:flex-row sm:items-start">
+    <div className="max-h-[calc(96vh-76px)] overflow-y-auto bg-[var(--qoreva-porcelain)] p-5 sm:p-7">
+      <div className="flex flex-col justify-between gap-5 border-b border-[var(--qoreva-border)] pb-6 sm:flex-row sm:items-start">
         <div className="flex items-start gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xl font-black text-[#00C2FF]">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-obsidian)] text-xl font-black text-[#B9B0FF] shadow-sm">
             {initials(worker)}
           </div>
           <div>
-            <h3 className="text-2xl font-black text-slate-950">
+            <h3 className="text-2xl font-black text-[var(--qoreva-obsidian)]">
               {fullName(worker)}
             </h3>
-            <p className="mt-1 text-slate-600">
+            <p className="mt-1 text-[var(--qoreva-muted)]">
               {worker.jobTitle || worker.trade || "Worker"}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -1585,7 +1886,7 @@ function WorkerView({
                 Badge {worker.badgeStatus}
               </span>
               {worker.isOnsite && (
-                <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-black text-cyan-800">
+                <span className="rounded-full bg-[var(--qoreva-violet-soft)] px-3 py-1 text-xs font-black text-[var(--qoreva-violet-dark)]">
                   Onsite Now
                 </span>
               )}
@@ -1593,10 +1894,14 @@ function WorkerView({
           </div>
         </div>
 
+        <div className="w-full sm:w-auto">
+          <WorkerReadinessSummary worker={worker} />
+        </div>
+
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-xl bg-[#00C2FF] px-5 py-3 text-sm font-black text-[#0B132B]"
+          className="rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[var(--qoreva-violet-hover)]"
         >
           Edit Worker
         </button>
@@ -1655,7 +1960,7 @@ function WorkerView({
           />
         </ViewSection>
 
-        <ViewSection title="ForemanFirst Access™">
+        <ViewSection title="Qoreva Access™">
           <DetailItem label="Badge Number" value={worker.badgeNumber} />
           <DetailItem label="Badge Status" value={worker.badgeStatus} />
           <DetailItem
@@ -1674,11 +1979,11 @@ function WorkerView({
         </ViewSection>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+      <div className="mt-6 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-5">
+        <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
           Notes
         </p>
-        <p className="mt-2 leading-6 text-slate-700">
+        <p className="mt-2 leading-6 text-[var(--qoreva-text)]">
           {worker.notes || "No notes entered."}
         </p>
       </div>
@@ -1697,19 +2002,19 @@ function ArchiveConfirmation({
 }) {
   return (
     <div className="max-h-[calc(96vh-76px)] overflow-y-auto p-6 sm:p-8">
-      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-        <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+      <div className="rounded-3xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-6">
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--qoreva-muted)]">
           Worker
         </p>
         <div className="mt-4 flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-100 font-black text-cyan-800">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--qoreva-violet-soft)] font-black text-[var(--qoreva-violet-dark)]">
             {initials(worker)}
           </div>
           <div>
-            <h3 className="text-2xl font-black text-slate-950">
+            <h3 className="text-2xl font-black text-[var(--qoreva-obsidian)]">
               {fullName(worker)}
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
               {worker.company || "No company"} •{" "}
               {worker.project || "No project"}
             </p>
@@ -1717,11 +2022,11 @@ function ArchiveConfirmation({
         </div>
       </div>
 
-      <div className="mt-6 rounded-3xl border border-cyan-200 bg-cyan-50 p-6">
-        <h4 className="font-black text-slate-950">
+      <div className="mt-6 rounded-3xl border border-[rgba(102,87,232,0.18)] bg-cyan-50 p-6">
+        <h4 className="font-black text-[var(--qoreva-obsidian)]">
           Archiving preserves the worker's historical record
         </h4>
-        <ul className="mt-4 space-y-3 text-sm text-slate-700">
+        <ul className="mt-4 space-y-3 text-sm text-[var(--qoreva-text)]">
           <li>✓ Hidden from the active Workers directory</li>
           <li>✓ Training, orientation, badge, and access history remains preserved</li>
           <li>✓ Project and company relationships remain intact</li>
@@ -1733,14 +2038,14 @@ function ArchiveConfirmation({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700"
+          className="rounded-xl border border-[var(--qoreva-border-strong)] px-5 py-3 text-sm font-black text-[var(--qoreva-text)]"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-xl bg-[#0B132B] px-6 py-3 text-sm font-black text-white"
+          className="rounded-xl bg-[var(--qoreva-danger)] px-6 py-3 text-sm font-black text-white"
         >
           Archive Worker
         </button>
@@ -1757,8 +2062,8 @@ function ViewSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6">
-      <h4 className="text-lg font-black text-slate-950">{title}</h4>
+    <section className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-[var(--qoreva-shadow-sm)]">
+      <h4 className="text-lg font-black text-[var(--qoreva-obsidian)]">{title}</h4>
       <dl className="mt-5 grid gap-5 sm:grid-cols-2">{children}</dl>
     </section>
   );
@@ -1767,10 +2072,10 @@ function ViewSection({
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-black uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </dt>
-      <dd className="mt-1 break-words font-black text-slate-900">
+      <dd className="mt-1 break-words font-black text-[var(--qoreva-ink)]">
         {value || "Not entered"}
       </dd>
     </div>
@@ -1788,9 +2093,9 @@ function FormSection({
 }) {
   return (
     <section>
-      <div className="border-b border-slate-200 pb-3">
-        <h3 className="text-lg font-black text-slate-950">{title}</h3>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <div className="border-b border-[var(--qoreva-border)] pb-3">
+        <h3 className="text-lg font-black text-[var(--qoreva-obsidian)]">{title}</h3>
+        <p className="mt-1 text-sm text-[var(--qoreva-muted)]">{description}</p>
       </div>
       <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {children}
@@ -1814,7 +2119,7 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-black text-slate-800">
+      <span className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
         {label}
         {required && <span className="ml-1 text-rose-600">*</span>}
       </span>
@@ -1823,7 +2128,7 @@ function TextField({
         required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 px-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] px-4 text-sm outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
       />
     </label>
   );
@@ -1842,13 +2147,13 @@ function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-black text-slate-800">
+      <span className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
         {label}
       </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm outline-none focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
       >
         {options.map((option) => (
           <option key={option} value={option}>

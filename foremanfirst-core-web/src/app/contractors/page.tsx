@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma";
 
 import {
   EmptyState,
-  PageHeader,
   StatusBadge,
   SummaryCard,
 } from "@/components";
@@ -26,13 +25,11 @@ import type {
 
 import {
   approvalStatusTone,
-  complianceStatusTone,
   contractorHasComplianceIssue,
   contractorInitials,
   contractorIsInsuranceExpired,
   formatContractorDate,
   formatRiskRate,
-  orientationStatusTone,
 } from "./utils";
 
 export const dynamic = "force-dynamic";
@@ -375,18 +372,112 @@ export default async function ContractorsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="ForemanFirst™ Contractor Management"
-        title="Contractors"
-        description="Manage subcontractors, specialty contractors, workforce partners, safety contacts, compliance status, and project assignments."
-        actions={
-          <AddContractorModal
-            companies={companies}
-            projects={projects}
-          />
-        }
-      />
+      {/* Qoreva Contractor Header */}
+      <section
+        className="
+          relative
+          overflow-hidden
+          rounded-[1.75rem]
+          border
+          border-[var(--qoreva-border)]
+          bg-white
+          p-5
+          shadow-[var(--qoreva-shadow-sm)]
+          sm:p-6
+        "
+      >
+        <div
+          className="
+            pointer-events-none
+            absolute
+            -right-20
+            -top-24
+            h-64
+            w-64
+            rounded-full
+            bg-[rgba(102,87,232,0.08)]
+            blur-3xl
+          "
+          aria-hidden="true"
+        />
 
+        <div
+          className="
+            relative
+            flex
+            flex-col
+            gap-5
+            lg:flex-row
+            lg:items-center
+            lg:justify-between
+          "
+        >
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-2">
+              <span
+                className="
+                  h-1.5
+                  w-1.5
+                  rounded-full
+                  bg-[var(--qoreva-violet)]
+                "
+                aria-hidden="true"
+              />
+
+              <p
+                className="
+                  text-[11px]
+                  font-black
+                  uppercase
+                  tracking-[0.18em]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                Qoreva™ Contractor Management
+              </p>
+            </div>
+
+            <h1
+              className="
+                mt-2
+                text-3xl
+                font-black
+                tracking-[-0.045em]
+                text-[var(--qoreva-obsidian)]
+                sm:text-4xl
+              "
+            >
+              Contractors
+            </h1>
+
+            <p
+              className="
+                mt-2
+                max-w-2xl
+                text-sm
+                font-medium
+                leading-6
+                text-[var(--qoreva-muted)]
+              "
+            >
+              Know who is ready for work before
+              they reach the field. Manage
+              contractor qualification, workforce,
+              documents, insurance, and project
+              readiness from one place.
+            </p>
+          </div>
+
+          <div className="shrink-0">
+            <AddContractorModal
+              companies={companies}
+              projects={projects}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Contractor Readiness KPIs */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
           label="Total Contractors"
@@ -406,33 +497,97 @@ export default async function ContractorsPage() {
           detail="Reported contractor workforce"
         />
 
-        <SummaryCard
-          label="Compliant"
+        <ReadinessMetric
+          label="Ready"
           value={compliantContractors}
-          detail="Current compliance status"
+          detail="Meeting current requirements"
+          tone="success"
         />
 
-        <SummaryCard
+        <ReadinessMetric
           label="Needs Attention"
           value={
             contractorsNeedingAttention
           }
-          detail="Compliance or document issues"
+          detail="Review before field work"
+          tone={
+            contractorsNeedingAttention > 0
+              ? "danger"
+              : "neutral"
+          }
         />
       </section>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:p-6 lg:flex-row lg:items-end lg:justify-between">
+      {/* Directory */}
+      <section
+        className="
+          overflow-hidden
+          rounded-[1.75rem]
+          border
+          border-[var(--qoreva-border)]
+          bg-white
+          shadow-[var(--qoreva-shadow-sm)]
+        "
+      >
+        <div
+          className="
+            flex
+            flex-col
+            gap-5
+            border-b
+            border-[var(--qoreva-border)]
+            p-5
+            sm:p-6
+            xl:flex-row
+            xl:items-end
+            xl:justify-between
+          "
+        >
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-700">
-              Contractor Directory
-            </p>
+            <div className="flex items-center gap-2">
+              <span
+                className="
+                  h-1.5
+                  w-1.5
+                  rounded-full
+                  bg-[var(--qoreva-violet)]
+                "
+                aria-hidden="true"
+              />
 
-            <h2 className="mt-1 text-2xl font-black text-slate-950">
-              Current Contractors
+              <p
+                className="
+                  text-[11px]
+                  font-black
+                  uppercase
+                  tracking-[0.18em]
+                  text-[var(--qoreva-violet)]
+                "
+              >
+                Contractor Directory
+              </p>
+            </div>
+
+            <h2
+              className="
+                mt-1
+                text-2xl
+                font-black
+                tracking-[-0.03em]
+                text-[var(--qoreva-obsidian)]
+              "
+            >
+              Contractor Readiness
             </h2>
 
-            <p className="mt-1 text-sm text-slate-600">
+            <p
+              className="
+                mt-1
+                text-sm
+                font-medium
+                text-[var(--qoreva-muted)]
+              "
+            >
               {contractors.length} contractor
               {contractors.length === 1
                 ? ""
@@ -441,16 +596,23 @@ export default async function ContractorsPage() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div
+            className="
+              grid
+              gap-3
+              sm:grid-cols-2
+              xl:grid-cols-3
+            "
+          >
             <input
               type="search"
               placeholder="Search contractors..."
-              className="h-12 rounded-xl border border-slate-300 px-4 text-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+              className={filterClassName}
             />
 
             <select
               defaultValue="all"
-              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+              className={filterClassName}
             >
               <option value="all">
                 All approval statuses
@@ -475,14 +637,14 @@ export default async function ContractorsPage() {
 
             <select
               defaultValue="all"
-              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+              className={filterClassName}
             >
               <option value="all">
-                All compliance statuses
+                All readiness statuses
               </option>
 
               <option value="Compliant">
-                Compliant
+                Ready
               </option>
 
               <option value="Action Required">
@@ -504,7 +666,7 @@ export default async function ContractorsPage() {
           <div className="p-6">
             <EmptyState
               title="No contractors found"
-              description="Add your first contractor to begin connecting companies, projects, safety contacts, workforce, insurance, and compliance records."
+              description="Add your first contractor to begin managing project assignment, workforce, qualification, documents, insurance, and readiness."
               icon={
                 <span className="text-lg font-black">
                   CT
@@ -520,20 +682,26 @@ export default async function ContractorsPage() {
           </div>
         ) : (
           <>
+            {/* Desktop */}
             <div className="hidden overflow-x-auto xl:block">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+                <thead
+                  className="
+                    bg-[var(--qoreva-surface-muted)]
+                    text-[10px]
+                    font-black
+                    uppercase
+                    tracking-[0.12em]
+                    text-[var(--qoreva-muted)]
+                  "
+                >
                   <tr>
                     <th className="px-6 py-4">
                       Contractor
                     </th>
 
                     <th className="px-5 py-4">
-                      Company / Project
-                    </th>
-
-                    <th className="px-5 py-4">
-                      Trade
+                      Project
                     </th>
 
                     <th className="px-5 py-4">
@@ -541,15 +709,19 @@ export default async function ContractorsPage() {
                     </th>
 
                     <th className="px-5 py-4">
-                      Safety Performance
+                      Readiness
                     </th>
 
                     <th className="px-5 py-4">
-                      Compliance
+                      Documents
                     </th>
 
                     <th className="px-5 py-4">
                       Insurance
+                    </th>
+
+                    <th className="px-5 py-4">
+                      Safety
                     </th>
 
                     <th className="px-6 py-4 text-right">
@@ -558,7 +730,12 @@ export default async function ContractorsPage() {
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200">
+                <tbody
+                  className="
+                    divide-y
+                    divide-[var(--qoreva-border)]
+                  "
+                >
                   {contractors.map(
                     (contractor) => {
                       const insuranceExpired =
@@ -571,150 +748,259 @@ export default async function ContractorsPage() {
                           contractor.id,
                         );
 
+                      const readiness =
+                        getContractorReadiness(
+                          contractor,
+                          complianceSummary,
+                        );
+
                       return (
                         <tr
                           key={contractor.id}
-                          className="transition hover:bg-cyan-50/40"
+                          className="
+                            transition-colors
+                            duration-150
+                            hover:bg-[var(--qoreva-violet-faint)]
+                          "
                         >
+                          {/* Contractor */}
                           <td className="px-6 py-5">
                             <div className="flex items-center gap-4">
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
+                              <div
+                                className="
+                                  flex
+                                  h-12
+                                  w-12
+                                  shrink-0
+                                  items-center
+                                  justify-center
+                                  rounded-2xl
+                                  bg-[var(--qoreva-obsidian)]
+                                  text-xs
+                                  font-black
+                                  text-[#B9B0FF]
+                                "
+                              >
                                 {contractorInitials(
                                   contractor.name,
                                 )}
                               </div>
 
-                              <div>
-                                <p className="font-black text-slate-950">
+                              <div className="min-w-0">
+                                <p
+                                  className="
+                                    font-black
+                                    text-[var(--qoreva-obsidian)]
+                                  "
+                                >
                                   {
                                     contractor.name
                                   }
                                 </p>
 
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {contractor.contractorCode ||
-                                    contractor.legalName ||
-                                    "No contractor code"}
+                                <p
+                                  className="
+                                    mt-1
+                                    text-xs
+                                    font-medium
+                                    text-[var(--qoreva-muted)]
+                                  "
+                                >
+                                  {
+                                    contractor.company
+                                      .name
+                                  }
+                                </p>
+
+                                <p
+                                  className="
+                                    mt-0.5
+                                    text-[11px]
+                                    font-medium
+                                    text-[var(--qoreva-subtle)]
+                                  "
+                                >
+                                  {contractor.trade ||
+                                    contractor.contractorCode ||
+                                    "Trade not entered"}
                                 </p>
                               </div>
                             </div>
                           </td>
 
+                          {/* Project */}
                           <td className="px-5 py-5">
-                            <p className="font-bold text-slate-800">
-                              {
-                                contractor.company
-                                  .name
-                              }
-                            </p>
-
-                            <p className="mt-1 text-xs text-slate-500">
+                            <p
+                              className="
+                                font-black
+                                text-[var(--qoreva-text)]
+                              "
+                            >
                               {contractor.project
                                 ?.name ||
-                                "No project assigned"}
+                                "Not assigned"}
+                            </p>
+
+                            <p
+                              className="
+                                mt-1
+                                text-xs
+                                font-medium
+                                text-[var(--qoreva-muted)]
+                              "
+                            >
+                              {contractor.project
+                                ?.projectCode ||
+                                contractor.specialty ||
+                                "No project code"}
                             </p>
                           </td>
 
+                          {/* Workforce */}
                           <td className="px-5 py-5">
-                            <p className="font-bold text-slate-800">
-                              {contractor.trade ||
-                                "Not entered"}
-                            </p>
-
-                            <p className="mt-1 text-xs text-slate-500">
-                              {contractor.specialty ||
-                                "No specialty entered"}
-                            </p>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <p className="text-xl font-black text-slate-950">
+                            <p
+                              className="
+                                text-2xl
+                                font-black
+                                tracking-[-0.03em]
+                                text-[var(--qoreva-obsidian)]
+                              "
+                            >
                               {
                                 contractor.workforceCount
                               }
                             </p>
 
-                            <p className="mt-1 text-xs text-slate-500">
+                            <p
+                              className="
+                                mt-1
+                                text-[11px]
+                                font-bold
+                                text-[var(--qoreva-muted)]
+                              "
+                            >
                               Current workers
                             </p>
                           </td>
 
+                          {/* Readiness */}
                           <td className="px-5 py-5">
-                            <div className="space-y-1 text-xs">
-                              <p className="font-bold text-slate-700">
-                                EMR:{" "}
-                                {formatRiskRate(
-                                  contractor.emr,
-                                )}
-                              </p>
+                            <ReadinessBadge
+                              label={readiness.label}
+                              tone={readiness.tone}
+                            />
 
-                              <p className="font-bold text-slate-700">
-                                TRIR:{" "}
-                                {formatRiskRate(
-                                  contractor.trir,
-                                )}
-                              </p>
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div className="space-y-3">
-                              <div className="flex max-w-48 flex-wrap gap-2">
-                                <StatusBadge
-                                  label={
-                                    contractor.approvalStatus
-                                  }
-                                  tone={approvalStatusTone(
-                                    contractor.approvalStatus,
-                                  )}
-                                />
-
-                                <StatusBadge
-                                  label={
-                                    contractor.complianceStatus
-                                  }
-                                  tone={complianceStatusTone(
-                                    contractor.complianceStatus,
-                                  )}
-                                />
-
-                                <StatusBadge
-                                  label={
-                                    contractor.orientationStatus
-                                  }
-                                  tone={orientationStatusTone(
-                                    contractor.orientationStatus,
-                                  )}
-                                />
-                              </div>
-
-                              <DocumentComplianceSummary
-                                summary={
-                                  complianceSummary
+                            <div className="mt-2">
+                              <StatusBadge
+                                label={
+                                  contractor.approvalStatus
                                 }
+                                tone={approvalStatusTone(
+                                  contractor.approvalStatus,
+                                )}
                               />
                             </div>
                           </td>
 
+                          {/* Documents */}
                           <td className="px-5 py-5">
-                            <p
-                              className={
-                                insuranceExpired
-                                  ? "font-black text-rose-700"
-                                  : "font-bold text-slate-800"
+                            <DocumentComplianceSummary
+                              summary={
+                                complianceSummary
                               }
-                            >
-                              {formatContractorDate(
-                                contractor.insuranceExpiresAt,
-                              )}
-                            </p>
-
-                            <p className="mt-1 text-xs text-slate-500">
-                              {contractor.insuranceProvider ||
-                                "No provider entered"}
-                            </p>
+                            />
                           </td>
 
+                          {/* Insurance */}
+                          <td className="px-5 py-5">
+                            <div
+                              className={`
+                                max-w-44
+                                rounded-xl
+                                border
+                                px-3
+                                py-2.5
+                                ${
+                                  insuranceExpired
+                                    ? `
+                                      border-[#F0BDC4]
+                                      bg-[var(--qoreva-danger-soft)]
+                                    `
+                                    : `
+                                      border-[var(--qoreva-border)]
+                                      bg-[var(--qoreva-surface-muted)]
+                                    `
+                                }
+                              `}
+                            >
+                              <p
+                                className={`
+                                  text-xs
+                                  font-black
+                                  ${
+                                    insuranceExpired
+                                      ? "text-[var(--qoreva-danger)]"
+                                      : "text-[var(--qoreva-obsidian)]"
+                                  }
+                                `}
+                              >
+                                {insuranceExpired
+                                  ? "Expired"
+                                  : formatContractorDate(
+                                      contractor.insuranceExpiresAt,
+                                    )}
+                              </p>
+
+                              <p
+                                className="
+                                  mt-1
+                                  truncate
+                                  text-[10px]
+                                  font-bold
+                                  text-[var(--qoreva-muted)]
+                                "
+                              >
+                                {contractor.insuranceProvider ||
+                                  "No provider"}
+                              </p>
+
+                              {insuranceExpired ? (
+                                <p
+                                  className="
+                                    mt-1
+                                    text-[10px]
+                                    font-black
+                                    text-[var(--qoreva-danger)]
+                                  "
+                                >
+                                  {formatContractorDate(
+                                    contractor.insuranceExpiresAt,
+                                  )}
+                                </p>
+                              ) : null}
+                            </div>
+                          </td>
+
+                          {/* Safety */}
+                          <td className="px-5 py-5">
+                            <div className="space-y-1">
+                              <SafetyMetric
+                                label="EMR"
+                                value={formatRiskRate(
+                                  contractor.emr,
+                                )}
+                              />
+
+                              <SafetyMetric
+                                label="TRIR"
+                                value={formatRiskRate(
+                                  contractor.trir,
+                                )}
+                              />
+                            </div>
+                          </td>
+
+                          {/* Actions */}
                           <td className="px-6 py-5">
                             <div className="flex justify-end gap-3">
                               <ViewContractorModal
@@ -761,7 +1047,17 @@ export default async function ContractorsPage() {
               </table>
             </div>
 
-            <div className="grid gap-4 p-5 xl:hidden">
+            {/* Mobile / Tablet */}
+            <div
+              className="
+                grid
+                gap-4
+                bg-[var(--qoreva-surface-muted)]
+                p-4
+                sm:p-5
+                xl:hidden
+              "
+            >
               {contractors.map(
                 (contractor) => {
                   const complianceSummary =
@@ -769,27 +1065,80 @@ export default async function ContractorsPage() {
                       contractor.id,
                     );
 
+                  const readiness =
+                    getContractorReadiness(
+                      contractor,
+                      complianceSummary,
+                    );
+
+                  const insuranceExpired =
+                    contractorIsInsuranceExpired(
+                      contractor.insuranceExpiresAt,
+                    );
+
                   return (
                     <article
                       key={contractor.id}
-                      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                      className="
+                        rounded-3xl
+                        border
+                        border-[var(--qoreva-border)]
+                        bg-white
+                        p-5
+                        shadow-[var(--qoreva-shadow-sm)]
+                      "
                     >
-                      <div className="flex items-start justify-between gap-4">
+                      <div
+                        className="
+                          flex
+                          items-start
+                          justify-between
+                          gap-4
+                        "
+                      >
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
+                          <div
+                            className="
+                              flex
+                              h-12
+                              w-12
+                              shrink-0
+                              items-center
+                              justify-center
+                              rounded-2xl
+                              bg-[var(--qoreva-obsidian)]
+                              text-xs
+                              font-black
+                              text-[#B9B0FF]
+                            "
+                          >
                             {contractorInitials(
                               contractor.name,
                             )}
                           </div>
 
                           <div className="min-w-0">
-                            <h3 className="truncate font-black text-slate-950">
+                            <h3
+                              className="
+                                truncate
+                                font-black
+                                text-[var(--qoreva-obsidian)]
+                              "
+                            >
                               {
                                 contractor.name
                               }
                             </h3>
 
-                            <p className="mt-1 truncate text-sm text-slate-500">
+                            <p
+                              className="
+                                mt-1
+                                truncate
+                                text-sm
+                                font-medium
+                                text-[var(--qoreva-muted)]
+                              "
+                            >
                               {
                                 contractor.company
                                   .name
@@ -798,17 +1147,20 @@ export default async function ContractorsPage() {
                           </div>
                         </div>
 
-                        <StatusBadge
-                          label={
-                            contractor.approvalStatus
-                          }
-                          tone={approvalStatusTone(
-                            contractor.approvalStatus,
-                          )}
+                        <ReadinessBadge
+                          label={readiness.label}
+                          tone={readiness.tone}
                         />
                       </div>
 
-                      <div className="mt-5 grid grid-cols-2 gap-3">
+                      <div
+                        className="
+                          mt-5
+                          grid
+                          grid-cols-2
+                          gap-3
+                        "
+                      >
                         <MobileDetail
                           label="Project"
                           value={
@@ -834,13 +1186,9 @@ export default async function ContractorsPage() {
                         />
 
                         <MobileDetail
-                          label="Compliance"
+                          label="Approval"
                           value={
-                            complianceSummary &&
-                            complianceSummary.overallStatus !==
-                              "No Requirements"
-                              ? `${complianceSummary.compliancePercentage}%`
-                              : contractor.complianceStatus
+                            contractor.approvalStatus
                           }
                         />
 
@@ -867,7 +1215,69 @@ export default async function ContractorsPage() {
                         />
                       </div>
 
-                      <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+                      <div
+                        className={`
+                          mt-4
+                          rounded-xl
+                          border
+                          p-3
+                          ${
+                            insuranceExpired
+                              ? `
+                                border-[#F0BDC4]
+                                bg-[var(--qoreva-danger-soft)]
+                              `
+                              : `
+                                border-[var(--qoreva-border)]
+                                bg-[var(--qoreva-surface-muted)]
+                              `
+                          }
+                        `}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p
+                            className="
+                              text-[10px]
+                              font-black
+                              uppercase
+                              tracking-[0.1em]
+                              text-[var(--qoreva-muted)]
+                            "
+                          >
+                            Insurance
+                          </p>
+
+                          <p
+                            className={`
+                              text-xs
+                              font-black
+                              ${
+                                insuranceExpired
+                                  ? "text-[var(--qoreva-danger)]"
+                                  : "text-[var(--qoreva-obsidian)]"
+                              }
+                            `}
+                          >
+                            {insuranceExpired
+                              ? "Expired"
+                              : formatContractorDate(
+                                  contractor.insuranceExpiresAt,
+                                )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        className="
+                          mt-5
+                          flex
+                          flex-wrap
+                          gap-3
+                          border-t
+                          border-[var(--qoreva-border)]
+                          pt-4
+                        "
+                      >
                         <ViewContractorModal
                           contractor={
                             contractor
@@ -928,26 +1338,34 @@ function DocumentComplianceSummary({
       "No Requirements"
   ) {
     return (
-      <p className="text-xs font-semibold text-slate-500">
-        No document requirements
-      </p>
+      <div
+        className="
+          inline-flex
+          rounded-xl
+          border
+          border-[var(--qoreva-border)]
+          bg-[var(--qoreva-surface-muted)]
+          px-3
+          py-2
+        "
+      >
+        <p
+          className="
+            text-[11px]
+            font-bold
+            text-[var(--qoreva-muted)]
+          "
+        >
+          No document requirements
+        </p>
+      </div>
     );
   }
 
   /*
-   * CRITICAL — RED
-   *
-   * These conditions represent a true
-   * document compliance failure.
-   *
-   * Missing:
-   * A required document has not been submitted.
-   *
-   * Expired:
-   * A required document is no longer current.
-   *
-   * Rejected:
-   * A reviewer formally rejected the document.
+   * RED
+   * Missing, expired or rejected required
+   * documents represent a compliance failure.
    */
   const hasCriticalIssue =
     summary.missing > 0 ||
@@ -955,27 +1373,9 @@ function DocumentComplianceSummary({
     summary.rejected > 0;
 
   /*
-   * WARNING — AMBER
-   *
-   * These conditions require attention,
-   * but they are not treated as a formal
-   * compliance failure.
-   *
-   * Needs Revision:
-   * The document was reviewed and returned
-   * for correction.
-   *
-   * Awaiting Review:
-   * The document was submitted but has not
-   * yet been reviewed.
-   *
-   * Viewed:
-   * A reviewer opened the document but has
-   * not yet made a final decision.
-   *
-   * Expiring Soon:
-   * The document is currently valid but is
-   * approaching its expiration date.
+   * AMBER
+   * Revision, review, viewed or expiring-soon
+   * documents require attention.
    */
   const hasWarning =
     summary.needsRevision > 0 ||
@@ -983,94 +1383,455 @@ function DocumentComplianceSummary({
     summary.awaitingReview > 0 ||
     summary.viewed > 0;
 
-  /*
-   * Severity hierarchy:
-   *
-   * RED wins over AMBER.
-   * AMBER wins over GREEN.
-   *
-   * Example:
-   * 1 Needs Revision = Amber
-   *
-   * 1 Needs Revision + 1 Rejected = Red
-   */
-  const toneClass =
+  const tone =
     hasCriticalIssue
-      ? "border-rose-200 bg-rose-50 text-rose-700"
+      ? "danger"
       : hasWarning
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+        ? "warning"
+        : "success";
+
+  const toneClasses = {
+    danger: {
+      container:
+        "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]",
+      text:
+        "text-[var(--qoreva-danger)]",
+      bar:
+        "bg-[var(--qoreva-danger)]",
+    },
+
+    warning: {
+      container:
+        "border-[#F0D49B] bg-[var(--qoreva-warning-soft)]",
+      text:
+        "text-[var(--qoreva-warning)]",
+      bar:
+        "bg-[var(--qoreva-warning)]",
+    },
+
+    success: {
+      container:
+        "border-[#BDE8D4] bg-[var(--qoreva-success-soft)]",
+      text:
+        "text-[var(--qoreva-success)]",
+      bar:
+        "bg-[var(--qoreva-success)]",
+    },
+  } as const;
+
+  const classes =
+    toneClasses[tone];
 
   return (
     <div
-      className={`max-w-64 rounded-xl border px-3 py-2 ${toneClass}`}
+      className={`
+        w-full
+        max-w-64
+        rounded-xl
+        border
+        px-3
+        py-2.5
+        ${classes.container}
+      `}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-black">
-          Document Compliance
+      <div
+        className="
+          flex
+          items-center
+          justify-between
+          gap-3
+        "
+      >
+        <span
+          className={`
+            text-[11px]
+            font-black
+            ${classes.text}
+          `}
+        >
+          Documents
         </span>
 
-        <span className="text-sm font-black">
-          {
-            summary.compliancePercentage
-          }
-          %
+        <span
+          className={`
+            text-sm
+            font-black
+            ${classes.text}
+          `}
+        >
+          {summary.compliancePercentage}%
         </span>
       </div>
 
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-black">
+      <div
+        className="
+          mt-2
+          h-1.5
+          overflow-hidden
+          rounded-full
+          bg-black/[0.06]
+        "
+      >
+        <div
+          className={`
+            h-full
+            rounded-full
+            ${classes.bar}
+          `}
+          style={{
+            width: `${Math.max(
+              0,
+              Math.min(
+                100,
+                summary.compliancePercentage,
+              ),
+            )}%`,
+          }}
+        />
+      </div>
+
+      <div
+        className="
+          mt-2
+          flex
+          flex-wrap
+          gap-x-2.5
+          gap-y-1
+          text-[9px]
+          font-black
+        "
+      >
         {summary.current > 0 ? (
-          <span>
+          <span className={classes.text}>
             {summary.current} Current
           </span>
         ) : null}
 
         {summary.missing > 0 ? (
-          <span>
+          <span className="text-[var(--qoreva-danger)]">
             {summary.missing} Missing
           </span>
         ) : null}
 
         {summary.expiringSoon > 0 ? (
-          <span>
+          <span className="text-[var(--qoreva-warning)]">
             {summary.expiringSoon} Expiring
-            Soon
           </span>
         ) : null}
 
         {summary.expired > 0 ? (
-          <span>
+          <span className="text-[var(--qoreva-danger)]">
             {summary.expired} Expired
           </span>
         ) : null}
 
         {summary.awaitingReview > 0 ? (
-          <span>
-            {summary.awaitingReview} Awaiting
-            Review
+          <span className="text-[var(--qoreva-warning)]">
+            {summary.awaitingReview} Review
           </span>
         ) : null}
 
         {summary.viewed > 0 ? (
-          <span>
-            {summary.viewed} Viewed / Pending
-            Approval
+          <span className="text-[var(--qoreva-warning)]">
+            {summary.viewed} Pending
           </span>
         ) : null}
 
         {summary.needsRevision > 0 ? (
-          <span>
-            {summary.needsRevision} Needs
-            Revision
+          <span className="text-[var(--qoreva-warning)]">
+            {summary.needsRevision} Revision
           </span>
         ) : null}
 
         {summary.rejected > 0 ? (
-          <span>
+          <span className="text-[var(--qoreva-danger)]">
             {summary.rejected} Rejected
           </span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function getContractorReadiness(
+  contractor: ContractorRecord,
+  summary:
+    | ContractorComplianceSummary
+    | undefined,
+): {
+  label: string;
+  tone:
+    | "success"
+    | "warning"
+    | "danger"
+    | "neutral";
+} {
+  const documentFailure =
+    summary?.missing &&
+      summary.missing > 0 ||
+    summary?.expired &&
+      summary.expired > 0 ||
+    summary?.rejected &&
+      summary.rejected > 0;
+
+  const documentWarning =
+    summary?.needsRevision &&
+      summary.needsRevision > 0 ||
+    summary?.expiringSoon &&
+      summary.expiringSoon > 0 ||
+    summary?.awaitingReview &&
+      summary.awaitingReview > 0 ||
+    summary?.viewed &&
+      summary.viewed > 0;
+
+  const insuranceExpired =
+    contractorIsInsuranceExpired(
+      contractor.insuranceExpiresAt,
+    );
+
+  if (
+    documentFailure ||
+    insuranceExpired ||
+    contractor.complianceStatus ===
+      "Expired" ||
+    contractor.complianceStatus ===
+      "Action Required" ||
+    contractor.approvalStatus ===
+      "Rejected"
+  ) {
+    return {
+      label: "Action Required",
+      tone: "danger",
+    };
+  }
+
+  if (
+    documentWarning ||
+    contractor.approvalStatus ===
+      "Pending" ||
+    contractor.approvalStatus ===
+      "Conditional" ||
+    contractor.complianceStatus ===
+      "Pending" ||
+    contractor.orientationStatus !==
+      "Complete"
+  ) {
+    return {
+      label: "Review",
+      tone: "warning",
+    };
+  }
+
+  if (
+    contractor.approvalStatus ===
+      "Approved" &&
+    contractor.complianceStatus ===
+      "Compliant" &&
+    contractor.orientationStatus ===
+      "Complete"
+  ) {
+    return {
+      label: "Ready",
+      tone: "success",
+    };
+  }
+
+  return {
+    label: "Review",
+    tone: "neutral",
+  };
+}
+
+function ReadinessBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone:
+    | "success"
+    | "warning"
+    | "danger"
+    | "neutral";
+}) {
+  const classes = {
+    success:
+      "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
+
+    warning:
+      "border-[#F0D49B] bg-[var(--qoreva-warning-soft)] text-[var(--qoreva-warning)]",
+
+    danger:
+      "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
+
+    neutral:
+      "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]",
+  } as const;
+
+  return (
+    <span
+      className={`
+        inline-flex
+        items-center
+        gap-1.5
+        rounded-full
+        border
+        px-3
+        py-1
+        text-[10px]
+        font-black
+        ${classes[tone]}
+      `}
+    >
+      <span
+        className="
+          h-1.5
+          w-1.5
+          rounded-full
+          bg-current
+        "
+        aria-hidden="true"
+      />
+
+      {label}
+    </span>
+  );
+}
+
+function ReadinessMetric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone:
+    | "success"
+    | "danger"
+    | "neutral";
+}) {
+  const toneClasses = {
+    success: {
+      border:
+        "border-[#BDE8D4]",
+      value:
+        "text-[var(--qoreva-success)]",
+      dot:
+        "bg-[var(--qoreva-success)]",
+    },
+
+    danger: {
+      border:
+        "border-[#F0BDC4]",
+      value:
+        "text-[var(--qoreva-danger)]",
+      dot:
+        "bg-[var(--qoreva-danger)]",
+    },
+
+    neutral: {
+      border:
+        "border-[var(--qoreva-border)]",
+      value:
+        "text-[var(--qoreva-obsidian)]",
+      dot:
+        "bg-[var(--qoreva-muted)]",
+    },
+  } as const;
+
+  const classes =
+    toneClasses[tone];
+
+  return (
+    <div
+      className={`
+        rounded-2xl
+        border
+        bg-white
+        p-5
+        shadow-[var(--qoreva-shadow-sm)]
+        ${classes.border}
+      `}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={`
+            h-1.5
+            w-1.5
+            rounded-full
+            ${classes.dot}
+          `}
+          aria-hidden="true"
+        />
+
+        <p
+          className="
+            text-sm
+            font-bold
+            text-[var(--qoreva-muted)]
+          "
+        >
+          {label}
+        </p>
+      </div>
+
+      <p
+        className={`
+          mt-2
+          text-3xl
+          font-black
+          tracking-[-0.04em]
+          ${classes.value}
+        `}
+      >
+        {value}
+      </p>
+
+      <p
+        className="
+          mt-1
+          text-sm
+          font-medium
+          text-[var(--qoreva-muted)]
+        "
+      >
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function SafetyMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="
+          min-w-8
+          text-[10px]
+          font-black
+          uppercase
+          tracking-wide
+          text-[var(--qoreva-muted)]
+        "
+      >
+        {label}
+      </span>
+
+      <span
+        className="
+          font-black
+          text-[var(--qoreva-obsidian)]
+        "
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -1083,14 +1844,62 @@ function MobileDetail({
   value: string;
 }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+    <div
+      className="
+        rounded-xl
+        border
+        border-[var(--qoreva-border)]
+        bg-[var(--qoreva-surface-muted)]
+        p-3
+      "
+    >
+      <p
+        className="
+          text-[9px]
+          font-black
+          uppercase
+          tracking-[0.1em]
+          text-[var(--qoreva-muted)]
+        "
+      >
         {label}
       </p>
 
-      <p className="mt-1 truncate text-sm font-black text-slate-900">
+      <p
+        className="
+          mt-1
+          truncate
+          text-sm
+          font-black
+          text-[var(--qoreva-obsidian)]
+        "
+      >
         {value || "Not entered"}
       </p>
     </div>
   );
 }
+
+const filterClassName = `
+  h-12
+  w-full
+  rounded-xl
+  border
+  border-[var(--qoreva-border-strong)]
+  bg-white
+  px-4
+  text-sm
+  font-semibold
+  text-[var(--qoreva-text)]
+  outline-none
+  transition-all
+  duration-150
+
+  placeholder:text-[var(--qoreva-subtle)]
+
+  hover:border-[#BBB6C6]
+
+  focus:border-[var(--qoreva-violet)]
+  focus:ring-4
+  focus:ring-[rgba(102,87,232,0.10)]
+`;

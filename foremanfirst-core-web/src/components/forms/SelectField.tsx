@@ -21,31 +21,108 @@ export default function SelectField({
   disabled = false,
 }: SelectFieldProps) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-slate-700">
+    <label className="group block">
+      <span
+        className="
+          mb-2
+          flex
+          items-center
+          gap-1
+          text-sm
+          font-bold
+          text-[var(--qoreva-text)]
+        "
+      >
         {label}
 
-        {required && (
-          <span className="ml-1 text-red-600">*</span>
-        )}
+        {required ? (
+          <span
+            className="text-[var(--qoreva-danger)]"
+            aria-hidden="true"
+          >
+            *
+          </span>
+        ) : null}
       </span>
 
-      <select
-        value={value}
-        required={required}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-100"
-      >
-        {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
+      <div className="relative">
+        <select
+          value={value}
+          required={required}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange(event.target.value)
+          }
+          className="
+            min-h-12
+            w-full
+            appearance-none
+            rounded-xl
+            border
+            border-[var(--qoreva-border-strong)]
+            bg-white
+            px-4
+            py-3
+            pr-11
+            text-sm
+            font-medium
+            text-[var(--qoreva-ink)]
+            shadow-[0_1px_2px_rgba(17,18,22,0.02)]
+            outline-none
+            transition-all
+            duration-150
+
+            hover:border-[#BBB6C6]
+
+            focus:border-[var(--qoreva-violet)]
+            focus:ring-4
+            focus:ring-[rgba(102,87,232,0.10)]
+
+            disabled:cursor-not-allowed
+            disabled:border-[var(--qoreva-border)]
+            disabled:bg-[var(--qoreva-surface-muted)]
+            disabled:text-[var(--qoreva-muted)]
+            disabled:shadow-none
+          "
+        >
+          {options.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <div
+          className="
+            pointer-events-none
+            absolute
+            inset-y-0
+            right-4
+            flex
+            items-center
+            text-[var(--qoreva-muted)]
+          "
+          aria-hidden="true"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 20 20"
+            fill="none"
           >
-            {option.label}
-          </option>
-        ))}
-      </select>
+            <path
+              d="M5.5 7.5L10 12L14.5 7.5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      </div>
     </label>
   );
 }

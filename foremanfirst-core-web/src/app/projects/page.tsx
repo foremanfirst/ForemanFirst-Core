@@ -415,17 +415,17 @@ function getDaysRemaining(targetDate: string): number | null {
 function statusClass(status: ProjectStatus): string {
   switch (status) {
     case "Active":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]";
     case "Planning":
-      return "border-blue-200 bg-blue-50 text-blue-700";
+      return "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]";
     case "On Hold":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]";
     case "Completed":
-      return "border-slate-200 bg-slate-100 text-slate-700";
+      return "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
     case "Archived":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
     default:
-      return "border-slate-200 bg-slate-100 text-slate-700";
+      return "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]";
   }
 }
  
@@ -941,13 +941,13 @@ export default function ProjectsPage() {
   }
  
   function runQuickAction(action: string) {
-    setToast(`${action} is ready for connection to its ForemanFirst™ module.`);
+    setToast(`${action} is ready to connect to Qoreva.`);
   }
 
   if (!hydrated) {
     return (
-      <main className="min-h-screen bg-slate-50">
-        <div className="border-b border-slate-200 bg-[#0B132B]">
+      <main className="min-h-screen bg-[var(--qoreva-bone)]">
+        <div className="border-b border-[var(--qoreva-border)] bg-[var(--qoreva-obsidian)]">
           <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
             <div className="h-8 w-56 animate-pulse rounded-lg bg-white/15" />
           </div>
@@ -977,23 +977,23 @@ export default function ProjectsPage() {
     );
  
     return (
-      <main className="min-h-screen bg-slate-50">
-        <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0B132B] text-white shadow-lg">
-          <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      <main className="min-h-screen bg-transparent">
+        <header className="sticky top-[72px] z-20 border-b border-[var(--qoreva-border)] bg-[rgba(244,241,234,0.94)] backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 type="button"
                 onClick={() => setWorkspaceProjectId(null)}
-                className="shrink-0 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20"
+                className="shrink-0 rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-3 py-2 text-sm font-black text-[var(--qoreva-text)] transition hover:border-[rgba(102,87,232,0.25)] hover:bg-[var(--qoreva-violet-faint)]"
               >
                 ← Projects
               </button>
  
               <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">
-                  ForemanFirst™ Project Workspace
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
+                  Qoreva™ Project Workspace
                 </p>
-                <h1 className="truncate text-xl font-black sm:text-2xl">
+                <h1 className="truncate text-xl font-black tracking-[-0.025em] text-[var(--qoreva-obsidian)] sm:text-2xl">
                   {workspaceProject.projectName}
                 </h1>
               </div>
@@ -1002,15 +1002,15 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => openEditModal(workspaceProject)}
-              className="hidden rounded-xl bg-[#00C2FF] px-4 py-2.5 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300 sm:inline-flex"
+              className="hidden rounded-xl bg-[var(--qoreva-violet)] px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-[var(--qoreva-violet-hover)] sm:inline-flex"
             >
               Edit Project
             </button>
           </div>
         </header>
  
-        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-          <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B132B] via-[#142B5F] to-[#075EA8] p-6 text-white shadow-xl sm:p-8">
+        <div className="space-y-6 py-6">
+          <section className="qoreva-command-surface overflow-hidden p-6 sm:p-8">
             <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-start">
               <div className="max-w-4xl">
                 <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -1035,7 +1035,7 @@ export default function ProjectsPage() {
                   {workspaceProject.projectName}
                 </h2>
  
-                <p className="mt-3 text-base text-blue-100">
+                <p className="mt-3 text-base text-white/70">
                   {workspaceProject.client}
                   {workspaceProject.city || workspaceProject.state
                     ? ` • ${workspaceProject.city}${
@@ -1046,7 +1046,7 @@ export default function ProjectsPage() {
                     : ""}
                 </p>
  
-                <p className="mt-5 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
+                <p className="mt-5 max-w-3xl text-sm leading-6 text-white/70 sm:text-base">
                   {workspaceProject.description ||
                     "No project description has been entered."}
                 </p>
@@ -1055,7 +1055,7 @@ export default function ProjectsPage() {
               <div className="w-full rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur xl:max-w-sm">
                 <div className="flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-cyan-200">
+                    <p className="text-xs font-bold uppercase tracking-widest text-[#B9B0FF]">
                       Project Progress
                     </p>
                     <p className="mt-1 text-4xl font-black">
@@ -1063,7 +1063,7 @@ export default function ProjectsPage() {
                     </p>
                   </div>
  
-                  <p className="text-right text-sm text-blue-100">
+                  <p className="text-right text-sm text-white/70">
                     {daysRemaining === null
                       ? "Completion date not entered"
                       : daysRemaining >= 0
@@ -1076,21 +1076,21 @@ export default function ProjectsPage() {
  
                 <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/25">
                   <div
-                    className="h-full rounded-full bg-[#00C2FF] transition-all"
+                    className="h-full rounded-full bg-[var(--qoreva-violet)] transition-all"
                     style={{ width: `${workspaceProject.progress}%` }}
                   />
                 </div>
  
                 <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
                   <div className="rounded-xl bg-white/10 p-3">
-                    <p className="text-blue-200">Start</p>
+                    <p className="text-white/60">Start</p>
                     <p className="mt-1 font-bold">
                       {formatDate(workspaceProject.startDate)}
                     </p>
                   </div>
  
                   <div className="rounded-xl bg-white/10 p-3">
-                    <p className="text-blue-200">Target</p>
+                    <p className="text-white/60">Target</p>
                     <p className="mt-1 font-bold">
                       {formatDate(workspaceProject.targetCompletionDate)}
                     </p>
@@ -1100,10 +1100,10 @@ export default function ProjectsPage() {
             </div>
           </section>
  
-          <nav className="mt-6 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-[var(--qoreva-border)] bg-white p-2 shadow-[var(--qoreva-shadow-sm)]">
             {[
               { id: "overview", label: "Overview" },
-              { id: "command", label: "Command Center" },
+              { id: "command", label: "Command" },
               { id: "activity", label: "Recent Activity" },
             ].map((tab) => (
               <button
@@ -1116,8 +1116,8 @@ export default function ProjectsPage() {
                 }
                 className={`whitespace-nowrap rounded-xl px-5 py-3 text-sm font-black transition ${
                   workspaceTab === tab.id
-                    ? "bg-[#0B132B] text-white shadow"
-                    : "text-slate-600 hover:bg-slate-100"
+                    ? "bg-[var(--qoreva-violet)] text-white shadow-sm"
+                    : "text-[var(--qoreva-muted)] hover:bg-[var(--qoreva-surface-muted)]"
                 }`}
               >
                 {tab.label}
@@ -1174,13 +1174,13 @@ export default function ProjectsPage() {
               </section>
  
               <section className="grid gap-6 xl:grid-cols-3">
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm xl:col-span-2">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm xl:col-span-2">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
                         Live project condition
                       </p>
-                      <h3 className="mt-1 text-xl font-black text-slate-950">
+                      <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                         Safety and Operations
                       </h3>
                     </div>
@@ -1188,9 +1188,9 @@ export default function ProjectsPage() {
                     <button
                       type="button"
                       onClick={() => setWorkspaceTab("command")}
-                      className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50"
+                      className="rounded-xl border border-[var(--qoreva-border)] px-4 py-2 text-sm font-bold text-[var(--qoreva-text)] transition hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-soft)]"
                     >
-                      Open Command Center
+                      Open Command
                     </button>
                   </div>
  
@@ -1225,11 +1225,11 @@ export default function ProjectsPage() {
                   </div>
                 </div>
  
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Quick Actions
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     Start Field Work
                   </h3>
  
@@ -1239,7 +1239,7 @@ export default function ProjectsPage() {
                         key={action}
                         type="button"
                         onClick={() => runQuickAction(action)}
-                        className="flex min-h-12 items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-[#0B132B]"
+                        className="flex min-h-12 items-center justify-between rounded-xl border border-[var(--qoreva-border)] px-4 py-3 text-left text-sm font-bold text-[var(--qoreva-text)] transition hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-soft)] hover:text-[var(--qoreva-obsidian)]"
                       >
                         <span>{action}</span>
                         <span aria-hidden="true">→</span>
@@ -1250,11 +1250,11 @@ export default function ProjectsPage() {
               </section>
  
               <section className="grid gap-6 xl:grid-cols-3">
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Safety Performance
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     Current Status
                   </h3>
  
@@ -1288,11 +1288,11 @@ export default function ProjectsPage() {
                   </div>
                 </div>
  
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Key Contacts
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     Project Leadership
                   </h3>
  
@@ -1316,23 +1316,23 @@ export default function ProjectsPage() {
                   </div>
                 </div>
  
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Vision™ and Access™
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     Platform Readiness
                   </h3>
  
                   <div className="mt-5 space-y-3">
                     <ReadinessCard
-                      title="ForemanFirst Access™"
+                      title="Qoreva Access™"
                       status="Ready for setup"
                       description="Worker credentials, attendance, eligibility, and live headcount."
                     />
  
                     <ReadinessCard
-                      title="ForemanFirst Vision™"
+                      title="Qoreva Vision™"
                       status="Ready for setup"
                       description="Vision Live™, Capture™, Replay™, and Assistant™."
                     />
@@ -1347,11 +1347,11 @@ export default function ProjectsPage() {
               </section>
  
               <section className="grid gap-6 xl:grid-cols-2">
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Project Information
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     General Details
                   </h3>
  
@@ -1383,19 +1383,19 @@ export default function ProjectsPage() {
                   </dl>
                 </div>
  
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+                <div className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                     Location
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                     Project Address
                   </h3>
  
-                  <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <p className="font-black text-slate-900">
+                  <div className="mt-6 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-bone)] p-5">
+                    <p className="font-black text-[var(--qoreva-ink)]">
                       {workspaceProject.address || "Address not entered"}
                     </p>
-                    <p className="mt-1 text-slate-600">
+                    <p className="mt-1 text-[var(--qoreva-muted)]">
                       {[
                         workspaceProject.city,
                         workspaceProject.state,
@@ -1407,20 +1407,20 @@ export default function ProjectsPage() {
                   </div>
  
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl border border-[var(--qoreva-border)] p-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-[var(--qoreva-muted)]">
                         Start Date
                       </p>
-                      <p className="mt-1 font-black text-slate-900">
+                      <p className="mt-1 font-black text-[var(--qoreva-ink)]">
                         {formatDate(workspaceProject.startDate)}
                       </p>
                     </div>
  
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl border border-[var(--qoreva-border)] p-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-[var(--qoreva-muted)]">
                         Target Completion
                       </p>
-                      <p className="mt-1 font-black text-slate-900">
+                      <p className="mt-1 font-black text-[var(--qoreva-ink)]">
                         {formatDate(workspaceProject.targetCompletionDate)}
                       </p>
                     </div>
@@ -1432,23 +1432,23 @@ export default function ProjectsPage() {
  
           {workspaceTab === "command" && (
             <div className="mt-6 space-y-6">
-              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <section className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm sm:p-8">
                 <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
-                      ForemanFirst™ Project Command Center
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
+                      Qoreva Command™
                     </p>
-                    <h2 className="mt-1 text-2xl font-black text-slate-950">
+                    <h2 className="mt-1 text-2xl font-black text-[var(--qoreva-obsidian)]">
                       Manage the entire project from one place
                     </h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
                       Each module will automatically remain connected to this
                       project, its companies, contractors, workers, records, and
                       audit history.
                     </p>
                   </div>
  
-                  <span className="inline-flex w-fit rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-black text-cyan-800">
+                  <span className="inline-flex w-fit rounded-full border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] px-3 py-1.5 text-xs font-black text-[var(--qoreva-violet-dark)]">
                     {commandCenterModules.length} connected modules
                   </span>
                 </div>
@@ -1465,27 +1465,27 @@ export default function ProjectsPage() {
                           module.available,
                         )
                       }
-                      className="group flex min-h-44 flex-col rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-cyan-300 hover:shadow-lg"
+                      className="group flex min-h-44 flex-col rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-[rgba(102,87,232,0.28)] hover:shadow-lg"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0B132B] text-sm font-black text-[#00C2FF]">
+                        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--qoreva-obsidian)] text-sm font-black text-[var(--qoreva-violet)]">
                           {module.icon}
                         </span>
  
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500 group-hover:bg-cyan-50 group-hover:text-cyan-700">
+                        <span className="rounded-full bg-[var(--qoreva-surface-muted)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)] group-hover:bg-[var(--qoreva-violet-soft)] group-hover:text-[var(--qoreva-violet-dark)]">
                           {module.available ? "Open" : "Coming Soon"}
                         </span>
                       </div>
  
-                      <h3 className="mt-5 text-lg font-black text-slate-950">
+                      <h3 className="mt-5 text-lg font-black text-[var(--qoreva-obsidian)]">
                         {module.title}
                       </h3>
  
-                      <p className="mt-2 flex-1 text-sm leading-5 text-slate-600">
+                      <p className="mt-2 flex-1 text-sm leading-5 text-[var(--qoreva-muted)]">
                         {module.description}
                       </p>
  
-                      <span className="mt-5 text-sm font-black text-blue-700">
+                      <span className="mt-5 text-sm font-black text-[var(--qoreva-violet-dark)]">
                         Open module →
                       </span>
                     </button>
@@ -1493,11 +1493,11 @@ export default function ProjectsPage() {
                 </div>
               </section>
  
-              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+              <section className="rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm">
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                   Quick Actions
                 </p>
-                <h3 className="mt-1 text-xl font-black text-slate-950">
+                <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
                   Common project workflows
                 </h3>
  
@@ -1507,7 +1507,7 @@ export default function ProjectsPage() {
                       key={action}
                       type="button"
                       onClick={() => runQuickAction(action)}
-                      className="min-h-14 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-[#0B132B]"
+                      className="min-h-14 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-bone)] px-4 py-3 text-sm font-black text-[var(--qoreva-text)] transition hover:border-[rgba(102,87,232,0.28)] hover:bg-[var(--qoreva-violet-soft)] hover:text-[var(--qoreva-obsidian)]"
                     >
                       {action}
                     </button>
@@ -1518,11 +1518,11 @@ export default function ProjectsPage() {
           )}
  
           {workspaceTab === "activity" && (
-            <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+            <section className="mt-6 rounded-3xl border border-[var(--qoreva-border)] bg-white p-6 shadow-sm sm:p-8">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                 Project Activity
               </p>
-              <h2 className="mt-1 text-2xl font-black text-slate-950">
+              <h2 className="mt-1 text-2xl font-black text-[var(--qoreva-obsidian)]">
                 Recent activity and audit history
               </h2>
  
@@ -1549,11 +1549,11 @@ export default function ProjectsPage() {
                   date="Created"
                 />
  
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-                  <p className="font-black text-slate-900">
+                <div className="rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-bone)] p-8 text-center">
+                  <p className="font-black text-[var(--qoreva-ink)]">
                     Full audit logging will appear here.
                   </p>
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 text-sm text-[var(--qoreva-muted)]">
                     Future records will include approvals, document revisions,
                     access events, safety activities, user actions, and module
                     changes.
@@ -1574,9 +1574,9 @@ export default function ProjectsPage() {
     if (!toast) return null;
  
     return (
-      <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-cyan-200 bg-[#0B132B] px-5 py-4 text-sm font-bold text-white shadow-2xl">
+      <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-obsidian)] px-5 py-4 text-sm font-bold text-white shadow-2xl">
         <div className="flex items-center gap-3">
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00C2FF] font-black text-[#0B132B]">
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-violet)] font-black text-[var(--qoreva-obsidian)]">
             ✓
           </span>
           <span>{toast}</span>
@@ -1596,10 +1596,10 @@ export default function ProjectsPage() {
         }}
       >
         <div className="max-h-[96vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-5xl sm:rounded-3xl">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-[#0B132B] px-5 py-4 text-white sm:px-7">
+          <div className="relative flex items-center justify-between overflow-hidden border-b border-white/10 bg-[var(--qoreva-obsidian)] px-5 py-4 text-white sm:px-7">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
-                ForemanFirst™ Projects
+                Qoreva™ Projects
               </p>
               <h2 className="mt-1 text-xl font-black">
                 {modalMode === "create"
@@ -1622,7 +1622,7 @@ export default function ProjectsPage() {
  
           {modalMode === "view" && selectedProject ? (
             <div className="max-h-[calc(96vh-76px)] overflow-y-auto p-5 sm:p-7">
-              <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start">
+              <div className="flex flex-col justify-between gap-4 border-b border-[var(--qoreva-border)] pb-6 sm:flex-row sm:items-start">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span
@@ -1633,16 +1633,16 @@ export default function ProjectsPage() {
                       {selectedProject.status}
                     </span>
  
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                    <span className="rounded-full bg-[var(--qoreva-surface-muted)] px-3 py-1 text-xs font-black text-[var(--qoreva-muted)]">
                       {selectedProject.projectNumber}
                     </span>
                   </div>
  
-                  <h3 className="mt-4 text-2xl font-black text-slate-950">
+                  <h3 className="mt-4 text-2xl font-black text-[var(--qoreva-obsidian)]">
                     {selectedProject.projectName}
                   </h3>
  
-                  <p className="mt-2 text-slate-600">
+                  <p className="mt-2 text-[var(--qoreva-muted)]">
                     {selectedProject.client} • {selectedProject.projectType}
                   </p>
                 </div>
@@ -1653,7 +1653,7 @@ export default function ProjectsPage() {
                     closeModal();
                     openWorkspace(selectedProject);
                   }}
-                  className="rounded-xl bg-[#00C2FF] px-5 py-3 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300"
+                  className="rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                 >
                   Open Project Workspace
                 </button>
@@ -1698,11 +1698,11 @@ export default function ProjectsPage() {
                 />
               </dl>
  
-              <div className="mt-7 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              <div className="mt-7 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-bone)] p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                   Description
                 </p>
-                <p className="mt-2 leading-6 text-slate-700">
+                <p className="mt-2 leading-6 text-[var(--qoreva-text)]">
                   {selectedProject.description ||
                     "No project description has been entered."}
                 </p>
@@ -1715,7 +1715,7 @@ export default function ProjectsPage() {
                     closeModal();
                     duplicateProject(selectedProject);
                   }}
-                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100"
+                  className="rounded-xl border border-[var(--qoreva-border-strong)] px-5 py-3 text-sm font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
                 >
                   Duplicate
                 </button>
@@ -1723,7 +1723,7 @@ export default function ProjectsPage() {
                 <button
                   type="button"
                   onClick={() => openEditModal(selectedProject)}
-                  className="rounded-xl bg-[#0B132B] px-5 py-3 text-sm font-black text-white transition hover:bg-blue-950"
+                  className="rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                 >
                   Edit Project
                 </button>
@@ -1746,7 +1746,7 @@ export default function ProjectsPage() {
  
                 <FormSection
                   title="Project Identity"
-                  description="Enter the primary information used throughout ForemanFirst™."
+                  description="Enter the primary information used throughout Qoreva™."
                 >
                   <TextField
                     label="Project Name"
@@ -2020,7 +2020,7 @@ export default function ProjectsPage() {
                 </FormSection>
  
                 <div>
-                  <label className="mb-2 block text-sm font-black text-slate-800">
+                  <label className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
                     Project Description
                   </label>
                   <textarea
@@ -2030,23 +2030,23 @@ export default function ProjectsPage() {
                       updateForm("description", event.target.value)
                     }
                     placeholder="Describe the project scope, objectives, buildings, phases, and important field information."
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-3 text-sm font-medium text-[var(--qoreva-ink)] outline-none transition placeholder:text-[var(--qoreva-subtle)] hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
                   />
                 </div>
               </div>
  
-              <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
+              <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-[var(--qoreva-border)] bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100"
+                  className="rounded-xl border border-[var(--qoreva-border-strong)] px-5 py-3 text-sm font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
                 >
                   Cancel
                 </button>
  
                 <button
                   type="submit"
-                  className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-300"
+                  className="rounded-xl bg-[var(--qoreva-violet)] px-6 py-3 text-sm font-black text-white shadow transition hover:bg-[var(--qoreva-violet-hover)]"
                 >
                   {modalMode === "create"
                     ? "Create Project"
@@ -2061,62 +2061,37 @@ export default function ProjectsPage() {
   }
  
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-white/10 bg-[#0B132B] text-white shadow-lg">
-        <div className="mx-auto flex max-w-[1600px] flex-col justify-between gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:px-8">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#00C2FF]">
-              ForemanFirst™
-            </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
-              Projects
-            </h1>
-            <p className="mt-1 text-sm text-blue-100">
-              Create, manage, and monitor every project from one platform.
-            </p>
-          </div>
- 
-          <div className="flex flex-wrap gap-2">
+    <main className="min-h-screen bg-transparent">
+      <div className="space-y-6">
+        <section className="qoreva-surface-elevated overflow-hidden p-5 sm:p-6">
+          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+            <div className="max-w-3xl">
+              <div className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--qoreva-violet)]" />
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--qoreva-violet)]">
+                  Project Portfolio
+                </p>
+              </div>
+
+              <h1 className="mt-2 text-3xl font-black tracking-[-0.04em] text-[var(--qoreva-obsidian)] sm:text-4xl">
+                Projects
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                Open a project to manage workforce, readiness, safety, planning, contractors, documents, and project activity from one place.
+              </p>
+            </div>
+
             <button
               type="button"
               onClick={openCreateModal}
-              className="rounded-xl bg-[#00C2FF] px-5 py-2.5 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-300"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:-translate-y-px hover:bg-[var(--qoreva-violet-hover)] hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]"
             >
               + New Project
             </button>
           </div>
-        </div>
-      </header>
- 
-      <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-3xl border border-blue-900/10 bg-gradient-to-r from-[#0B132B] via-[#15346F] to-[#0873BE] p-6 text-white shadow-xl sm:p-8">
-          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-            <div>
-              <span className="inline-flex rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-cyan-200">
-                Project Portfolio
-              </span>
- 
-              <h2 className="mt-4 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl">
-                One command center for every ForemanFirst™ project.
-              </h2>
- 
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
-                Connect companies, contractors, workers, Access™, Planning™,
-                safety workflows, Shutdown™, Vision™, documents, and reporting
-                to a single project record.
-              </p>
-            </div>
- 
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="min-h-12 rounded-xl bg-white px-6 py-3 text-sm font-black text-[#0B132B] shadow transition hover:bg-cyan-50"
-            >
-              Create Your Next Project
-            </button>
-          </div>
         </section>
- 
+
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <PortfolioKpi
             label="Total Projects"
@@ -2149,16 +2124,16 @@ export default function ProjectsPage() {
           />
         </section>
  
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <section className="qoreva-surface-elevated p-5 sm:p-6">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#B9B0FF]">
                 Project Directory
               </p>
-              <h2 className="mt-1 text-2xl font-black text-slate-950">
+              <h2 className="mt-1 text-2xl font-black text-[var(--qoreva-obsidian)]">
                 {showArchived ? "Archived Projects" : "Current Projects"}
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                 {visibleProjects.length} project
                 {visibleProjects.length === 1 ? "" : "s"} shown
               </p>
@@ -2173,8 +2148,8 @@ export default function ProjectsPage() {
                 }}
                 className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${
                   !showArchived
-                    ? "bg-[#0B132B] text-white"
-                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "bg-[var(--qoreva-violet)] text-white shadow-sm"
+                    : "border border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
                 }`}
               >
                 Current Projects
@@ -2188,8 +2163,8 @@ export default function ProjectsPage() {
                 }}
                 className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${
                   showArchived
-                    ? "bg-[#0B132B] text-white"
-                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "bg-[var(--qoreva-violet)] text-white shadow-sm"
+                    : "border border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
                 }`}
               >
                 Archived ({archivedProjectCount})
@@ -2205,7 +2180,7 @@ export default function ProjectsPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search projects, clients, or locations..."
-                className="h-12 w-full rounded-xl border border-slate-300 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-medium text-[var(--qoreva-ink)] outline-none transition placeholder:text-[var(--qoreva-subtle)] hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
               />
             </label>
  
@@ -2216,7 +2191,7 @@ export default function ProjectsPage() {
                 onChange={(event) =>
                   setStatusFilter(event.target.value as ProjectStatus | "All")
                 }
-                className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none transition hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
               >
                 <option value="All">All statuses</option>
                 {showArchived ? (
@@ -2238,7 +2213,7 @@ export default function ProjectsPage() {
                 onChange={(event) =>
                   setTypeFilter(event.target.value as ProjectType | "All")
                 }
-                className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none transition hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
               >
                 <option value="All">All project types</option>
                 {projectTypes.map((projectType) => (
@@ -2256,7 +2231,7 @@ export default function ProjectsPage() {
                 onChange={(event) =>
                   setSortOption(event.target.value as SortOption)
                 }
-                className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--qoreva-text)] outline-none transition hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
               >
                 <option value="name-asc">Name: A to Z</option>
                 <option value="name-desc">Name: Z to A</option>
@@ -2270,18 +2245,18 @@ export default function ProjectsPage() {
         </section>
  
         {visibleProjects.length === 0 ? (
-          <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-2xl font-black text-slate-500">
+          <section className="rounded-3xl border border-dashed border-[var(--qoreva-border-strong)] bg-white px-6 py-16 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--qoreva-surface-muted)] text-2xl font-black text-[var(--qoreva-muted)]">
               PR
             </div>
  
-            <h2 className="mt-5 text-xl font-black text-slate-950">
+            <h2 className="mt-5 text-xl font-black text-[var(--qoreva-obsidian)]">
               {projects.length === 0
-                ? "Create your first ForemanFirst™ project"
+                ? "Create your first Qoreva project"
                 : "No projects match these filters"}
             </h2>
  
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[var(--qoreva-muted)]">
               {projects.length === 0
                 ? "Your companies, contractors, workers, planning documents, safety records, Access™, and Vision™ activity will connect to the project you create."
                 : "Adjust your search or filters to display additional projects."}
@@ -2298,18 +2273,18 @@ export default function ProjectsPage() {
                       setTypeFilter("All");
                     }
               }
-              className="mt-6 rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300"
+              className="mt-6 rounded-xl bg-[var(--qoreva-violet)] px-6 py-3 text-sm font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
             >
               {projects.length === 0 ? "Create Project" : "Clear Filters"}
             </button>
           </section>
         ) : (
           <>
-            <section className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:block">
+            <section className="hidden overflow-hidden rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)] lg:block">
               <div className="overflow-x-auto">
                 <table className="min-w-full">
-                  <thead className="bg-slate-100">
-                    <tr className="text-left text-xs font-black uppercase tracking-wide text-slate-500">
+                  <thead className="bg-[var(--qoreva-surface-muted)]">
+                    <tr className="text-left text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
                       <th className="px-6 py-4">Project</th>
                       <th className="px-5 py-4">Client</th>
                       <th className="px-5 py-4">Status</th>
@@ -2325,11 +2300,11 @@ export default function ProjectsPage() {
                       <tr
                         key={project.id}
                         onClick={() => openWorkspace(project)}
-                        className="cursor-pointer transition hover:bg-cyan-50/50"
+                        className="cursor-pointer transition hover:bg-[var(--qoreva-violet-soft)]/50"
                       >
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-4">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
                               {project.projectName
                                 .split(" ")
                                 .slice(0, 2)
@@ -2339,10 +2314,10 @@ export default function ProjectsPage() {
                             </div>
  
                             <div>
-                              <p className="font-black text-slate-950">
+                              <p className="font-black text-[var(--qoreva-obsidian)]">
                                 {project.projectName}
                               </p>
-                              <p className="mt-1 text-sm text-slate-500">
+                              <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                                 {project.projectNumber} • {project.projectType}
                               </p>
                             </div>
@@ -2350,10 +2325,10 @@ export default function ProjectsPage() {
                         </td>
  
                         <td className="px-5 py-5">
-                          <p className="font-bold text-slate-800">
+                          <p className="font-bold text-[var(--qoreva-text)]">
                             {project.client || "Not entered"}
                           </p>
-                          <p className="mt-1 text-sm text-slate-500">
+                          <p className="mt-1 text-sm text-[var(--qoreva-muted)]">
                             {project.managingCompany || "No managing company"}
                           </p>
                         </td>
@@ -2369,10 +2344,10 @@ export default function ProjectsPage() {
                         </td>
  
                         <td className="px-5 py-5 text-sm">
-                          <p className="font-bold text-slate-800">
+                          <p className="font-bold text-[var(--qoreva-text)]">
                             {formatDate(project.startDate)}
                           </p>
-                          <p className="mt-1 text-slate-500">
+                          <p className="mt-1 text-[var(--qoreva-muted)]">
                             to {formatDate(project.targetCompletionDate)}
                           </p>
                         </td>
@@ -2381,21 +2356,21 @@ export default function ProjectsPage() {
                           <div className="flex items-center gap-3">
                             <div className="h-2.5 w-24 overflow-hidden rounded-full bg-slate-200">
                               <div
-                                className="h-full rounded-full bg-[#00C2FF]"
+                                className="h-full rounded-full bg-[var(--qoreva-violet)]"
                                 style={{ width: `${project.progress}%` }}
                               />
                             </div>
-                            <span className="text-sm font-black text-slate-800">
+                            <span className="text-sm font-black text-[var(--qoreva-text)]">
                               {project.progress}%
                             </span>
                           </div>
                         </td>
  
                         <td className="px-5 py-5">
-                          <p className="font-black text-slate-900">
+                          <p className="font-black text-[var(--qoreva-ink)]">
                             {formatNumber(project.currentWorkforce)}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
                             {formatNumber(project.workersOnsite)} onsite
                           </p>
                         </td>
@@ -2408,7 +2383,7 @@ export default function ProjectsPage() {
                             <button
                               type="button"
                               onClick={() => openViewModal(project)}
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+                              className="rounded-lg border border-[var(--qoreva-border-strong)] px-3 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
                             >
                               View
                             </button>
@@ -2426,7 +2401,7 @@ export default function ProjectsPage() {
                                 <button
                                   type="button"
                                   onClick={() => openEditModal(project)}
-                                  className="rounded-lg bg-[#0B132B] px-3 py-2 text-xs font-black text-white transition hover:bg-blue-950"
+                                  className="rounded-lg bg-[var(--qoreva-violet)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                                 >
                                   Edit
                                 </button>
@@ -2453,7 +2428,7 @@ export default function ProjectsPage() {
               {visibleProjects.map((project) => (
                 <article
                   key={project.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                  className="rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]"
                 >
                   <button
                     type="button"
@@ -2462,7 +2437,7 @@ export default function ProjectsPage() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#0B132B] text-xs font-black text-[#00C2FF]">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
                           {project.projectName
                             .split(" ")
                             .slice(0, 2)
@@ -2472,10 +2447,10 @@ export default function ProjectsPage() {
                         </div>
  
                         <div className="min-w-0">
-                          <h3 className="truncate font-black text-slate-950">
+                          <h3 className="truncate font-black text-[var(--qoreva-obsidian)]">
                             {project.projectName}
                           </h3>
-                          <p className="mt-1 truncate text-sm text-slate-500">
+                          <p className="mt-1 truncate text-sm text-[var(--qoreva-muted)]">
                             {project.projectNumber}
                           </p>
                         </div>
@@ -2507,24 +2482,24 @@ export default function ProjectsPage() {
                     </div>
  
                     <div className="mt-5">
-                      <div className="flex justify-between text-xs font-black text-slate-600">
+                      <div className="flex justify-between text-xs font-black text-[var(--qoreva-muted)]">
                         <span>Project progress</span>
                         <span>{project.progress}%</span>
                       </div>
                       <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-200">
                         <div
-                          className="h-full rounded-full bg-[#00C2FF]"
+                          className="h-full rounded-full bg-[var(--qoreva-violet)]"
                           style={{ width: `${project.progress}%` }}
                         />
                       </div>
                     </div>
                   </button>
  
-                  <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-200 pt-4">
+                  <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[var(--qoreva-border)] pt-4">
                     <button
                       type="button"
                       onClick={() => openViewModal(project)}
-                      className="min-h-11 rounded-xl border border-slate-300 text-sm font-black text-slate-700"
+                      className="min-h-11 rounded-xl border border-[var(--qoreva-border-strong)] text-sm font-black text-[var(--qoreva-text)]"
                     >
                       View
                     </button>
@@ -2541,7 +2516,7 @@ export default function ProjectsPage() {
                       <button
                         type="button"
                         onClick={() => openEditModal(project)}
-                        className="min-h-11 rounded-xl bg-[#0B132B] text-sm font-black text-white"
+                        className="min-h-11 rounded-xl bg-[var(--qoreva-violet)] text-sm font-black text-white"
                       >
                         Edit
                       </button>
@@ -2552,7 +2527,7 @@ export default function ProjectsPage() {
                         <button
                           type="button"
                           onClick={() => duplicateProject(project)}
-                          className="min-h-11 rounded-xl border border-blue-200 bg-blue-50 text-sm font-black text-blue-700"
+                          className="min-h-11 rounded-xl border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-sm font-black text-[var(--qoreva-violet-dark)]"
                         >
                           Duplicate
                         </button>
@@ -2590,12 +2565,17 @@ function PortfolioKpi({
   detail: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+    <div className="group relative overflow-hidden rounded-[1.4rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(102,87,232,0.22)] hover:shadow-[var(--qoreva-shadow)]">
+      <div className="absolute inset-y-0 left-0 w-[3px] bg-[var(--qoreva-violet)]" />
+      <p className="pl-1 text-[11px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-muted)]">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-black text-[#0B132B]">{value}</p>
-      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+      <p className="mt-2 pl-1 text-3xl font-black tracking-[-0.04em] text-[var(--qoreva-obsidian)]">
+        {value}
+      </p>
+      <p className="mt-1 pl-1 text-sm font-medium text-[var(--qoreva-muted)]">
+        {detail}
+      </p>
     </div>
   );
 }
@@ -2612,12 +2592,12 @@ function MetricCard({
   tone: "blue" | "cyan" | "navy" | "green" | "amber" | "red";
 }) {
   const tones = {
-    blue: "border-blue-200 bg-blue-50 text-blue-950",
-    cyan: "border-cyan-200 bg-cyan-50 text-cyan-950",
-    navy: "border-slate-300 bg-[#0B132B] text-white",
-    green: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    amber: "border-amber-200 bg-amber-50 text-amber-950",
-    red: "border-rose-200 bg-rose-50 text-rose-950",
+    blue: "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]",
+    cyan: "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-obsidian)]",
+    navy: "border-white/10 bg-[var(--qoreva-obsidian)] text-white",
+    green: "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]",
+    amber: "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]",
+    red: "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]",
   };
  
   return (
@@ -2641,18 +2621,18 @@ function HealthRow({
   description: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 p-4">
+    <div className="rounded-2xl border border-[var(--qoreva-border)] p-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-black text-slate-900">{label}</p>
-          <p className="mt-1 text-xs text-slate-500">{description}</p>
+          <p className="font-black text-[var(--qoreva-ink)]">{label}</p>
+          <p className="mt-1 text-xs text-[var(--qoreva-muted)]">{description}</p>
         </div>
-        <p className="text-xl font-black text-[#0B132B]">{value}%</p>
+        <p className="text-xl font-black text-[var(--qoreva-obsidian)]">{value}%</p>
       </div>
  
       <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
         <div
-          className="h-full rounded-full bg-[#00C2FF]"
+          className="h-full rounded-full bg-[var(--qoreva-violet)]"
           style={{ width: `${clamp(value, 0, 100)}%` }}
         />
       </div>
@@ -2670,11 +2650,11 @@ function SummaryRow({
   danger?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-4">
-      <span className="text-sm font-semibold text-slate-600">{label}</span>
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--qoreva-border)] p-4">
+      <span className="text-sm font-semibold text-[var(--qoreva-muted)]">{label}</span>
       <span
         className={`text-lg font-black ${
-          danger ? "text-rose-700" : "text-slate-950"
+          danger ? "text-rose-700" : "text-[var(--qoreva-obsidian)]"
         }`}
       >
         {value}
@@ -2686,7 +2666,7 @@ function SummaryRow({
 function ContactRow({ role, name }: { role: string; name: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-xs font-black text-blue-700">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
         {(name || role)
           .split(" ")
           .slice(0, 2)
@@ -2696,10 +2676,10 @@ function ContactRow({ role, name }: { role: string; name: string }) {
       </div>
  
       <div>
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+        <p className="text-xs font-bold uppercase tracking-wide text-[var(--qoreva-muted)]">
           {role}
         </p>
-        <p className="font-black text-slate-900">
+        <p className="font-black text-[var(--qoreva-ink)]">
           {name || "Not assigned"}
         </p>
       </div>
@@ -2717,14 +2697,14 @@ function ReadinessCard({
   description: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 p-4">
+    <div className="rounded-xl border border-[var(--qoreva-border)] p-4">
       <div className="flex items-start justify-between gap-3">
-        <p className="font-black text-slate-900">{title}</p>
-        <span className="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase text-blue-700">
+        <p className="font-black text-[var(--qoreva-ink)]">{title}</p>
+        <span className="shrink-0 rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-2.5 py-1 text-[10px] font-black uppercase text-[var(--qoreva-violet-dark)]">
           {status}
         </span>
       </div>
-      <p className="mt-2 text-xs leading-5 text-slate-500">{description}</p>
+      <p className="mt-2 text-xs leading-5 text-[var(--qoreva-muted)]">{description}</p>
     </div>
   );
 }
@@ -2732,10 +2712,10 @@ function ReadinessCard({
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-black uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </dt>
-      <dd className="mt-1 font-black text-slate-900">
+      <dd className="mt-1 font-black text-[var(--qoreva-ink)]">
         {value || "Not entered"}
       </dd>
     </div>
@@ -2752,14 +2732,14 @@ function ActivityItem({
   date: string;
 }) {
   return (
-    <div className="flex gap-4 rounded-2xl border border-slate-200 p-5">
-      <div className="mt-1 h-3 w-3 shrink-0 rounded-full bg-[#00C2FF] ring-4 ring-cyan-100" />
+    <div className="flex gap-4 rounded-2xl border border-[var(--qoreva-border)] p-5">
+      <div className="mt-1 h-3 w-3 shrink-0 rounded-full bg-[var(--qoreva-violet)] ring-4 ring-[rgba(102,87,232,0.10)]" />
       <div className="flex-1">
         <div className="flex flex-col justify-between gap-1 sm:flex-row">
-          <p className="font-black text-slate-950">{title}</p>
-          <p className="text-xs font-bold text-slate-500">{date}</p>
+          <p className="font-black text-[var(--qoreva-obsidian)]">{title}</p>
+          <p className="text-xs font-bold text-[var(--qoreva-muted)]">{date}</p>
         </div>
-        <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+        <p className="mt-1 text-sm leading-6 text-[var(--qoreva-muted)]">{description}</p>
       </div>
     </div>
   );
@@ -2776,9 +2756,16 @@ function FormSection({
 }) {
   return (
     <section>
-      <div className="border-b border-slate-200 pb-3">
-        <h3 className="text-lg font-black text-slate-950">{title}</h3>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <div className="border-b border-[var(--qoreva-border)] pb-4">
+        <div className="flex items-center gap-2.5">
+          <span className="h-5 w-1 rounded-full bg-[var(--qoreva-violet)]" />
+          <h3 className="text-lg font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
+            {title}
+          </h3>
+        </div>
+        <p className="mt-1.5 pl-3.5 text-sm font-medium text-[var(--qoreva-muted)]">
+          {description}
+        </p>
       </div>
  
       <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -2807,7 +2794,7 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-black text-slate-800">
+      <span className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
         {label}
         {required && <span className="ml-1 text-rose-600">*</span>}
       </span>
@@ -2819,7 +2806,7 @@ function TextField({
         max={max}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm font-medium text-[var(--qoreva-ink)] outline-none transition placeholder:text-[var(--qoreva-subtle)] hover:border-[#BBB6C6] focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
       />
     </label>
   );
@@ -2840,7 +2827,7 @@ function CompanySelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-black text-slate-800">
+      <span className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
         {label}
         {required && <span className="ml-1 text-rose-600">*</span>}
       </span>
@@ -2849,7 +2836,7 @@ function CompanySelectField({
         value={value}
         required={required}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm text-[var(--qoreva-ink)] outline-none transition focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
       >
         <option value="">Select managing company</option>
         {companies.map((company) => (
@@ -2875,14 +2862,14 @@ function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-black text-slate-800">
+      <span className="mb-2 block text-sm font-black text-[var(--qoreva-text)]">
         {label}
       </span>
  
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 text-sm text-[var(--qoreva-ink)] outline-none transition focus:border-[var(--qoreva-violet)] focus:ring-4 focus:ring-[rgba(102,87,232,0.10)]"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -2896,11 +2883,11 @@ function SelectField({
  
 function MobileStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+    <div className="rounded-xl bg-[var(--qoreva-bone)] p-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
         {label}
       </p>
-      <p className="mt-1 truncate text-sm font-black text-slate-900">
+      <p className="mt-1 truncate text-sm font-black text-[var(--qoreva-ink)]">
         {value || "Not entered"}
       </p>
     </div>

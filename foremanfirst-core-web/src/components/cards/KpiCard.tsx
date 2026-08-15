@@ -13,27 +13,127 @@ export default function KpiCard({
 }: KpiCardProps) {
   return (
     <div
-      className={`rounded-2xl border bg-white p-5 shadow-sm ${
-        danger ? "border-rose-200" : "border-slate-200"
-      }`}
+      className={`
+        group
+        relative
+        overflow-hidden
+        rounded-[1.4rem]
+        border
+        bg-white
+        p-5
+        shadow-[var(--qoreva-shadow-sm)]
+        transition-all
+        duration-200
+        hover:-translate-y-0.5
+        hover:shadow-[var(--qoreva-shadow)]
+        ${
+          danger
+            ? "border-[rgba(200,62,77,0.24)]"
+            : "border-[var(--qoreva-border)] hover:border-[rgba(102,87,232,0.22)]"
+        }
+      `}
     >
-      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-        {label}
-      </p>
+      <div
+        className={`
+          absolute
+          inset-y-0
+          left-0
+          w-[3px]
+          ${
+            danger
+              ? "bg-[var(--qoreva-danger)]"
+              : "bg-[var(--qoreva-violet)]"
+          }
+        `}
+        aria-hidden="true"
+      />
 
-      <p
-        className={`mt-2 text-3xl font-black ${
-          danger ? "text-rose-700" : "text-[#0B132B]"
-        }`}
-      >
-        {value}
-      </p>
+      <div
+        className={`
+          pointer-events-none
+          absolute
+          -right-10
+          -top-10
+          h-28
+          w-28
+          rounded-full
+          blur-3xl
+          ${
+            danger
+              ? "bg-[rgba(200,62,77,0.08)]"
+              : "bg-[rgba(102,87,232,0.07)]"
+          }
+        `}
+        aria-hidden="true"
+      />
 
-      {detail ? (
-        <p className="mt-1 text-sm text-slate-500">
-          {detail}
+      <div className="relative pl-1">
+        <p
+          className="
+            text-[11px]
+            font-black
+            uppercase
+            tracking-[0.14em]
+            text-[var(--qoreva-muted)]
+          "
+        >
+          {label}
         </p>
-      ) : null}
+
+        <div className="mt-2 flex items-end gap-2">
+          <p
+            className={`
+              text-3xl
+              font-black
+              tracking-[-0.045em]
+              sm:text-[2rem]
+              ${
+                danger
+                  ? "text-[var(--qoreva-danger)]"
+                  : "text-[var(--qoreva-obsidian)]"
+              }
+            `}
+          >
+            {value}
+          </p>
+
+          {danger ? (
+            <span
+              className="
+                mb-1
+                inline-flex
+                rounded-full
+                border
+                border-[rgba(200,62,77,0.18)]
+                bg-[var(--qoreva-danger-soft)]
+                px-2
+                py-0.5
+                text-[10px]
+                font-black
+                uppercase
+                tracking-[0.08em]
+                text-[var(--qoreva-danger)]
+              "
+            >
+              Attention
+            </span>
+          ) : null}
+        </div>
+
+        {detail ? (
+          <p
+            className="
+              mt-1.5
+              text-sm
+              font-medium
+              leading-5
+              text-[var(--qoreva-muted)]
+            "
+          >
+            {detail}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

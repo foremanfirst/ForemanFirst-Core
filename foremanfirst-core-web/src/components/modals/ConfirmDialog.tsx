@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+
 import ModalShell from "./ModalShell";
 
 type ConfirmDialogProps = {
@@ -23,7 +24,7 @@ export default function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onCancel,
-  eyebrow = "ForemanFirst™",
+  eyebrow = "Qoreva™",
   cancelLabel = "Cancel",
   children,
   danger = false,
@@ -37,7 +38,15 @@ export default function ConfirmDialog({
       maxWidthClass="max-w-2xl"
     >
       <div className="p-6 sm:p-8">
-        <p className="text-sm leading-6 text-slate-600">
+        <p
+          className="
+            max-w-xl
+            text-sm
+            font-medium
+            leading-6
+            text-[var(--qoreva-muted)]
+          "
+        >
           {description}
         </p>
 
@@ -47,11 +56,44 @@ export default function ConfirmDialog({
           </div>
         ) : null}
 
-        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <div
+          className="
+            mt-7
+            flex
+            flex-col-reverse
+            gap-3
+            border-t
+            border-[var(--qoreva-border)]
+            pt-5
+            sm:flex-row
+            sm:justify-end
+          "
+        >
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100"
+            className="
+              inline-flex
+              min-h-11
+              items-center
+              justify-center
+              rounded-xl
+              border
+              border-[var(--qoreva-border-strong)]
+              bg-white
+              px-5
+              py-2.5
+              text-sm
+              font-black
+              text-[var(--qoreva-text)]
+              transition-all
+              duration-150
+
+              hover:border-[#BBB6C6]
+              hover:bg-[var(--qoreva-surface-muted)]
+
+              active:scale-[0.99]
+            "
           >
             {cancelLabel}
           </button>
@@ -59,11 +101,40 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className={`rounded-xl px-6 py-3 text-sm font-black text-white transition ${
-              danger
-                ? "bg-rose-700 hover:bg-rose-800"
-                : "bg-[#0B132B] hover:bg-blue-950"
-            }`}
+            className={`
+              inline-flex
+              min-h-11
+              items-center
+              justify-center
+              rounded-xl
+              border
+              border-transparent
+              px-6
+              py-2.5
+              text-sm
+              font-black
+              text-white
+              shadow-sm
+              transition-all
+              duration-150
+
+              hover:-translate-y-px
+              active:translate-y-0
+
+              ${
+                danger
+                  ? `
+                    bg-[var(--qoreva-danger)]
+                    hover:bg-[#B63341]
+                    hover:shadow-[0_8px_20px_rgba(200,62,77,0.16)]
+                  `
+                  : `
+                    bg-[var(--qoreva-violet)]
+                    hover:bg-[var(--qoreva-violet-hover)]
+                    hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]
+                  `
+              }
+            `}
           >
             {confirmLabel}
           </button>

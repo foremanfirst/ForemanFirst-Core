@@ -9,7 +9,6 @@ import {
 } from "react";
 
 import {
-  FormSection,
   ModalShell,
   PrimaryButton,
   SelectField,
@@ -66,23 +65,30 @@ export default function AddContractorModal({
 }: ContractorModalProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const [form, setForm] = useState<ContractorFormData>(
-    EMPTY_CONTRACTOR_FORM,
-  );
+  const [form, setForm] =
+    useState<ContractorFormData>(
+      EMPTY_CONTRACTOR_FORM,
+    );
 
   const [error, setError] = useState("");
-  const [documentError, setDocumentError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [documentError, setDocumentError] =
+    useState("");
 
-  const [selectedDocuments, setSelectedDocuments] = useState<File[]>(
-    [],
-  );
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  const documentInputRef = useRef<HTMLInputElement | null>(null);
+  const [
+    selectedDocuments,
+    setSelectedDocuments,
+  ] = useState<File[]>([]);
+
+  const documentInputRef =
+    useRef<HTMLInputElement | null>(null);
 
   const filteredProjects = projects.filter(
     (project) =>
-      !form.companyId || project.companyId === form.companyId,
+      !form.companyId ||
+      project.companyId === form.companyId,
   );
 
   function openModal() {
@@ -104,7 +110,9 @@ export default function AddContractorModal({
     setDocumentError("");
   }
 
-  function updateField<K extends keyof ContractorFormData>(
+  function updateField<
+    K extends keyof ContractorFormData,
+  >(
     field: K,
     value: ContractorFormData[K],
   ) {
@@ -133,12 +141,19 @@ export default function AddContractorModal({
         ?.toLowerCase();
 
       const hasAllowedExtension =
-        ALLOWED_DOCUMENT_EXTENSIONS.includes(extension ?? "");
+        ALLOWED_DOCUMENT_EXTENSIONS.includes(
+          extension ?? "",
+        );
 
       const hasAllowedMimeType =
-        ALLOWED_DOCUMENT_TYPES.includes(file.type);
+        ALLOWED_DOCUMENT_TYPES.includes(
+          file.type,
+        );
 
-      if (!hasAllowedExtension && !hasAllowedMimeType) {
+      if (
+        !hasAllowedExtension &&
+        !hasAllowedMimeType
+      ) {
         rejectedFiles.push(
           `${file.name} — unsupported file type`,
         );
@@ -146,42 +161,52 @@ export default function AddContractorModal({
       }
 
       if (file.size > MAX_DOCUMENT_SIZE) {
-        rejectedFiles.push(`${file.name} — exceeds 20 MB`);
+        rejectedFiles.push(
+          `${file.name} — exceeds 20 MB`,
+        );
         continue;
       }
 
       validFiles.push(file);
     }
 
-    setSelectedDocuments((currentDocuments) => {
-      const combinedDocuments = [
-        ...currentDocuments,
-        ...validFiles,
-      ];
+    setSelectedDocuments(
+      (currentDocuments) => {
+        const combinedDocuments = [
+          ...currentDocuments,
+          ...validFiles,
+        ];
 
-      return combinedDocuments.filter(
-        (file, index, allFiles) =>
-          index ===
-          allFiles.findIndex(
-            (candidate) =>
-              candidate.name === file.name &&
-              candidate.size === file.size &&
-              candidate.lastModified === file.lastModified,
-          ),
-      );
-    });
+        return combinedDocuments.filter(
+          (file, index, allFiles) =>
+            index ===
+            allFiles.findIndex(
+              (candidate) =>
+                candidate.name === file.name &&
+                candidate.size ===
+                  file.size &&
+                candidate.lastModified ===
+                  file.lastModified,
+            ),
+        );
+      },
+    );
 
     if (rejectedFiles.length > 0) {
-      setDocumentError(rejectedFiles.join(", "));
+      setDocumentError(
+        rejectedFiles.join(", "),
+      );
     }
   }
 
   function handleDocumentSelection(
     event: ChangeEvent<HTMLInputElement>,
   ) {
-    const files = Array.from(event.target.files ?? []);
-
-    addDocuments(files);
+    addDocuments(
+      Array.from(
+        event.target.files ?? [],
+      ),
+    );
 
     event.target.value = "";
   }
@@ -192,9 +217,11 @@ export default function AddContractorModal({
     event.preventDefault();
     event.stopPropagation();
 
-    const files = Array.from(event.dataTransfer.files ?? []);
-
-    addDocuments(files);
+    addDocuments(
+      Array.from(
+        event.dataTransfer.files ?? [],
+      ),
+    );
   }
 
   function handleDocumentDragOver(
@@ -204,11 +231,15 @@ export default function AddContractorModal({
     event.stopPropagation();
   }
 
-  function removeDocument(indexToRemove: number) {
-    setSelectedDocuments((currentDocuments) =>
-      currentDocuments.filter(
-        (_, index) => index !== indexToRemove,
-      ),
+  function removeDocument(
+    indexToRemove: number,
+  ) {
+    setSelectedDocuments(
+      (currentDocuments) =>
+        currentDocuments.filter(
+          (_, index) =>
+            index !== indexToRemove,
+        ),
     );
   }
 
@@ -218,32 +249,58 @@ export default function AddContractorModal({
     }
 
     if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(
+        bytes / 1024
+      ).toFixed(1)} KB`;
     }
 
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(
+      bytes /
+      (1024 * 1024)
+    ).toFixed(1)} MB`;
   }
 
   async function uploadDocuments(
     contractorId: string,
     projectId: string | null,
   ) {
-    if (selectedDocuments.length === 0) {
+    if (
+      selectedDocuments.length === 0
+    ) {
       return;
     }
 
-    const documentFormData = new FormData();
+    const documentFormData =
+      new FormData();
 
-    documentFormData.append("contractorId", contractorId);
+    documentFormData.append(
+      "contractorId",
+      contractorId,
+    );
 
     if (projectId) {
-      documentFormData.append("projectId", projectId);
+      documentFormData.append(
+        "projectId",
+        projectId,
+      );
     }
 
-    documentFormData.append("documentType", "Other");
+    /*
+     * Temporary classification.
+     * Qoreva Document Intelligence will
+     * eventually classify documents
+     * automatically.
+     */
+    documentFormData.append(
+      "documentType",
+      "Other",
+    );
 
     for (const file of selectedDocuments) {
-      documentFormData.append("files", file);
+      documentFormData.append(
+        "files",
+        file,
+      );
     }
 
     const response = await fetch(
@@ -255,9 +312,10 @@ export default function AddContractorModal({
     );
 
     if (!response.ok) {
-      const responseData = await response
-        .json()
-        .catch(() => null);
+      const responseData =
+        await response
+          .json()
+          .catch(() => null);
 
       throw new Error(
         responseData?.message ??
@@ -282,81 +340,117 @@ export default function AddContractorModal({
     }
 
     if (!form.name.trim()) {
-      setError("Contractor name is required.");
+      setError(
+        "Contractor name is required.",
+      );
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const result = await createContractor({
-        companyId: form.companyId,
-        projectId: form.projectId || null,
+      const result =
+        await createContractor({
+          companyId: form.companyId,
+          projectId:
+            form.projectId || null,
 
-        name: form.name,
-        legalName: form.legalName || null,
-        contractorCode: form.contractorCode || null,
+          name: form.name,
+          legalName:
+            form.legalName || null,
 
-        trade: form.trade || null,
-        specialty: form.specialty || null,
-        description: form.description || null,
+          contractorCode:
+            form.contractorCode || null,
 
-        primaryContactName:
-          form.primaryContactName || null,
+          trade: form.trade || null,
 
-        primaryContactEmail:
-          form.primaryContactEmail || null,
+          specialty:
+            form.specialty || null,
 
-        primaryContactPhone:
-          form.primaryContactPhone || null,
+          description:
+            form.description || null,
 
-        safetyContactName:
-          form.safetyContactName || null,
+          primaryContactName:
+            form.primaryContactName ||
+            null,
 
-        safetyContactEmail:
-          form.safetyContactEmail || null,
+          primaryContactEmail:
+            form.primaryContactEmail ||
+            null,
 
-        safetyContactPhone:
-          form.safetyContactPhone || null,
+          primaryContactPhone:
+            form.primaryContactPhone ||
+            null,
 
-        address: form.address || null,
-        city: form.city || null,
-        state: form.state || null,
-        zipCode: form.zipCode || null,
+          safetyContactName:
+            form.safetyContactName ||
+            null,
 
-        workforceCount: Number(
-          form.workforceCount || 0,
-        ),
+          safetyContactEmail:
+            form.safetyContactEmail ||
+            null,
 
-        emr: form.emr ? Number(form.emr) : null,
-        trir: form.trir ? Number(form.trir) : null,
+          safetyContactPhone:
+            form.safetyContactPhone ||
+            null,
 
-        insuranceProvider:
-          form.insuranceProvider || null,
+          address:
+            form.address || null,
 
-        insuranceExpiresAt:
-          form.insuranceExpiresAt || null,
+          city: form.city || null,
+          state: form.state || null,
 
-        orientationStatus: form.orientationStatus,
-        complianceStatus: form.complianceStatus,
-        approvalStatus: form.approvalStatus,
+          zipCode:
+            form.zipCode || null,
 
-        isActive: form.isActive,
-      });
+          workforceCount: Number(
+            form.workforceCount || 0,
+          ),
 
-if (!result?.contractorId) {
+          emr: form.emr
+            ? Number(form.emr)
+            : null,
+
+          trir: form.trir
+            ? Number(form.trir)
+            : null,
+
+          insuranceProvider:
+            form.insuranceProvider ||
+            null,
+
+          insuranceExpiresAt:
+            form.insuranceExpiresAt ||
+            null,
+
+          orientationStatus:
+            form.orientationStatus,
+
+          complianceStatus:
+            form.complianceStatus,
+
+          approvalStatus:
+            form.approvalStatus,
+
+          isActive: form.isActive,
+        });
+
+      if (!result?.contractorId) {
         throw new Error(
           "Contractor was created, but no contractor ID was returned.",
         );
       }
 
-await uploadDocuments(
-  result.contractorId,
-  form.projectId || null,
-);
+      await uploadDocuments(
+        result.contractorId,
+        form.projectId || null,
+      );
 
       setIsOpen(false);
-      setForm(EMPTY_CONTRACTOR_FORM);
+      setForm(
+        EMPTY_CONTRACTOR_FORM,
+      );
+
       setSelectedDocuments([]);
       setDocumentError("");
     } catch (submitError) {
@@ -388,350 +482,687 @@ await uploadDocuments(
       value: "",
     },
 
-    ...filteredProjects.map((project) => ({
-      label: project.projectCode
-        ? `${project.name} — ${project.projectCode}`
-        : project.name,
+    ...filteredProjects.map(
+      (project) => ({
+        label: project.projectCode
+          ? `${project.name} — ${project.projectCode}`
+          : project.name,
 
-      value: project.id,
-    })),
+        value: project.id,
+      }),
+    ),
   ];
 
   return (
     <>
-      <PrimaryButton onClick={openModal}>
+      <PrimaryButton
+        onClick={openModal}
+      >
         + Add Contractor
       </PrimaryButton>
 
       <ModalShell
         isOpen={isOpen}
         title="Add Contractor"
-        eyebrow="Contractor Management"
+        eyebrow="Qoreva™ Contractor Management"
         onClose={closeModal}
         maxWidthClass="max-w-6xl"
       >
         <form onSubmit={handleSubmit}>
-          <div className="space-y-8 p-5 sm:p-7">
+          <div
+            className="
+              bg-[var(--qoreva-porcelain)]
+              p-5
+              sm:p-7
+            "
+          >
+            {/* Intro */}
+            <div
+              className="
+                mb-7
+                rounded-2xl
+                border
+                border-[var(--qoreva-border)]
+                bg-white
+                p-5
+                shadow-[var(--qoreva-shadow-sm)]
+              "
+            >
+              <div
+                className="
+                  flex
+                  flex-col
+                  gap-4
+                  sm:flex-row
+                  sm:items-center
+                  sm:justify-between
+                "
+              >
+                <div>
+                  <p
+                    className="
+                      text-[11px]
+                      font-black
+                      uppercase
+                      tracking-[0.18em]
+                      text-[var(--qoreva-violet)]
+                    "
+                  >
+                    Contractor Setup
+                  </p>
+
+                  <h3
+                    className="
+                      mt-1
+                      text-xl
+                      font-black
+                      tracking-[-0.025em]
+                      text-[var(--qoreva-obsidian)]
+                    "
+                  >
+                    Get this contractor
+                    ready for the field.
+                  </h3>
+
+                  <p
+                    className="
+                      mt-1
+                      max-w-2xl
+                      text-sm
+                      font-medium
+                      leading-6
+                      text-[var(--qoreva-muted)]
+                    "
+                  >
+                    Add the essentials,
+                    qualification information
+                    and required documents.
+                    Qoreva keeps the setup
+                    organized for review.
+                  </p>
+                </div>
+
+                <div
+                  className="
+                    inline-flex
+                    shrink-0
+                    items-center
+                    gap-2
+                    self-start
+                    rounded-full
+                    border
+                    border-[rgba(102,87,232,0.18)]
+                    bg-[var(--qoreva-violet-soft)]
+                    px-3
+                    py-1.5
+                    text-xs
+                    font-black
+                    text-[var(--qoreva-violet-dark)]
+                  "
+                >
+                  <span
+                    className="
+                      h-1.5
+                      w-1.5
+                      rounded-full
+                      bg-[var(--qoreva-violet)]
+                    "
+                  />
+
+                  New Contractor
+                </div>
+              </div>
+            </div>
+
             {error ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+              <div
+                className="
+                  mb-6
+                  rounded-2xl
+                  border
+                  border-[#F0BDC4]
+                  bg-[var(--qoreva-danger-soft)]
+                  px-4
+                  py-3
+                  text-sm
+                  font-black
+                  text-[var(--qoreva-danger)]
+                "
+              >
                 {error}
               </div>
             ) : null}
 
-            <FormSection
-              title="Contractor Identity"
-              description="Create the contractor’s primary company profile."
-            >
-              <SelectField
-                label="Connected Company"
-                value={form.companyId}
-                options={companyOptions}
-                required
-                onChange={(value) =>
-                  updateField("companyId", value)
-                }
-              />
+            <div className="space-y-6">
+              {/* 01 Contractor */}
+              <QorevaSection
+                number="01"
+                title="Contractor"
+                description="Start with who they are, where they are working, and the workforce they represent."
+              >
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  <SelectField
+                    label="Connected Company"
+                    value={form.companyId}
+                    options={companyOptions}
+                    required
+                    onChange={(value) =>
+                      updateField(
+                        "companyId",
+                        value,
+                      )
+                    }
+                  />
 
-              <SelectField
-                label="Project Assignment"
-                value={form.projectId}
-                options={projectOptions}
-                onChange={(value) =>
-                  updateField("projectId", value)
-                }
-              />
+                  <SelectField
+                    label="Project Assignment"
+                    value={form.projectId}
+                    options={projectOptions}
+                    onChange={(value) =>
+                      updateField(
+                        "projectId",
+                        value,
+                      )
+                    }
+                  />
 
-              <TextField
-                label="Contractor Name"
-                value={form.name}
-                required
-                onChange={(value) =>
-                  updateField("name", value)
-                }
-              />
+                  <TextField
+                    label="Contractor Name"
+                    value={form.name}
+                    required
+                    onChange={(value) =>
+                      updateField(
+                        "name",
+                        value,
+                      )
+                    }
+                  />
 
-              <TextField
-                label="Legal Name"
-                value={form.legalName}
-                onChange={(value) =>
-                  updateField("legalName", value)
-                }
-              />
+                  <TextField
+                    label="Trade"
+                    value={form.trade}
+                    onChange={(value) =>
+                      updateField(
+                        "trade",
+                        value,
+                      )
+                    }
+                  />
 
-              <TextField
-                label="Contractor Code"
-                value={form.contractorCode}
-                onChange={(value) =>
-                  updateField(
-                    "contractorCode",
-                    value,
-                  )
-                }
-              />
+                  <TextField
+                    label="Current Workforce"
+                    type="number"
+                    value={
+                      form.workforceCount
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "workforceCount",
+                        value,
+                      )
+                    }
+                  />
 
-              <TextField
-                label="Trade"
-                value={form.trade}
-                onChange={(value) =>
-                  updateField("trade", value)
-                }
-              />
+                  <TextField
+                    label="Specialty"
+                    value={form.specialty}
+                    onChange={(value) =>
+                      updateField(
+                        "specialty",
+                        value,
+                      )
+                    }
+                  />
+                </div>
 
-              <TextField
-                label="Specialty"
-                value={form.specialty}
-                onChange={(value) =>
-                  updateField("specialty", value)
-                }
-              />
+                <details
+                  className="
+                    mt-5
+                    rounded-xl
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-[var(--qoreva-surface-muted)]
+                  "
+                >
+                  <summary
+                    className="
+                      cursor-pointer
+                      px-4
+                      py-3
+                      text-sm
+                      font-black
+                      text-[var(--qoreva-text)]
+                    "
+                  >
+                    Additional contractor
+                    information
+                  </summary>
 
-              <TextField
-                label="Current Workforce"
-                type="number"
-                value={form.workforceCount}
-                onChange={(value) =>
-                  updateField(
-                    "workforceCount",
-                    value,
-                  )
-                }
-              />
-            </FormSection>
+                  <div
+                    className="
+                      grid
+                      gap-5
+                      border-t
+                      border-[var(--qoreva-border)]
+                      p-4
+                      sm:grid-cols-2
+                    "
+                  >
+                    <TextField
+                      label="Legal Name"
+                      value={form.legalName}
+                      onChange={(value) =>
+                        updateField(
+                          "legalName",
+                          value,
+                        )
+                      }
+                    />
 
-            <FormSection
-              title="Primary Contact"
-              description="Add the main administrative or project contact."
-            >
-              <TextField
-                label="Contact Name"
-                value={form.primaryContactName}
-                onChange={(value) =>
-                  updateField(
-                    "primaryContactName",
-                    value,
-                  )
-                }
-              />
+                    <TextField
+                      label="Contractor Code"
+                      value={
+                        form.contractorCode
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "contractorCode",
+                          value,
+                        )
+                      }
+                    />
+                  </div>
+                </details>
+              </QorevaSection>
 
-              <TextField
-                label="Contact Email"
-                type="email"
-                value={form.primaryContactEmail}
-                onChange={(value) =>
-                  updateField(
-                    "primaryContactEmail",
-                    value,
-                  )
-                }
-              />
+              {/* 02 Contacts */}
+              <QorevaSection
+                number="02"
+                title="Contacts"
+                description="Record the people Qoreva should associate with this contractor."
+              >
+                <div
+                  className="
+                    grid
+                    gap-5
+                    lg:grid-cols-2
+                  "
+                >
+                  <ContactGroup
+                    title="Primary Contact"
+                    description="Administrative or project contact."
+                  >
+                    <TextField
+                      label="Name"
+                      value={
+                        form.primaryContactName
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "primaryContactName",
+                          value,
+                        )
+                      }
+                    />
 
-              <TextField
-                label="Contact Phone"
-                type="tel"
-                value={form.primaryContactPhone}
-                onChange={(value) =>
-                  updateField(
-                    "primaryContactPhone",
-                    value,
-                  )
-                }
-              />
-            </FormSection>
+                    <TextField
+                      label="Email"
+                      type="email"
+                      value={
+                        form.primaryContactEmail
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "primaryContactEmail",
+                          value,
+                        )
+                      }
+                    />
 
-            <FormSection
-              title="Safety Contact"
-              description="Add the contractor’s primary safety representative."
-            >
-              <TextField
-                label="Safety Contact Name"
-                value={form.safetyContactName}
-                onChange={(value) =>
-                  updateField(
-                    "safetyContactName",
-                    value,
-                  )
-                }
-              />
+                    <TextField
+                      label="Phone"
+                      type="tel"
+                      value={
+                        form.primaryContactPhone
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "primaryContactPhone",
+                          value,
+                        )
+                      }
+                    />
+                  </ContactGroup>
 
-              <TextField
-                label="Safety Contact Email"
-                type="email"
-                value={form.safetyContactEmail}
-                onChange={(value) =>
-                  updateField(
-                    "safetyContactEmail",
-                    value,
-                  )
-                }
-              />
+                  <ContactGroup
+                    title="Safety Contact"
+                    description="Primary contractor safety representative."
+                  >
+                    <TextField
+                      label="Name"
+                      value={
+                        form.safetyContactName
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "safetyContactName",
+                          value,
+                        )
+                      }
+                    />
 
-              <TextField
-                label="Safety Contact Phone"
-                type="tel"
-                value={form.safetyContactPhone}
-                onChange={(value) =>
-                  updateField(
-                    "safetyContactPhone",
-                    value,
-                  )
-                }
-              />
-            </FormSection>
+                    <TextField
+                      label="Email"
+                      type="email"
+                      value={
+                        form.safetyContactEmail
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "safetyContactEmail",
+                          value,
+                        )
+                      }
+                    />
 
-            <FormSection
-              title="Address"
-              description="Record the contractor’s primary business address."
-            >
-              <TextField
-                label="Street Address"
-                value={form.address}
-                onChange={(value) =>
-                  updateField("address", value)
-                }
-              />
+                    <TextField
+                      label="Phone"
+                      type="tel"
+                      value={
+                        form.safetyContactPhone
+                      }
+                      onChange={(value) =>
+                        updateField(
+                          "safetyContactPhone",
+                          value,
+                        )
+                      }
+                    />
+                  </ContactGroup>
+                </div>
 
-              <TextField
-                label="City"
-                value={form.city}
-                onChange={(value) =>
-                  updateField("city", value)
-                }
-              />
+                <details
+                  className="
+                    mt-5
+                    rounded-xl
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-[var(--qoreva-surface-muted)]
+                  "
+                >
+                  <summary
+                    className="
+                      cursor-pointer
+                      px-4
+                      py-3
+                      text-sm
+                      font-black
+                      text-[var(--qoreva-text)]
+                    "
+                  >
+                    Business address
+                  </summary>
 
-              <TextField
-                label="State"
-                value={form.state}
-                onChange={(value) =>
-                  updateField("state", value)
-                }
-              />
+                  <div
+                    className="
+                      grid
+                      gap-5
+                      border-t
+                      border-[var(--qoreva-border)]
+                      p-4
+                      sm:grid-cols-2
+                      lg:grid-cols-4
+                    "
+                  >
+                    <TextField
+                      label="Street Address"
+                      value={form.address}
+                      onChange={(value) =>
+                        updateField(
+                          "address",
+                          value,
+                        )
+                      }
+                    />
 
-              <TextField
-                label="ZIP Code"
-                value={form.zipCode}
-                onChange={(value) =>
-                  updateField("zipCode", value)
-                }
-              />
-            </FormSection>
+                    <TextField
+                      label="City"
+                      value={form.city}
+                      onChange={(value) =>
+                        updateField(
+                          "city",
+                          value,
+                        )
+                      }
+                    />
 
-            <FormSection
-              title="Safety Performance"
-              description="Track contractor qualification and risk indicators."
-            >
-              <TextField
-                label="EMR"
-                type="number"
-                value={form.emr}
-                onChange={(value) =>
-                  updateField("emr", value)
-                }
-              />
+                    <TextField
+                      label="State"
+                      value={form.state}
+                      onChange={(value) =>
+                        updateField(
+                          "state",
+                          value,
+                        )
+                      }
+                    />
 
-              <TextField
-                label="TRIR"
-                type="number"
-                value={form.trir}
-                onChange={(value) =>
-                  updateField("trir", value)
-                }
-              />
+                    <TextField
+                      label="ZIP Code"
+                      value={form.zipCode}
+                      onChange={(value) =>
+                        updateField(
+                          "zipCode",
+                          value,
+                        )
+                      }
+                    />
+                  </div>
+                </details>
+              </QorevaSection>
 
-              <TextField
-                label="Insurance Provider"
-                value={form.insuranceProvider}
-                onChange={(value) =>
-                  updateField(
-                    "insuranceProvider",
-                    value,
-                  )
-                }
-              />
+              {/* 03 Qualification */}
+              <QorevaSection
+                number="03"
+                title="Qualification"
+                description="Capture the safety and insurance information used to evaluate contractor readiness."
+              >
+                <div
+                  className="
+                    grid
+                    gap-5
+                    sm:grid-cols-2
+                    lg:grid-cols-4
+                  "
+                >
+                  <TextField
+                    label="EMR"
+                    type="number"
+                    value={form.emr}
+                    onChange={(value) =>
+                      updateField(
+                        "emr",
+                        value,
+                      )
+                    }
+                  />
 
-              <TextField
-                label="Insurance Expiration"
-                type="date"
-                value={form.insuranceExpiresAt}
-                onChange={(value) =>
-                  updateField(
-                    "insuranceExpiresAt",
-                    value,
-                  )
-                }
-              />
-            </FormSection>
+                  <TextField
+                    label="TRIR"
+                    type="number"
+                    value={form.trir}
+                    onChange={(value) =>
+                      updateField(
+                        "trir",
+                        value,
+                      )
+                    }
+                  />
 
-            <FormSection
-              title="Compliance Status"
-              description="Set contractor approval, orientation, and compliance status."
-            >
-              <SelectField
-                label="Orientation Status"
-                value={form.orientationStatus}
-                options={orientationOptions}
-                onChange={(value) =>
-                  updateField(
-                    "orientationStatus",
-                    value as ContractorFormData["orientationStatus"],
-                  )
-                }
-              />
+                  <TextField
+                    label="Insurance Provider"
+                    value={
+                      form.insuranceProvider
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "insuranceProvider",
+                        value,
+                      )
+                    }
+                  />
 
-              <SelectField
-                label="Compliance Status"
-                value={form.complianceStatus}
-                options={complianceOptions}
-                onChange={(value) =>
-                  updateField(
-                    "complianceStatus",
-                    value as ContractorFormData["complianceStatus"],
-                  )
-                }
-              />
+                  <TextField
+                    label="Insurance Expiration"
+                    type="date"
+                    value={
+                      form.insuranceExpiresAt
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "insuranceExpiresAt",
+                        value,
+                      )
+                    }
+                  />
+                </div>
 
-              <SelectField
-                label="Approval Status"
-                value={form.approvalStatus}
-                options={approvalOptions}
-                onChange={(value) =>
-                  updateField(
-                    "approvalStatus",
-                    value as ContractorFormData["approvalStatus"],
-                  )
-                }
-              />
+                <div
+                  className="
+                    mt-5
+                    rounded-xl
+                    border
+                    border-[rgba(102,87,232,0.16)]
+                    bg-[var(--qoreva-violet-faint)]
+                    px-4
+                    py-3
+                  "
+                >
+                  <p
+                    className="
+                      text-xs
+                      font-black
+                      text-[var(--qoreva-violet-dark)]
+                    "
+                  >
+                    Qualification data can
+                    also be verified against
+                    uploaded contractor
+                    documents.
+                  </p>
+                </div>
+              </QorevaSection>
 
-              <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-300 px-4">
-                <input
-                  type="checkbox"
-                  checked={form.isActive}
-                  onChange={(event) =>
-                    updateField(
-                      "isActive",
-                      event.target.checked,
-                    )
-                  }
-                  className="h-4 w-4 rounded border-slate-300"
-                />
+              {/* 04 Documents */}
+              <QorevaSection
+                number="04"
+                title="Documents"
+                description="Upload contractor documentation for qualification, compliance, and project readiness."
+                highlight
+              >
+                <div
+                  className="
+                    rounded-2xl
+                    border
+                    border-[rgba(102,87,232,0.18)]
+                    bg-[var(--qoreva-violet-faint)]
+                    p-4
+                    sm:p-5
+                  "
+                >
+                  <div
+                    className="
+                      flex
+                      flex-col
+                      gap-3
+                      sm:flex-row
+                      sm:items-start
+                      sm:justify-between
+                    "
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="
+                            flex
+                            h-8
+                            w-8
+                            items-center
+                            justify-center
+                            rounded-xl
+                            bg-[var(--qoreva-violet)]
+                            text-sm
+                            font-black
+                            text-white
+                          "
+                        >
+                          AI
+                        </span>
 
-                <span className="text-sm font-black text-slate-800">
-                  Contractor is active
-                </span>
-              </label>
-            </FormSection>
+                        <h4
+                          className="
+                            font-black
+                            text-[var(--qoreva-obsidian)]
+                          "
+                        >
+                          Qoreva™ Document
+                          Intelligence
+                        </h4>
+                      </div>
 
-            <FormSection
-              title="Contractor Documents"
-              description="Upload contractor qualification, insurance, safety, and compliance documentation."
-            >
-              <div className="col-span-full">
+                      <p
+                        className="
+                          mt-3
+                          max-w-3xl
+                          text-sm
+                          font-medium
+                          leading-6
+                          text-[var(--qoreva-muted)]
+                        "
+                      >
+                        Drop contractor
+                        documents here. Qoreva
+                        can assist with
+                        identifying document
+                        types and extracting
+                        contractor, insurance,
+                        qualification,
+                        expiration, and contact
+                        information.
+                      </p>
+                    </div>
+
+                    <span
+                      className="
+                        shrink-0
+                        self-start
+                        rounded-full
+                        border
+                        border-[rgba(102,87,232,0.18)]
+                        bg-white
+                        px-3
+                        py-1
+                        text-[10px]
+                        font-black
+                        uppercase
+                        tracking-[0.1em]
+                        text-[var(--qoreva-violet-dark)]
+                      "
+                    >
+                      Review Required
+                    </span>
+                  </div>
+                </div>
+
                 <input
                   ref={documentInputRef}
                   id="contractor-documents"
                   type="file"
                   multiple
                   accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                  onChange={handleDocumentSelection}
+                  onChange={
+                    handleDocumentSelection
+                  }
                   className="hidden"
                 />
 
@@ -747,153 +1178,719 @@ await uploadDocuments(
                       event.key === " "
                     ) {
                       event.preventDefault();
+
                       documentInputRef.current?.click();
                     }
                   }}
-                  onDrop={handleDocumentDrop}
-                  onDragOver={handleDocumentDragOver}
-                  className="cursor-pointer rounded-2xl border-2 border-dashed border-cyan-200 bg-cyan-50/40 px-6 py-8 text-center transition hover:border-cyan-300 hover:bg-cyan-50"
+                  onDrop={
+                    handleDocumentDrop
+                  }
+                  onDragOver={
+                    handleDocumentDragOver
+                  }
+                  className="
+                    mt-5
+                    cursor-pointer
+                    rounded-2xl
+                    border-2
+                    border-dashed
+                    border-[rgba(102,87,232,0.30)]
+                    bg-white
+                    px-6
+                    py-10
+                    text-center
+                    transition-all
+                    duration-150
+                    hover:border-[var(--qoreva-violet)]
+                    hover:bg-[var(--qoreva-violet-faint)]
+                  "
                 >
-                  <div className="text-base font-black text-slate-800">
-                    Drop contractor documents here
+                  <div
+                    className="
+                      mx-auto
+                      flex
+                      h-12
+                      w-12
+                      items-center
+                      justify-center
+                      rounded-2xl
+                      bg-[var(--qoreva-violet-soft)]
+                      text-[var(--qoreva-violet-dark)]
+                    "
+                  >
+                    <UploadIcon />
                   </div>
 
-                  <div className="mt-1 text-sm text-slate-500">
+                  <p
+                    className="
+                      mt-4
+                      text-base
+                      font-black
+                      text-[var(--qoreva-obsidian)]
+                    "
+                  >
+                    Drop contractor
+                    documents here
+                  </p>
+
+                  <p
+                    className="
+                      mt-1
+                      text-sm
+                      font-medium
+                      text-[var(--qoreva-muted)]
+                    "
+                  >
                     or click to select files
-                  </div>
+                  </p>
 
-                  <div className="mt-3 text-xs font-bold text-slate-400">
-                    PDF, JPG, JPEG, or PNG • Maximum 20 MB
-                    per file
-                  </div>
+                  <p
+                    className="
+                      mt-3
+                      text-[10px]
+                      font-black
+                      uppercase
+                      tracking-[0.1em]
+                      text-[var(--qoreva-subtle)]
+                    "
+                  >
+                    PDF, JPG, JPEG or PNG •
+                    20 MB maximum per file
+                  </p>
                 </div>
 
                 {documentError ? (
-                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                  <div
+                    className="
+                      mt-4
+                      rounded-xl
+                      border
+                      border-[#F0BDC4]
+                      bg-[var(--qoreva-danger-soft)]
+                      px-4
+                      py-3
+                      text-sm
+                      font-black
+                      text-[var(--qoreva-danger)]
+                    "
+                  >
                     {documentError}
                   </div>
                 ) : null}
 
-                {selectedDocuments.length > 0 ? (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="text-sm font-black text-slate-800">
-                        Selected Documents
-                      </div>
+                {selectedDocuments.length >
+                0 ? (
+                  <div className="mt-5">
+                    <div
+                      className="
+                        flex
+                        items-center
+                        justify-between
+                        gap-4
+                      "
+                    >
+                      <p
+                        className="
+                          text-sm
+                          font-black
+                          text-[var(--qoreva-obsidian)]
+                        "
+                      >
+                        Documents ready to
+                        upload
+                      </p>
 
-                      <div className="text-xs font-bold text-slate-500">
-                        {selectedDocuments.length}{" "}
-                        {selectedDocuments.length === 1
-                          ? "document"
-                          : "documents"}
-                      </div>
+                      <span
+                        className="
+                          rounded-full
+                          bg-[var(--qoreva-violet-soft)]
+                          px-3
+                          py-1
+                          text-xs
+                          font-black
+                          text-[var(--qoreva-violet-dark)]
+                        "
+                      >
+                        {
+                          selectedDocuments.length
+                        }{" "}
+                        {selectedDocuments.length ===
+                        1
+                          ? "file"
+                          : "files"}
+                      </span>
                     </div>
 
-                    {selectedDocuments.map(
-                      (file, index) => (
-                        <div
-                          key={`${file.name}-${file.size}-${file.lastModified}`}
-                          className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-bold text-slate-800">
-                              {file.name}
-                            </div>
-
-                            <div className="mt-1 text-xs text-slate-500">
-                              {formatFileSize(
-                                file.size,
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              removeDocument(index)
-                            }
-                            className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    <div className="mt-3 space-y-2">
+                      {selectedDocuments.map(
+                        (file, index) => (
+                          <div
+                            key={`${file.name}-${file.size}-${file.lastModified}`}
+                            className="
+                              flex
+                              items-center
+                              justify-between
+                              gap-4
+                              rounded-xl
+                              border
+                              border-[var(--qoreva-border)]
+                              bg-white
+                              px-4
+                              py-3
+                              shadow-[var(--qoreva-shadow-sm)]
+                            "
                           >
-                            Remove
-                          </button>
-                        </div>
-                      ),
-                    )}
+                            <div
+                              className="
+                                flex
+                                min-w-0
+                                items-center
+                                gap-3
+                              "
+                            >
+                              <div
+                                className="
+                                  flex
+                                  h-9
+                                  w-9
+                                  shrink-0
+                                  items-center
+                                  justify-center
+                                  rounded-xl
+                                  bg-[var(--qoreva-surface-muted)]
+                                  text-[var(--qoreva-violet-dark)]
+                                "
+                              >
+                                <DocumentIcon />
+                              </div>
+
+                              <div className="min-w-0">
+                                <p
+                                  className="
+                                    truncate
+                                    text-sm
+                                    font-black
+                                    text-[var(--qoreva-text)]
+                                  "
+                                >
+                                  {file.name}
+                                </p>
+
+                                <p
+                                  className="
+                                    mt-0.5
+                                    text-xs
+                                    font-medium
+                                    text-[var(--qoreva-muted)]
+                                  "
+                                >
+                                  {formatFileSize(
+                                    file.size,
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeDocument(
+                                  index,
+                                )
+                              }
+                              className="
+                                shrink-0
+                                rounded-lg
+                                px-3
+                                py-1.5
+                                text-xs
+                                font-black
+                                text-[var(--qoreva-muted)]
+                                transition
+                                hover:bg-[var(--qoreva-danger-soft)]
+                                hover:text-[var(--qoreva-danger)]
+                              "
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ),
+                      )}
+                    </div>
 
                     <button
                       type="button"
                       onClick={() =>
                         documentInputRef.current?.click()
                       }
-                      className="mt-2 text-sm font-black text-cyan-700 hover:text-cyan-800"
+                      className="
+                        mt-3
+                        text-sm
+                        font-black
+                        text-[var(--qoreva-violet)]
+                        hover:text-[var(--qoreva-violet-dark)]
+                      "
                     >
                       + Add more documents
                     </button>
                   </div>
                 ) : null}
+              </QorevaSection>
 
-                <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3">
-                  <div className="text-sm font-black text-slate-800">
-                    ForemanFirst™ Document Intelligence
+              {/* 05 Readiness */}
+              <QorevaSection
+                number="05"
+                title="Readiness"
+                description="Set the contractor's current onboarding and approval state."
+              >
+                <div
+                  className="
+                    grid
+                    gap-5
+                    sm:grid-cols-2
+                    lg:grid-cols-3
+                  "
+                >
+                  <SelectField
+                    label="Orientation Status"
+                    value={
+                      form.orientationStatus
+                    }
+                    options={
+                      orientationOptions
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "orientationStatus",
+                        value as ContractorFormData["orientationStatus"],
+                      )
+                    }
+                  />
+
+                  <SelectField
+                    label="Compliance Status"
+                    value={
+                      form.complianceStatus
+                    }
+                    options={
+                      complianceOptions
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "complianceStatus",
+                        value as ContractorFormData["complianceStatus"],
+                      )
+                    }
+                  />
+
+                  <SelectField
+                    label="Approval Status"
+                    value={
+                      form.approvalStatus
+                    }
+                    options={
+                      approvalOptions
+                    }
+                    onChange={(value) =>
+                      updateField(
+                        "approvalStatus",
+                        value as ContractorFormData["approvalStatus"],
+                      )
+                    }
+                  />
+                </div>
+
+                <label
+                  className="
+                    mt-5
+                    flex
+                    cursor-pointer
+                    items-center
+                    justify-between
+                    gap-4
+                    rounded-xl
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-[var(--qoreva-surface-muted)]
+                    px-4
+                    py-3.5
+                  "
+                >
+                  <div>
+                    <p
+                      className="
+                        text-sm
+                        font-black
+                        text-[var(--qoreva-obsidian)]
+                      "
+                    >
+                      Active contractor
+                    </p>
+
+                    <p
+                      className="
+                        mt-0.5
+                        text-xs
+                        font-medium
+                        text-[var(--qoreva-muted)]
+                      "
+                    >
+                      Show this contractor
+                      in active project
+                      operations.
+                    </p>
                   </div>
 
-                  <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Upload contractor documentation and
-                    ForemanFirst™ will help identify
-                    contractor information, insurance
-                    details, EMR, TRIR, expiration dates,
-                    contacts, qualifications, and
-                    compliance information. Extracted
-                    information must be reviewed before
-                    becoming part of the official
-                    contractor record.
-                  </p>
-                </div>
-              </div>
-            </FormSection>
+                  <input
+                    type="checkbox"
+                    checked={form.isActive}
+                    onChange={(event) =>
+                      updateField(
+                        "isActive",
+                        event.target
+                          .checked,
+                      )
+                    }
+                    className="
+                      h-5
+                      w-5
+                      rounded
+                      border-[var(--qoreva-border-strong)]
+                      accent-[var(--qoreva-violet)]
+                    "
+                  />
+                </label>
+              </QorevaSection>
 
-            <div>
-              <label className="mb-2 block text-sm font-black text-slate-800">
-                Description
-              </label>
+              {/* Notes */}
+              <QorevaSection
+                number="06"
+                title="Notes"
+                description="Optional scope, qualification, or contractor information."
+              >
+                <textarea
+                  rows={4}
+                  value={form.description}
+                  onChange={(event) =>
+                    updateField(
+                      "description",
+                      event.target.value,
+                    )
+                  }
+                  placeholder="Add contractor scope, specialty, qualifications, or notes..."
+                  className="
+                    w-full
+                    resize-y
+                    rounded-xl
+                    border
+                    border-[var(--qoreva-border-strong)]
+                    bg-white
+                    px-4
+                    py-3
+                    text-sm
+                    font-medium
+                    text-[var(--qoreva-text)]
+                    outline-none
+                    transition-all
 
-              <textarea
-                rows={5}
-                value={form.description}
-                onChange={(event) =>
-                  updateField(
-                    "description",
-                    event.target.value,
-                  )
-                }
-                placeholder="Add contractor scope, specialty, qualifications, or notes."
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-              />
+                    placeholder:text-[var(--qoreva-subtle)]
+
+                    focus:border-[var(--qoreva-violet)]
+                    focus:ring-4
+                    focus:ring-[rgba(102,87,232,0.10)]
+                  "
+                />
+              </QorevaSection>
             </div>
           </div>
 
-          <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
-            <button
-              type="button"
-              onClick={closeModal}
-              disabled={isSubmitting}
-              className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+          {/* Sticky Actions */}
+          <div
+            className="
+              sticky
+              bottom-0
+              z-10
+              flex
+              flex-col-reverse
+              gap-3
+              border-t
+              border-[var(--qoreva-border)]
+              bg-white/95
+              px-5
+              py-4
+              backdrop-blur
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+              sm:px-7
+            "
+          >
+            <p
+              className="
+                hidden
+                text-xs
+                font-medium
+                text-[var(--qoreva-muted)]
+                sm:block
+              "
             >
-              Cancel
-            </button>
+              Required information must be
+              completed before the contractor
+              can be created.
+            </p>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            <div
+              className="
+                flex
+                flex-col-reverse
+                gap-3
+                sm:flex-row
+              "
             >
-              {isSubmitting
-                ? "Adding Contractor..."
-                : "Add Contractor"}
-            </button>
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isSubmitting}
+                className="
+                  min-h-11
+                  rounded-xl
+                  border
+                  border-[var(--qoreva-border-strong)]
+                  bg-white
+                  px-5
+                  py-2.5
+                  text-sm
+                  font-black
+                  text-[var(--qoreva-text)]
+                  transition
+                  hover:bg-[var(--qoreva-surface-muted)]
+                  disabled:opacity-50
+                "
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="
+                  inline-flex
+                  min-h-11
+                  min-w-44
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-[var(--qoreva-violet)]
+                  px-6
+                  py-2.5
+                  text-sm
+                  font-black
+                  text-white
+                  shadow-sm
+                  transition-all
+                  hover:-translate-y-px
+                  hover:bg-[var(--qoreva-violet-hover)]
+                  hover:shadow-[0_8px_20px_rgba(102,87,232,0.18)]
+                  disabled:cursor-not-allowed
+                  disabled:opacity-60
+                  disabled:hover:translate-y-0
+                "
+              >
+                {isSubmitting
+                  ? "Adding Contractor..."
+                  : "Add Contractor"}
+              </button>
+            </div>
           </div>
         </form>
       </ModalShell>
     </>
+  );
+}
+
+function QorevaSection({
+  number,
+  title,
+  description,
+  children,
+  highlight = false,
+}: {
+  number: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  highlight?: boolean;
+}) {
+  return (
+    <section
+      className={`
+        overflow-hidden
+        rounded-2xl
+        border
+        bg-white
+        shadow-[var(--qoreva-shadow-sm)]
+        ${
+          highlight
+            ? "border-[rgba(102,87,232,0.22)]"
+            : "border-[var(--qoreva-border)]"
+        }
+      `}
+    >
+      <div
+        className={`
+          flex
+          items-start
+          gap-4
+          border-b
+          px-5
+          py-4
+          sm:px-6
+          ${
+            highlight
+              ? "border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)]"
+              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+          }
+        `}
+      >
+        <div
+          className="
+            flex
+            h-9
+            w-9
+            shrink-0
+            items-center
+            justify-center
+            rounded-xl
+            bg-[var(--qoreva-obsidian)]
+            text-[11px]
+            font-black
+            text-[#B9B0FF]
+          "
+        >
+          {number}
+        </div>
+
+        <div>
+          <h3
+            className="
+              text-base
+              font-black
+              text-[var(--qoreva-obsidian)]
+            "
+          >
+            {title}
+          </h3>
+
+          <p
+            className="
+              mt-0.5
+              text-xs
+              font-medium
+              leading-5
+              text-[var(--qoreva-muted)]
+            "
+          >
+            {description}
+          </p>
+        </div>
+      </div>
+
+      <div className="p-5 sm:p-6">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ContactGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="
+        rounded-2xl
+        border
+        border-[var(--qoreva-border)]
+        bg-[var(--qoreva-surface-muted)]
+        p-4
+      "
+    >
+      <p
+        className="
+          text-sm
+          font-black
+          text-[var(--qoreva-obsidian)]
+        "
+      >
+        {title}
+      </p>
+
+      <p
+        className="
+          mt-0.5
+          text-xs
+          font-medium
+          text-[var(--qoreva-muted)]
+        "
+      >
+        {description}
+      </p>
+
+      <div
+        className="
+          mt-4
+          grid
+          gap-4
+          sm:grid-cols-2
+          lg:grid-cols-1
+        "
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-6 w-6"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4.5"
+      />
+    </svg>
+  );
+}
+
+function DocumentIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-5 w-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M7 3h7l4 4v14H7V3Zm7 0v5h5M10 13h5M10 17h5"
+      />
+    </svg>
   );
 }
