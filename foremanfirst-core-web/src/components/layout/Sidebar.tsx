@@ -95,6 +95,25 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: "Planning",
+    href: "/planning",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <path d="M8 7h8" />
+        <path d="M8 11h5" />
+        <path d="M8 15h3" />
+        <path d="m14 15 2 2 4-4" />
+      </svg>
+    ),
+  },
 ];
 
 const settingsItem: NavItem = {
@@ -109,6 +128,7 @@ const settingsItem: NavItem = {
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="3" />
+
       <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.37.36.7.6 1 .29.35.68.57 1.1.6h.1v4h-.1a1.7 1.7 0 0 0-1.7.4Z" />
     </svg>
   ),
@@ -122,7 +142,10 @@ export default function Sidebar() {
       return pathname === "/dashboard";
     }
 
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return (
+      pathname === href ||
+      pathname.startsWith(`${href}/`)
+    );
   }
 
   function renderNavItem(item: NavItem) {
@@ -146,10 +169,19 @@ export default function Sidebar() {
           font-bold
           transition-all
           duration-150
+
           ${
             active
-              ? "bg-[var(--qoreva-violet)] text-white shadow-[0_8px_24px_rgba(102,87,232,0.20)]"
-              : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+              ? `
+                  bg-[var(--qoreva-violet)]
+                  text-white
+                  shadow-[0_8px_24px_rgba(102,87,232,0.20)]
+                `
+              : `
+                  text-white/70
+                  hover:bg-white/[0.06]
+                  hover:text-white
+                `
           }
         `}
       >
@@ -162,6 +194,7 @@ export default function Sidebar() {
             items-center
             justify-center
             transition-colors
+
             ${
               active
                 ? "text-white"
@@ -208,6 +241,7 @@ export default function Sidebar() {
         text-white
       "
     >
+      {/* Ambient Qoreva glow */}
       <div
         className="
           pointer-events-none
@@ -258,16 +292,40 @@ export default function Sidebar() {
 
             <div className="min-w-0">
               <div className="flex items-start">
-                <span className="text-[17px] font-black tracking-[0.08em] text-white">
+                <span
+                  className="
+                    text-[17px]
+                    font-black
+                    tracking-[0.08em]
+                    text-white
+                  "
+                >
                   QOREVA
                 </span>
 
-                <span className="ml-0.5 mt-0.5 text-[8px] font-bold text-[#B9B0FF]">
+                <span
+                  className="
+                    ml-0.5
+                    mt-0.5
+                    text-[8px]
+                    font-bold
+                    text-[#B9B0FF]
+                  "
+                >
                   ™
                 </span>
               </div>
 
-              <p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-white/40">
+              <p
+                className="
+                  mt-0.5
+                  text-[9px]
+                  font-bold
+                  uppercase
+                  tracking-[0.14em]
+                  text-white/40
+                "
+              >
                 Build Safer. Build Smarter.
               </p>
             </div>
@@ -276,7 +334,7 @@ export default function Sidebar() {
 
         <div className="mx-5 border-t border-white/[0.07]" />
 
-        {/* Workspace */}
+        {/* Workspace Label */}
         <div className="px-5 pb-2 pt-5">
           <p
             className="
@@ -310,6 +368,7 @@ export default function Sidebar() {
         <div className="border-t border-white/[0.07] p-3">
           {renderNavItem(settingsItem)}
 
+          {/* User */}
           <div
             className="
               mt-3
@@ -340,17 +399,38 @@ export default function Sidebar() {
               </div>
 
               <div className="min-w-0">
-                <p className="truncate text-xs font-black text-white">
+                <p
+                  className="
+                    truncate
+                    text-xs
+                    font-black
+                    text-white
+                  "
+                >
                   Robert Willis
                 </p>
 
-                <p className="mt-0.5 truncate text-[10px] font-medium text-white/45">
+                <p
+                  className="
+                    mt-0.5
+                    truncate
+                    text-[10px]
+                    font-medium
+                    text-white/45
+                  "
+                >
                   Safety Manager
                 </p>
               </div>
 
               <svg
-                className="ml-auto h-4 w-4 shrink-0 text-white/30"
+                className="
+                  ml-auto
+                  h-4
+                  w-4
+                  shrink-0
+                  text-white/30
+                "
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
