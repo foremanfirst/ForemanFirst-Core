@@ -26,9 +26,10 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  projects    Project[]
-  workers     Worker[]
-  contractors Contractor[]
+  projects        Project[]
+  workers         Worker[]
+  contractors     Contractor[]
+  planningRecords PlanningRecord[]
 
   @@index([tenantId])
   @@index([isArchived])
@@ -88,6 +89,7 @@ model Project {
   contractors                    Contractor[]
   contractorDocuments            ContractorDocument[]
   contractorDocumentRequirements ContractorDocumentRequirement[]
+  planningRecords                PlanningRecord[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -152,6 +154,8 @@ model Worker {
   company Company  @relation(fields: [companyId], references: [id])
   project Project? @relation(fields: [projectId], references: [id])
 
+  dailyWseSignatures DailyWorkerSafetyEngagementSignature[]
+
   @@index([tenantId])
   @@index([companyId])
   @@index([projectId])
@@ -208,9 +212,10 @@ model Contractor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company   Company              @relation(fields: [companyId], references: [id])
-  project   Project?             @relation(fields: [projectId], references: [id])
-  documents ContractorDocument[]
+  company         Company              @relation(fields: [companyId], references: [id])
+  project         Project?             @relation(fields: [projectId], references: [id])
+  documents       ContractorDocument[]
+  planningRecords PlanningRecord[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -266,7 +271,8 @@ model ContractorDocument {
   contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
   project    Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
-  events ContractorDocumentEvent[]
+  events                  ContractorDocumentEvent[]
+  planningSourceDocuments PlanningSourceDocument[]
 
   @@index([tenantId])
   @@index([contractorId])
@@ -326,8 +332,7 @@ model ContractorDocumentEvent {
   previousReviewStatus String?
   newReviewStatus      String?
 
-  comment String?
-
+  comment     String?
   performedBy String?
 
   createdAt DateTime @default(now())
@@ -338,5 +343,497 @@ model ContractorDocumentEvent {
   @@index([contractorDocumentId])
   @@index([contractorId])
   @@index([eventType])
+  @@index([createdAt])
+}
+
+model PlanningRecord {
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId    String
+  projectId    String
+  contractorId String?
+
+  planType String
+  title    String
+
+  status         String @default("Draft")
+  revisionNumber Int    @default(1)
+
+  responsibleSupervisor   String?
+  responsibleSupervisorId String?
+
+  plannedStartDate DateTime?
+  workLocation     String?
+  crewSize         Int?
+  shift            String?
+
+  scopeDescription   String?
+  equipmentTools     String?
+  materialsChemicals String?
+  adjacentWork       String?
+  specialConditions  String?
+
+  requiredPpe      String?
+  requiredPermits  String?
+  emergencyPlan    String?
+  stopWorkTriggers String?
+  planningNotes    String?
+
+  qualityScore Int @default(0)
+
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  activeAt    DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdBy String?
+  updatedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company     @relation(fields: [companyId], references: [id])
+  project    Project     @relation(fields: [projectId], references: [id])
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  workSteps         PlanningWorkStep[]
+  questionResponses PlanningQuestionResponse[]
+  sourceDocuments   PlanningSourceDocument[]
+  revisions         PlanningRevision[]
+  reviews           PlanningReview[]
+  reviewComments    PlanningReviewComment[]
+  signatures        PlanningSignature[]
+  events            PlanningEvent[]
+  dailyWseRecords   DailyWorkerSafetyEngagement[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([contractorId])
+  @@index([planType])
+  @@index([status])
+  @@index([revisionNumber])
+  @@index([isArchived])
+  @@index([createdAt])
+}
+
+model PlanningWorkStep {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  sequence    Int
+  title       String
+  description String?
+
+  hazards  String?
+  controls String?
+
+  safetyCritical Boolean @default(false)
+  riskLevel      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, sequence])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([riskLevel])
+  @@index([safetyCritical])
+}
+
+model PlanningQuestionResponse {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  questionId String
+  category   String
+  question   String
+  helpText   String?
+
+  isCritical Boolean @default(false)
+
+  responseValue String?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, questionId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([category])
+  @@index([isCritical])
+}
+
+model PlanningSourceDocument {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId     String
+  contractorDocumentId String?
+
+  sourceType String
+  label      String?
+
+  fileName        String?
+  mimeType        String?
+  fileSize        Int?
+  storageProvider String?
+  storageKey      String?
+  storageUrl      String?
+
+  isSelected Boolean @default(true)
+  isAiReady  Boolean @default(false)
+
+  approvalStatusAtSelection String?
+  reviewStatusAtSelection   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord     PlanningRecord      @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  contractorDocument ContractorDocument? @relation(fields: [contractorDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([contractorDocumentId])
+  @@index([sourceType])
+  @@index([isSelected])
+}
+
+model PlanningRevision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  status String
+
+  revisionReason String?
+  snapshot       Json
+
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, revisionNumber])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([createdAt])
+}
+
+model PlanningReview {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  reviewerId   String?
+  reviewerName String
+  reviewerRole String
+
+  status String @default("In Review")
+
+  confirmations Json?
+  reviewNotes   String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord          @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  comments       PlanningReviewComment[]
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([reviewerId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model PlanningReviewComment {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  planningReviewId String?
+
+  revisionNumber Int
+
+  targetId String
+  section  String
+  label    String
+  comment  String
+
+  status String @default("Open")
+
+  createdById   String?
+  createdByName String?
+
+  resolvedById   String?
+  resolvedByName String?
+  resolvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord  @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  planningReview PlanningReview? @relation(fields: [planningReviewId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningReviewId])
+  @@index([revisionNumber])
+  @@index([targetId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PlanningSignature {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  role        String
+  signerId    String?
+  signerName  String
+  signerEmail String?
+
+  isRequired Boolean @default(true)
+  sortOrder  Int     @default(0)
+
+  status        String @default("Pending")
+  signatureType String @default("Drawn")
+
+  signatureStorageProvider String?
+  signatureStorageKey      String?
+  signatureStorageUrl      String?
+
+  signedAt DateTime?
+
+  ipAddress  String?
+  userAgent  String?
+  deviceInfo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([signerId])
+  @@index([role])
+  @@index([status])
+  @@index([signedAt])
+}
+
+model PlanningEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  eventType        String
+
+  previousStatus String?
+  newStatus      String?
+
+  revisionNumber Int?
+
+  actorId   String?
+  actorName String?
+  actorRole String?
+
+  comment  String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([eventType])
+  @@index([revisionNumber])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+model DailyWorkerSafetyEngagement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  engagementDate DateTime
+  shift          String?
+
+  foremanId   String?
+  foremanName String
+
+  workLocation   String?
+  dailyRiskLevel String?
+
+  emergencyActionPlanReviewed Boolean @default(false)
+  emergencyNotes              String?
+
+  changeStatus String @default("No Changes")
+
+  foremanMorningAcknowledgedAt DateTime?
+
+  endOfShiftIncidentsOrNearMisses Boolean?
+  endOfShiftConditionsChanged     Boolean?
+  endOfShiftLessonsLearned        String?
+  endOfShiftNotes                 String?
+
+  carryForwardStatus     String?
+  ptpRevisionRecommended Boolean @default(false)
+
+  foremanFinalSignatureStorageProvider String?
+  foremanFinalSignatureStorageKey      String?
+  foremanFinalSignatureStorageUrl      String?
+  foremanFinalSignedAt                 DateTime?
+
+  status String @default("Open")
+
+  createdBy String?
+  updatedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  tasks      DailyWorkerSafetyEngagementTask[]
+  signatures DailyWorkerSafetyEngagementSignature[]
+  mocRecords DailyWorkerSafetyEngagementMoc[]
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([engagementDate])
+  @@index([status])
+}
+
+model DailyWorkerSafetyEngagementTask {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+  sequence   Int
+
+  taskDescription String
+  hazards         String
+  mitigations     String
+
+  riskLevel      String?
+  safetyCritical Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyWseId, sequence])
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([riskLevel])
+  @@index([safetyCritical])
+}
+
+model DailyWorkerSafetyEngagementSignature {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+  workerId   String?
+
+  workerName  String
+  workerEmail String?
+
+  acknowledgementStatus String @default("Pending")
+  signatureType         String @default("Drawn")
+
+  signatureStorageProvider String?
+  signatureStorageKey      String?
+  signatureStorageUrl      String?
+
+  signedAt DateTime?
+
+  signedInAt  DateTime?
+  signedOutAt DateTime?
+
+  signOutInitials String?
+
+  ipAddress  String?
+  userAgent  String?
+  deviceInfo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+  worker   Worker?                     @relation(fields: [workerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([workerId])
+  @@index([acknowledgementStatus])
+  @@index([signedAt])
+}
+
+model DailyWorkerSafetyEngagementMoc {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+
+  affectedTaskId String?
+
+  changeDescription String
+  newHazards        String?
+  newMitigations    String?
+
+  revisedRiskLevel String?
+
+  requiresPtpRevision Boolean @default(false)
+
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([affectedTaskId])
+  @@index([requiresPtpRevision])
   @@index([createdAt])
 }

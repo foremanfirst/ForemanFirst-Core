@@ -1,0 +1,268 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
+
+type RouteContext = {
+  params: Promise<{
+    planningRecordId: string;
+  }>;
+};
+
+function toNullableString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed.length > 0
+    ? trimmed
+    : null;
+}
+
+function toPositiveInt(
+  value: unknown,
+  fallback: number,
+) {
+  const parsed = Number(value);
+
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1
+  ) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function isJsonObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+export async function PUT(
+  request: Request,
+  context: RouteContext,
+) {
+  try {
+    const { planningRecordId } =
+      await context.params;
+
+    const body =
+      await request.json();
+
+    const existingRecord =
+      await prisma.planningRecord.findFirst({
+        where: {
+          id: planningRecordId,
+          isArchived: false,
+        },
+        select: {
+          id: true,
+          tenantId: true,
+          status: true,
+          revisionNumber: true,
+        },
+      });
+
+    if (!existingRecord) {
+      return NextResponse.json(
+        {
+          message:
+            "Planning record was not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    if (
+      existingRecord.status !== "Draft"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Only Draft planning records can generate or refresh a draft revision.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const revisionNumber =
+      toPositiveInt(
+        body.revisionNumber,
+        existingRecord.revisionNumber,
+      );
+
+    if (
+      revisionNumber !==
+      existingRecord.revisionNumber
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Draft revision number must match the planning record's active revision number.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (!isJsonObject(body.snapshot)) {
+      return NextResponse.json(
+        {
+          message:
+            "A structured draft snapshot is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const status =
+      toNullableString(
+        body.status,
+      ) ?? "Draft";
+
+    if (status !== "Draft") {
+      return NextResponse.json(
+        {
+          message:
+            "The Build Plan stage can only persist a Draft revision.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const result =
+      await prisma.$transaction(
+        async (tx) => {
+          const existingRevision =
+            await tx.planningRevision.findFirst({
+              where: {
+                planningRecordId,
+                revisionNumber,
+                tenantId:
+                  existingRecord.tenantId,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          const revision =
+            existingRevision
+              ? await tx.planningRevision.update({
+                  where: {
+                    id:
+                      existingRevision.id,
+                  },
+                  data: {
+                    status: "Draft",
+                    revisionReason:
+                      toNullableString(
+                        body.revisionReason,
+                      ),
+                    snapshot:
+                      body.snapshot,
+                    createdBy:
+                      toNullableString(
+                        body.createdBy,
+                      ),
+                  },
+                })
+              : await tx.planningRevision.create({
+                  data: {
+                    tenantId:
+                      existingRecord.tenantId,
+                    planningRecordId,
+                    revisionNumber,
+                    status: "Draft",
+                    revisionReason:
+                      toNullableString(
+                        body.revisionReason,
+                      ),
+                    snapshot:
+                      body.snapshot,
+                    createdBy:
+                      toNullableString(
+                        body.createdBy,
+                      ),
+                  },
+                });
+
+          await tx.planningEvent.create({
+            data: {
+              tenantId:
+                existingRecord.tenantId,
+              planningRecordId,
+              eventType:
+                existingRevision
+                  ? "Planning Revision Refreshed"
+                  : "Planning Revision Generated",
+              previousStatus:
+                existingRecord.status,
+              newStatus:
+                existingRecord.status,
+              revisionNumber,
+              actorId:
+                toNullableString(
+                  body.createdBy,
+                ),
+              actorName:
+                toNullableString(
+                  body.createdByName,
+                ),
+              actorRole:
+                toNullableString(
+                  body.createdByRole,
+                ),
+              comment:
+                existingRevision
+                  ? "Draft planning revision refreshed before qualified review."
+                  : "Draft planning revision generated for qualified review.",
+              metadata: {
+                revisionId:
+                  revision.id,
+              },
+            },
+          });
+
+          return revision;
+        },
+      );
+
+    return NextResponse.json({
+      revision: result,
+    });
+  } catch (error) {
+    console.error(
+      "Unable to persist planning revision:",
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        message:
+          "Unable to persist planning revision.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}

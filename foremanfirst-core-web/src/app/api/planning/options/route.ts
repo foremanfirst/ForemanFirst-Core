@@ -13,6 +13,7 @@ export async function GET() {
         },
         select: {
           id: true,
+          tenantId: true,
           name: true,
           projectCode: true,
           companyId: true,
@@ -74,11 +75,15 @@ export async function GET() {
       contractors,
     });
   } catch (error) {
-    console.error("Planning options load failed:", error);
+    console.error(
+      "Planning options load failed:",
+      error,
+    );
 
     return NextResponse.json(
       {
-        message: "Unable to load planning assignment options.",
+        message:
+          "Unable to load planning assignment options.",
       },
       {
         status: 500,

@@ -30,6 +30,7 @@ type PlanTypeDefinition = {
 
 type ProjectOption = {
   id: string;
+  tenantId: string;
   name: string;
   projectCode: string | null;
   companyId: string;
@@ -656,6 +657,36 @@ const wizardSteps = [
 export default function CreatePlanningPage() {
   const [currentStep, setCurrentStep] =
     useState(1);
+
+  const [
+    planningRecordId,
+    setPlanningRecordId,
+  ] = useState<string | null>(null);
+
+  const [
+    planningDraftSaving,
+    setPlanningDraftSaving,
+  ] = useState(false);
+
+  const [
+    draftBuildSaving,
+    setDraftBuildSaving,
+  ] = useState(false);
+
+  const [
+    qualifiedReviewSaving,
+    setQualifiedReviewSaving,
+  ] = useState(false);
+
+  const [
+    submissionSaving,
+    setSubmissionSaving,
+  ] = useState(false);
+
+  const [
+    planningRevisionNumber,
+    setPlanningRevisionNumber,
+  ] = useState(1);
 
   const [
     selectedPlanType,
@@ -1533,53 +1564,174 @@ export default function CreatePlanningPage() {
   }
 
   async function continueFromAssignment() {
-    if (
-      !selectedProjectId
-    ) {
+    if (!selectedPlanType) {
+      setStepError(
+        "Select a plan type before continuing.",
+      );
+      return;
+    }
+
+    if (!selectedProjectId) {
       setStepError(
         "Select the project where the work will occur.",
       );
-
       return;
     }
 
-    if (
-      !selectedContractorId
-    ) {
+    if (!selectedContractorId) {
       setStepError(
         "Select the contractor performing the work.",
       );
-
       return;
     }
 
-    if (
-      !responsibleSupervisor.trim()
-    ) {
+    if (!responsibleSupervisor.trim()) {
       setStepError(
         "Enter the responsible supervisor or foreman.",
       );
+      return;
+    }
 
+    if (!selectedProject) {
+      setStepError(
+        "The selected project could not be loaded.",
+      );
+      return;
+    }
+
+    if (!selectedContractor) {
+      setStepError(
+        "The selected contractor could not be loaded.",
+      );
       return;
     }
 
     setStepError("");
-    setRequirementsLoading(true);
     setRequirementsError("");
+    setRequirementsLoading(true);
+    setPlanningDraftSaving(true);
 
     try {
-      const params = new URLSearchParams({
-        projectId: selectedProjectId,
-        contractorId: selectedContractorId,
-      });
+      const draftPayload = {
+        tenantId: selectedProject.tenantId,
+        companyId: selectedProject.companyId,
+        projectId: selectedProject.id,
+        contractorId: selectedContractor.id,
+        planType: selectedPlanType,
 
-      const response = await fetch(
-        `/api/planning/requirements?${params.toString()}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
-      );
+        title:
+          scopeTitle.trim() ||
+          `${selectedPlanType} Draft - ${selectedProject.name}`,
+
+        responsibleSupervisor:
+          responsibleSupervisor.trim(),
+
+        plannedStartDate:
+          plannedStartDate || null,
+
+        workLocation:
+          workLocation.trim() || null,
+
+        crewSize:
+          crewSize || null,
+
+        shift:
+          shift || null,
+
+        status: "Draft",
+      };
+
+      let activePlanningRecordId =
+        planningRecordId;
+
+      if (!activePlanningRecordId) {
+        const createResponse =
+          await fetch("/api/planning", {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify(
+              draftPayload,
+            ),
+          });
+
+        const createData =
+          (await createResponse.json()) as {
+            record?: {
+              id: string;
+            };
+            message?: string;
+          };
+
+        if (!createResponse.ok) {
+          throw new Error(
+            createData.message ||
+              "Unable to create the planning draft.",
+          );
+        }
+
+        if (!createData.record?.id) {
+          throw new Error(
+            "Planning draft was created without a record ID.",
+          );
+        }
+
+        activePlanningRecordId =
+          createData.record.id;
+
+        setPlanningRecordId(
+          activePlanningRecordId,
+        );
+      } else {
+        const updateResponse =
+          await fetch(
+            `/api/planning/${activePlanningRecordId}`,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify(
+                draftPayload,
+              ),
+            },
+          );
+
+        const updateData =
+          (await updateResponse.json()) as {
+            record?: {
+              id: string;
+            };
+            message?: string;
+          };
+
+        if (!updateResponse.ok) {
+          throw new Error(
+            updateData.message ||
+              "Unable to update the planning draft.",
+          );
+        }
+      }
+
+      const params =
+        new URLSearchParams({
+          projectId:
+            selectedProjectId,
+          contractorId:
+            selectedContractorId,
+        });
+
+      const response =
+        await fetch(
+          `/api/planning/requirements?${params.toString()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
 
       const data =
         (await response.json()) as
@@ -1607,21 +1759,33 @@ export default function CreatePlanningPage() {
           data.documents
             .filter(
               (document) =>
-                document.planningStatus.recommendedForAi,
+                document.planningStatus
+                  .recommendedForAi,
             )
-            .map((document) => document.id),
+            .map(
+              (document) =>
+                document.id,
+            ),
         );
 
         setCurrentStep(3);
       }
     } catch (error) {
-      setRequirementsError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Unable to load requirements and documents.",
+          : "Unable to save the planning draft.";
+
+      setRequirementsError(
+        message,
+      );
+
+      setStepError(
+        message,
       );
     } finally {
       setRequirementsLoading(false);
+      setPlanningDraftSaving(false);
     }
   }
 
@@ -1701,7 +1865,7 @@ export default function CreatePlanningPage() {
     );
   }
 
-  function continueFromScope() {
+  async function continueFromScope() {
     if (!scopeTitle.trim()) {
       setStepError(
         "Enter the work activity or task title.",
@@ -1740,30 +1904,126 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    setStepError("");
+    const normalizedCrewSize =
+      crewSize.trim();
 
-    const initialStepPlanning: Record<
-      string,
-      WorkStepPlanning
-    > = {};
+    if (normalizedCrewSize) {
+      const parsedCrewSize =
+        Number(normalizedCrewSize);
 
-    workSequence.forEach((step) => {
       if (
-        step.title.trim() ||
-        step.description.trim()
+        !Number.isInteger(
+          parsedCrewSize,
+        ) ||
+        parsedCrewSize < 1
       ) {
-        initialStepPlanning[step.id] =
-          workStepPlanning[step.id] ?? {
-            hazards: "",
-            controls: "",
-            safetyCritical: false,
-            riskLevel: "",
-          };
+        setStepError(
+          "Expected crew size must be a whole number of 1 or greater.",
+        );
+        return;
       }
-    });
+    }
 
-    setWorkStepPlanning(initialStepPlanning);
-    setCurrentStep(5);
+    if (!planningRecordId) {
+      setStepError(
+        "The planning draft has not been created yet. Return to Assignment and save the draft before continuing.",
+      );
+      return;
+    }
+
+    setStepError("");
+    setPlanningDraftSaving(true);
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              title:
+                scopeTitle.trim(),
+              scopeDescription:
+                scopeDescription.trim(),
+              plannedStartDate:
+                plannedStartDate || null,
+              workLocation:
+                workLocation.trim() || null,
+              crewSize:
+                crewSize || null,
+              shift:
+                shift || null,
+              equipmentTools:
+                equipmentTools.trim() || null,
+              materialsChemicals:
+                materialsChemicals.trim() || null,
+              adjacentWork:
+                adjacentWork.trim() || null,
+              specialConditions:
+                specialConditions.trim() || null,
+              status: "Draft",
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          record?: {
+            id: string;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to save the work scope.",
+        );
+      }
+
+      if (!data.record?.id) {
+        throw new Error(
+          "The work scope was not confirmed as saved.",
+        );
+      }
+
+      const initialStepPlanning: Record<
+        string,
+        WorkStepPlanning
+      > = {};
+
+      workSequence.forEach((step) => {
+        if (
+          step.title.trim() ||
+          step.description.trim()
+        ) {
+          initialStepPlanning[step.id] =
+            workStepPlanning[step.id] ?? {
+              hazards: "",
+              controls: "",
+              safetyCritical: false,
+              riskLevel: "",
+            };
+        }
+      });
+
+      setWorkStepPlanning(
+        initialStepPlanning,
+      );
+      setCurrentStep(5);
+    } catch (error) {
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the work scope.",
+      );
+    } finally {
+      setPlanningDraftSaving(false);
+    }
   }
 
   function updatePlanningAnswer(
@@ -1809,7 +2069,7 @@ export default function CreatePlanningPage() {
     setStepError("");
   }
 
-  function continueFromGuidedPlanning() {
+  async function continueFromGuidedPlanning() {
     const unansweredCritical =
       guidedPlanningQuestions.filter(
         (question) =>
@@ -1871,20 +2131,348 @@ export default function CreatePlanningPage() {
       return;
     }
 
+    if (!planningRecordId) {
+      setStepError(
+        "The planning draft has not been created yet. Return to Assignment and save the draft before continuing.",
+      );
+      return;
+    }
+
     setStepError("");
-    setDraftGenerated(false);
-    setCurrentStep(6);
+    setPlanningDraftSaving(true);
+
+    try {
+      const workStepsPayload =
+        activeSteps.map((step, index) => {
+          const planning =
+            workStepPlanning[step.id];
+
+          return {
+            sequence: index + 1,
+            title: step.title.trim(),
+            description:
+              step.description.trim() || null,
+            hazards:
+              planning?.hazards.trim() || null,
+            controls:
+              planning?.controls.trim() || null,
+            safetyCritical:
+              Boolean(planning?.safetyCritical),
+            riskLevel:
+              planning?.riskLevel || null,
+          };
+        });
+
+      const questionResponsesPayload =
+        guidedPlanningQuestions.map(
+          (question) => {
+            const answer =
+              planningAnswers[question.id] ?? {
+                value: "",
+                notes: "",
+              };
+
+            return {
+              questionId: question.id,
+              category: question.category,
+              question: question.question,
+              helpText: question.helpText,
+              isCritical:
+                Boolean(question.critical),
+              responseValue:
+                answer.value || null,
+              notes:
+                answer.notes.trim() || null,
+            };
+          },
+        );
+
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/guided-planning`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              workSteps:
+                workStepsPayload,
+              questionResponses:
+                questionResponsesPayload,
+              requiredPpe:
+                requiredPpe.trim() || null,
+              requiredPermits:
+                requiredPermits.trim() || null,
+              emergencyPlan:
+                emergencyPlan.trim() || null,
+              stopWorkTriggers:
+                stopWorkTriggers.trim() || null,
+              planningNotes:
+                planningNotes.trim() || null,
+              qualityScore:
+                planningQualitySummary.score,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          record?: {
+            id: string;
+          };
+          saved?: {
+            workSteps: number;
+            questionResponses: number;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to save guided planning.",
+        );
+      }
+
+      if (!data.record?.id) {
+        throw new Error(
+          "Guided planning was not confirmed as saved.",
+        );
+      }
+
+      setDraftGenerated(false);
+      setCurrentStep(6);
+    } catch (error) {
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save guided planning.",
+      );
+    } finally {
+      setPlanningDraftSaving(false);
+    }
   }
 
-  function generateDraftPlan() {
+  async function generateDraftPlan() {
+    if (!planningRecordId) {
+      setStepError(
+        "The planning draft has not been created yet. Return to Assignment and save the draft before building the plan.",
+      );
+      return;
+    }
+
     setStepError("");
-    setDraftGenerated(true);
+    setDraftBuildSaving(true);
+
+    try {
+      const snapshot = {
+        version: 1,
+        capturedAt: new Date().toISOString(),
+
+        assignment: {
+          planType: selectedPlanType,
+          projectId: selectedProject?.id ?? null,
+          projectName: selectedProject?.name ?? null,
+          projectCode: selectedProject?.projectCode ?? null,
+          contractorId: selectedContractor?.id ?? null,
+          contractorName: selectedContractor?.name ?? null,
+          responsibleSupervisor:
+            responsibleSupervisor.trim() || null,
+          plannedStartDate:
+            plannedStartDate || null,
+          workLocation:
+            workLocation.trim() || null,
+          crewSize:
+            crewSize || null,
+          shift:
+            shift || null,
+        },
+
+        scope: {
+          title:
+            scopeTitle.trim() || null,
+          description:
+            scopeDescription.trim() || null,
+          equipmentTools:
+            equipmentTools.trim() || null,
+          materialsChemicals:
+            materialsChemicals.trim() || null,
+          adjacentWork:
+            adjacentWork.trim() || null,
+          specialConditions:
+            specialConditions.trim() || null,
+          safetyCriticalCategories:
+            selectedSafetyCriticalCategories,
+        },
+
+        workSteps:
+          activeWorkSteps.map(
+            (step, index) => {
+              const planning =
+                workStepPlanning[step.id];
+
+              return {
+                sequence: index + 1,
+                sourceId: step.id,
+                title: step.title,
+                description:
+                  step.description || null,
+                hazards:
+                  planning?.hazards || null,
+                controls:
+                  planning?.controls || null,
+                safetyCritical:
+                  Boolean(
+                    planning?.safetyCritical,
+                  ),
+                riskLevel:
+                  planning?.riskLevel || null,
+              };
+            },
+          ),
+
+        guidedPlanning: {
+          questions:
+            guidedPlanningQuestions.map(
+              (question) => {
+                const answer =
+                  planningAnswers[
+                    question.id
+                  ] ?? {
+                    value: "",
+                    notes: "",
+                  };
+
+                return {
+                  questionId:
+                    question.id,
+                  category:
+                    question.category,
+                  question:
+                    question.question,
+                  helpText:
+                    question.helpText,
+                  critical:
+                    Boolean(
+                      question.critical,
+                    ),
+                  response:
+                    answer.value || null,
+                  notes:
+                    answer.notes || null,
+                };
+              },
+            ),
+          requiredPpe:
+            requiredPpe.trim() || null,
+          requiredPermits:
+            requiredPermits.trim() || null,
+          emergencyPlan:
+            emergencyPlan.trim() || null,
+          stopWorkTriggers:
+            stopWorkTriggers.trim() || null,
+          planningNotes:
+            planningNotes.trim() || null,
+        },
+
+        sourceContext: {
+          selectedContractorDocumentIds:
+            selectedDocumentIds,
+          planSpecificFiles:
+            planSpecificFiles.map(
+              (file) => ({
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                lastModified:
+                  file.lastModified,
+              }),
+            ),
+          requirementsSummary:
+            requirementsData?.summary ??
+            null,
+        },
+
+        quality: {
+          score:
+            planningQualitySummary.score,
+          actionRequired:
+            planningQualitySummary.actionRequired,
+          warnings:
+            planningQualitySummary.warnings,
+          passed:
+            planningQualitySummary.passed,
+          checks:
+            planningQualityChecks,
+        },
+      };
+
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/revision`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              revisionNumber:
+                planningRevisionNumber,
+              status: "Draft",
+              revisionReason:
+                draftGenerated
+                  ? "Draft refreshed before qualified review."
+                  : "Initial draft generated for qualified review.",
+              snapshot,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          revision?: {
+            id: string;
+            revisionNumber: number;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to persist the draft planning revision.",
+        );
+      }
+
+      if (!data.revision?.id) {
+        throw new Error(
+          "The draft revision was not confirmed as saved.",
+        );
+      }
+
+      setPlanningRevisionNumber(
+        data.revision.revisionNumber,
+      );
+      setDraftGenerated(true);
+    } catch (error) {
+      setDraftGenerated(false);
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to persist the draft planning revision.",
+      );
+    } finally {
+      setDraftBuildSaving(false);
+    }
   }
 
   function continueFromBuildPlan() {
     if (!draftGenerated) {
       setStepError(
-        "Generate the draft plan before continuing to qualified review.",
+        "Generate and save the draft plan before continuing to qualified review.",
       );
       return;
     }
@@ -2029,7 +2617,7 @@ export default function CreatePlanningPage() {
     }
   }
 
-  function continueFromQualifiedReview() {
+  async function continueFromQualifiedReview() {
     if (!reviewerName.trim()) {
       setStepError(
         "Enter the qualified reviewer's name before continuing.",
@@ -2078,41 +2666,141 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    const defaultSignatures: SubmissionSignature[] = [
-      {
-        id: "responsible-supervisor",
-        role: "Responsible Supervisor / Foreman",
-        signerName:
-          responsibleSupervisor.trim(),
-        required: true,
-        status: "Pending",
-        signedAt: null,
-        signatureDataUrl: null,
-      },
-      {
-        id: "qualified-reviewer",
-        role:
-          reviewerRole.trim() ||
-          "Qualified Reviewer",
-        signerName: reviewerName.trim(),
-        required: true,
-        status: "Pending",
-        signedAt: null,
-        signatureDataUrl: null,
-      },
-    ];
+    if (!planningRecordId) {
+      setStepError(
+        "The planning draft has not been created yet. Return to Assignment and save the draft before completing qualified review.",
+      );
+      return;
+    }
 
-    setSubmissionSignatures((current) =>
-      current.length > 0
-        ? current
-        : defaultSignatures,
-    );
+    if (!draftGenerated) {
+      setStepError(
+        "Generate and save the current draft revision before completing qualified review.",
+      );
+      return;
+    }
 
-    setSubmitted(false);
-    setSubmittedAt(null);
-    setSubmissionAcknowledged(false);
     setStepError("");
-    setCurrentStep(8);
+    setQualifiedReviewSaving(true);
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/review`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              revisionNumber:
+                planningRevisionNumber,
+              reviewerName:
+                reviewerName.trim(),
+              reviewerRole:
+                reviewerRole.trim(),
+              reviewNotes:
+                reviewNotes.trim() || null,
+              confirmations:
+                reviewConfirmations,
+              comments:
+                reviewComments.map(
+                  (comment) => ({
+                    clientId:
+                      comment.id,
+                    targetId:
+                      comment.targetId,
+                    section:
+                      comment.section,
+                    label:
+                      comment.label,
+                    comment:
+                      comment.comment,
+                    status:
+                      comment.status,
+                    createdByName:
+                      comment.createdBy,
+                    createdAt:
+                      comment.createdAt,
+                    resolvedAt:
+                      comment.resolvedAt,
+                  }),
+                ),
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          review?: {
+            id: string;
+            status: string;
+            completedAt:
+              | string
+              | null;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to persist the qualified review.",
+        );
+      }
+
+      if (!data.review?.id) {
+        throw new Error(
+          "The qualified review was not confirmed as saved.",
+        );
+      }
+
+      const defaultSignatures: SubmissionSignature[] = [
+        {
+          id: "responsible-supervisor",
+          role: "Responsible Supervisor / Foreman",
+          signerName:
+            responsibleSupervisor.trim(),
+          required: true,
+          status: "Pending",
+          signedAt: null,
+          signatureDataUrl: null,
+        },
+        {
+          id: "qualified-reviewer",
+          role:
+            reviewerRole.trim() ||
+            "Qualified Reviewer",
+          signerName:
+            reviewerName.trim(),
+          required: true,
+          status: "Pending",
+          signedAt: null,
+          signatureDataUrl: null,
+        },
+      ];
+
+      setSubmissionSignatures(
+        (current) =>
+          current.length > 0
+            ? current
+            : defaultSignatures,
+      );
+
+      setSubmitted(false);
+      setSubmittedAt(null);
+      setSubmissionAcknowledged(false);
+      setCurrentStep(8);
+    } catch (error) {
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to persist the qualified review.",
+      );
+    } finally {
+      setQualifiedReviewSaving(false);
+    }
   }
 
   function signSubmissionRole(
@@ -2211,7 +2899,7 @@ export default function CreatePlanningPage() {
     setStepError("");
   }
 
-  function submitPlanningRecord() {
+  async function submitPlanningRecord() {
     if (
       submissionSignatureSummary
         .pendingRequired > 0
@@ -2241,12 +2929,121 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    const timestamp =
-      new Date().toISOString();
+    if (!planningRecordId) {
+      setStepError(
+        "The planning draft has not been created yet. Return to Assignment and save the draft before submission.",
+      );
+      return;
+    }
 
-    setSubmitted(true);
-    setSubmittedAt(timestamp);
+    const missingCapturedSignature =
+      submissionSignatures.find(
+        (signature) =>
+          signature.status === "Signed" &&
+          !signature.signatureDataUrl,
+      );
+
+    if (missingCapturedSignature) {
+      setStepError(
+        `${missingCapturedSignature.role} is marked signed but no captured signature image is available.`,
+      );
+      return;
+    }
+
     setStepError("");
+    setSubmissionSaving(true);
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/submit`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              revisionNumber:
+                planningRevisionNumber,
+              acknowledged:
+                submissionAcknowledged,
+              signatures:
+                submissionSignatures.map(
+                  (
+                    signature,
+                    index,
+                  ) => ({
+                    role:
+                      signature.role,
+                    signerName:
+                      signature.signerName,
+                    isRequired:
+                      signature.required,
+                    sortOrder:
+                      index,
+                    status:
+                      signature.status,
+                    signatureType:
+                      "Drawn",
+                    signatureDataUrl:
+                      signature.signatureDataUrl,
+                    signedAt:
+                      signature.signedAt,
+                  }),
+                ),
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          record?: {
+            id: string;
+            status: string;
+            submittedAt:
+              | string
+              | null;
+          };
+          saved?: {
+            signatures: number;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to submit the planning record.",
+        );
+      }
+
+      if (
+        !data.record?.id ||
+        data.record.status !==
+          "Submitted"
+      ) {
+        throw new Error(
+          "The planning record was not confirmed as submitted.",
+        );
+      }
+
+      setSubmitted(true);
+      setSubmittedAt(
+        data.record.submittedAt ??
+          new Date().toISOString(),
+      );
+    } catch (error) {
+      setSubmitted(false);
+      setSubmittedAt(null);
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to submit the planning record.",
+      );
+    } finally {
+      setSubmissionSaving(false);
+    }
   }
 
   function goBackOneStep() {
@@ -3361,16 +4158,21 @@ export default function CreatePlanningPage() {
               onClick={
                 continueFromAssignment
               }
-              disabled={requirementsLoading}
+              disabled={
+                requirementsLoading ||
+                planningDraftSaving
+              }
               className={`
                 ${primaryButtonClassName}
                 disabled:cursor-not-allowed
                 disabled:opacity-60
               `}
             >
-              {requirementsLoading
-                ? "Loading Requirements..."
-                : "Continue to Requirements & Documents →"}
+              {planningDraftSaving
+                ? "Saving Draft..."
+                : requirementsLoading
+                  ? "Loading Requirements..."
+                  : "Continue to Requirements & Documents →"}
             </button>
           </section>
         </>
@@ -4106,9 +4908,16 @@ export default function CreatePlanningPage() {
             <button
               type="button"
               onClick={continueFromScope}
-              className={primaryButtonClassName}
+              disabled={planningDraftSaving}
+              className={`
+                ${primaryButtonClassName}
+                disabled:cursor-not-allowed
+                disabled:opacity-60
+              `}
             >
-              Continue to Guided Planning →
+              {planningDraftSaving
+                ? "Saving Work Scope..."
+                : "Continue to Guided Planning →"}
             </button>
           </section>
         </>
@@ -4619,9 +5428,16 @@ export default function CreatePlanningPage() {
             <button
               type="button"
               onClick={continueFromGuidedPlanning}
-              className={primaryButtonClassName}
+              disabled={planningDraftSaving}
+              className={`
+                ${primaryButtonClassName}
+                disabled:cursor-not-allowed
+                disabled:opacity-60
+              `}
             >
-              Continue to Build Plan →
+              {planningDraftSaving
+                ? "Saving Guided Planning..."
+                : "Continue to Build Plan →"}
             </button>
           </section>
         </>
@@ -4735,11 +5551,18 @@ export default function CreatePlanningPage() {
                   <button
                     type="button"
                     onClick={generateDraftPlan}
-                    className={primaryButtonClassName}
+                    disabled={draftBuildSaving}
+                    className={`
+                      ${primaryButtonClassName}
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    `}
                   >
-                    {draftGenerated
-                      ? "Refresh Draft Plan"
-                      : `Generate Draft ${selectedPlanType ?? "Plan"}`}
+                    {draftBuildSaving
+                      ? "Saving Draft Revision..."
+                      : draftGenerated
+                        ? "Refresh Draft Plan"
+                        : `Generate Draft ${selectedPlanType ?? "Plan"}`}
                   </button>
                 </div>
               </section>
@@ -6108,9 +6931,16 @@ export default function CreatePlanningPage() {
             <button
               type="button"
               onClick={continueFromQualifiedReview}
-              className={primaryButtonClassName}
+              disabled={qualifiedReviewSaving}
+              className={`
+                ${primaryButtonClassName}
+                disabled:cursor-not-allowed
+                disabled:opacity-60
+              `}
             >
-              Continue to Submit & Signatures →
+              {qualifiedReviewSaving
+                ? "Saving Qualified Review..."
+                : "Continue to Submit & Signatures →"}
             </button>
           </section>
         </>
@@ -6143,7 +6973,7 @@ export default function CreatePlanningPage() {
                 number="08"
                 eyebrow="Submit & Signatures"
                 title="Finalize the Planning Record"
-                description="Complete the required signature roles, confirm the final submission package, and submit the plan into its approval workflow. The front-end captures the intended signer identity, role, status, and time; authenticated server-side persistence and audit storage come with the Planning backend."
+                description="Complete the required signature roles, confirm the final submission package, and submit the plan. Qoreva persists the signature records, submission timestamp, revision reference, and audit event before marking the planning record Submitted."
               />
             </div>
 
@@ -6212,13 +7042,13 @@ export default function CreatePlanningPage() {
                       </h3>
 
                       <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-text)]">
-                        Submitted locally on{" "}
+                        Submitted on{" "}
                         {submittedAt
                           ? formatDateTime(
                               submittedAt,
                             )
                           : "the current session"}.
-                        The guided front-end workflow is complete. The next backend milestone is persisting the plan, signature events, revision comments, approval routing, statuses, and audit history in PostgreSQL.
+                        The submitted revision, signature records, submission timestamp, and audit event have been persisted to the Planning backend.
                       </p>
                     </div>
                   </div>
@@ -6457,7 +7287,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Each role is tracked independently with signer identity, role, signature status, and date/time. This front-end simulates the signature event until authenticated signer identity and server-side persistence are connected.
+                      Each role is tracked independently with signer identity, role, signature status, and date/time. Signature records are persisted with the submitted planning revision; authenticated user identity and cloud signature storage can be layered onto this workflow as those platform services are connected.
                     </p>
                   </div>
 
@@ -6690,16 +7520,21 @@ export default function CreatePlanningPage() {
                   <button
                     type="button"
                     onClick={submitPlanningRecord}
-                    disabled={submitted}
+                    disabled={
+                      submitted ||
+                      submissionSaving
+                    }
                     className={`
                       ${primaryButtonClassName}
                       disabled:cursor-not-allowed
                       disabled:opacity-60
                     `}
                   >
-                    {submitted
-                      ? "Planning Record Submitted ✓"
-                      : "Submit Planning Record"}
+                    {submissionSaving
+                      ? "Submitting Planning Record..."
+                      : submitted
+                        ? "Planning Record Submitted ✓"
+                        : "Submit Planning Record"}
                   </button>
                 </div>
               </section>
@@ -7246,6 +8081,16 @@ function TextControl({
 
       <input
         type={type}
+        min={
+          type === "number"
+            ? 1
+            : undefined
+        }
+        step={
+          type === "number"
+            ? 1
+            : undefined
+        }
         value={value}
         placeholder={
           placeholder
@@ -8240,14 +9085,34 @@ function SignaturePadModal({
                 !hasInk ||
                 !identityAcknowledged
               }
-              className="rounded-xl bg-[var(--qoreva-primary)] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+              className="
+                inline-flex
+                min-h-11
+                min-w-40
+                items-center
+                justify-center
+                rounded-xl
+                bg-[var(--qoreva-violet)]
+                px-5
+                py-3
+                text-sm
+                font-black
+                text-white
+                shadow-sm
+                transition
+                hover:bg-[var(--qoreva-violet-dark)]
+                disabled:cursor-not-allowed
+                disabled:bg-[var(--qoreva-violet-soft)]
+                disabled:text-[var(--qoreva-violet-dark)]
+                disabled:opacity-70
+              "
             >
               Accept Signature
             </button>
           </div>
 
           <p className="mt-4 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-            MVP note: the signature image is held in front-end state for this prototype. Production will bind the signature to the authenticated Qoreva user, plan version, timestamp, and audit event in the Planning backend.
+            The signature is captured for this planning revision and is persisted with the submission record. Authenticated user identity, cloud signature storage, and additional device verification can be layered onto this workflow as Qoreva authentication is connected.
           </p>
         </div>
       </div>
