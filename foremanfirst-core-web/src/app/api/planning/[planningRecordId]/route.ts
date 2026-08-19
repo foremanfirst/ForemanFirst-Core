@@ -9,6 +9,15 @@ type RouteContext = {
   }>;
 };
 
+const allowedLifecycleTransitions: Record<string, string[]> = {
+  Draft: [],
+  Submitted: ["In Review"],
+  "In Review": ["Revision Needed", "Approved"],
+  "Revision Needed": [],
+  Approved: ["Closed"],
+  Closed: [],
+};
+
 function toNullableString(value: unknown) {
   if (typeof value !== "string") {
     return null;
@@ -16,9 +25,7 @@ function toNullableString(value: unknown) {
 
   const trimmed = value.trim();
 
-  return trimmed.length > 0
-    ? trimmed
-    : null;
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function toNullableInt(value: unknown) {
@@ -49,15 +56,26 @@ function toNullableDate(value: unknown) {
 
   const parsed = new Date(value);
 
-  if (
-    Number.isNaN(
-      parsed.getTime(),
-    )
-  ) {
+  if (Number.isNaN(parsed.getTime())) {
     return null;
   }
 
   return parsed;
+}
+
+function lifecycleEventType(status: string) {
+  switch (status) {
+    case "In Review":
+      return "Planning Review Started";
+    case "Revision Needed":
+      return "Planning Revision Requested";
+    case "Approved":
+      return "Planning Record Approved";
+    case "Closed":
+      return "Planning Record Closed";
+    default:
+      return "Planning Status Changed";
+  }
 }
 
 export async function GET(
@@ -165,7 +183,6 @@ export async function GET(
             orderBy: {
               createdAt: "desc",
             },
-
             take: 100,
           },
 
@@ -256,6 +273,11 @@ export async function PATCH(
           contractorId: true,
           status: true,
           revisionNumber: true,
+          submittedAt: true,
+          approvedAt: true,
+          activeAt: true,
+          effectiveStartDate: true,
+          effectiveEndDate: true,
         },
       });
 
@@ -276,9 +298,7 @@ export async function PATCH(
         body.tenantId,
       ) ?? existing.tenantId;
 
-    if (
-      tenantId !== existing.tenantId
-    ) {
+    if (tenantId !== existing.tenantId) {
       return NextResponse.json(
         {
           message:
@@ -313,51 +333,45 @@ export async function PATCH(
           )
         : existing.contractorId;
 
-    const [
-      company,
-      project,
-      contractor,
-    ] = await Promise.all([
-      prisma.company.findFirst({
-        where: {
-          id: companyId,
-          tenantId,
-          isArchived: false,
-        },
+    const [company, project, contractor] =
+      await Promise.all([
+        prisma.company.findFirst({
+          where: {
+            id: companyId,
+            tenantId,
+            isArchived: false,
+          },
+          select: {
+            id: true,
+          },
+        }),
 
-        select: {
-          id: true,
-        },
-      }),
+        prisma.project.findFirst({
+          where: {
+            id: projectId,
+            tenantId,
+            companyId,
+            isArchived: false,
+          },
+          select: {
+            id: true,
+          },
+        }),
 
-      prisma.project.findFirst({
-        where: {
-          id: projectId,
-          tenantId,
-          companyId,
-          isArchived: false,
-        },
-
-        select: {
-          id: true,
-        },
-      }),
-
-      contractorId
-        ? prisma.contractor.findFirst({
-            where: {
-              id: contractorId,
-              tenantId,
-              companyId,
-              isArchived: false,
-            },
-
-            select: {
-              id: true,
-            },
-          })
-        : Promise.resolve(null),
-    ]);
+        contractorId
+          ? prisma.contractor.findFirst({
+              where: {
+                id: contractorId,
+                tenantId,
+                companyId,
+                isArchived: false,
+              },
+              select: {
+                id: true,
+              },
+            })
+          : Promise.resolve(null),
+      ]);
 
     if (!company) {
       return NextResponse.json(
@@ -383,10 +397,7 @@ export async function PATCH(
       );
     }
 
-    if (
-      contractorId &&
-      !contractor
-    ) {
+    if (contractorId && !contractor) {
       return NextResponse.json(
         {
           message:
@@ -398,10 +409,322 @@ export async function PATCH(
       );
     }
 
+    if (
+      body.crewSize !== undefined &&
+      body.crewSize !== null &&
+      body.crewSize !== ""
+    ) {
+      const crewSize =
+        Number(body.crewSize);
+
+      if (
+        !Number.isInteger(crewSize) ||
+        crewSize < 1
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              "Crew size must be a whole number of 1 or greater.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+    }
+
+    const effectiveStartDateWasProvided =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "effectiveStartDate",
+      );
+
+    const effectiveEndDateWasProvided =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "effectiveEndDate",
+      );
+
+    const nextEffectiveStartDate =
+      effectiveStartDateWasProvided
+        ? toNullableDate(
+            body.effectiveStartDate,
+          )
+        : existing.effectiveStartDate;
+
+    const nextEffectiveEndDate =
+      effectiveEndDateWasProvided
+        ? toNullableDate(
+            body.effectiveEndDate,
+          )
+        : existing.effectiveEndDate;
+
+    if (
+      effectiveStartDateWasProvided &&
+      body.effectiveStartDate &&
+      !nextEffectiveStartDate
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Effective start date is invalid.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      effectiveEndDateWasProvided &&
+      body.effectiveEndDate &&
+      !nextEffectiveEndDate
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Effective end date is invalid.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      nextEffectiveStartDate &&
+      nextEffectiveEndDate &&
+      nextEffectiveEndDate <
+        nextEffectiveStartDate
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Effective end date cannot be before the effective start date.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const statusWasProvided =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "status",
+      );
+
+    const requestedStatus =
+      statusWasProvided
+        ? toNullableString(
+            body.status,
+          )
+        : null;
+
+    if (
+      statusWasProvided &&
+      !requestedStatus
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Planning status cannot be blank.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const nextStatus =
-      toNullableString(
-        body.status,
-      ) ?? existing.status;
+      requestedStatus ??
+      existing.status;
+
+    const statusChanged =
+      nextStatus !== existing.status;
+
+    if (statusChanged) {
+      const allowedNextStatuses =
+        allowedLifecycleTransitions[
+          existing.status
+        ];
+
+      if (
+        !allowedNextStatuses ||
+        !allowedNextStatuses.includes(
+          nextStatus,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message: `Invalid planning status transition: ${existing.status} → ${nextStatus}.`,
+          },
+          {
+            status: 409,
+          },
+        );
+      }
+
+      const actorName =
+        toNullableString(
+          body.updatedByName,
+        );
+
+      const actorRole =
+        toNullableString(
+          body.updatedByRole,
+        );
+
+      if (!actorName || !actorRole) {
+        return NextResponse.json(
+          {
+            message:
+              "Reviewer/actor name and role are required for lifecycle status changes.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      if (
+        nextStatus ===
+          "Revision Needed" &&
+        !toNullableString(
+          body.statusChangeComment,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              "A revision comment is required when returning a plan for revision.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      if (
+        nextStatus === "Closed" &&
+        !toNullableString(
+          body.statusChangeComment,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              "A closeout comment is required when closing an approved planning record.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      if (
+        existing.status === "Submitted" &&
+        nextStatus === "In Review"
+      ) {
+        const [revision, signatureCount] =
+          await Promise.all([
+            prisma.planningRevision.findFirst({
+              where: {
+                planningRecordId,
+                tenantId,
+                revisionNumber:
+                  existing.revisionNumber,
+              },
+              select: {
+                id: true,
+              },
+            }),
+
+            prisma.planningSignature.count({
+              where: {
+                planningRecordId,
+                tenantId,
+                revisionNumber:
+                  existing.revisionNumber,
+                status: "Signed",
+                isRequired: true,
+              },
+            }),
+          ]);
+
+        if (!revision) {
+          return NextResponse.json(
+            {
+              message:
+                "A persisted planning revision is required before review can begin.",
+            },
+            {
+              status: 409,
+            },
+          );
+        }
+
+        if (signatureCount < 1) {
+          return NextResponse.json(
+            {
+              message:
+                "Required submission signatures must be present before review can begin.",
+            },
+            {
+              status: 409,
+            },
+          );
+        }
+      }
+
+      if (
+        existing.status === "In Review" &&
+        nextStatus === "Approved"
+      ) {
+        const openComments =
+          await prisma.planningReviewComment.count({
+            where: {
+              planningRecordId,
+              tenantId,
+              revisionNumber:
+                existing.revisionNumber,
+              status: "Open",
+            },
+          });
+
+        if (openComments > 0) {
+          return NextResponse.json(
+            {
+              message:
+                "Resolve all open review comments before approving the planning record.",
+            },
+            {
+              status: 409,
+            },
+          );
+        }
+
+        if (
+          !nextEffectiveStartDate ||
+          !nextEffectiveEndDate
+        ) {
+          return NextResponse.json(
+            {
+              message:
+                "Effective start and end dates are required before approving the planning record.",
+            },
+            {
+              status: 409,
+            },
+          );
+        }
+      }
+    }
+
+    const transitionTimestamp =
+      statusChanged
+        ? new Date()
+        : null;
 
     const record =
       await prisma.$transaction(
@@ -418,20 +741,23 @@ export async function PATCH(
                 contractorId,
 
                 planType:
-                  body.planType !== undefined
+                  body.planType !==
+                  undefined
                     ? toNullableString(
                         body.planType,
                       ) ?? undefined
                     : undefined,
 
                 title:
-                  body.title !== undefined
+                  body.title !==
+                  undefined
                     ? toNullableString(
                         body.title,
                       ) ?? undefined
                     : undefined,
 
-                status: nextStatus,
+                status:
+                  nextStatus,
 
                 responsibleSupervisor:
                   body.responsibleSupervisor !==
@@ -457,22 +783,35 @@ export async function PATCH(
                       )
                     : undefined,
 
+                effectiveStartDate:
+                  effectiveStartDateWasProvided
+                    ? nextEffectiveStartDate
+                    : undefined,
+
+                effectiveEndDate:
+                  effectiveEndDateWasProvided
+                    ? nextEffectiveEndDate
+                    : undefined,
+
                 workLocation:
-                  body.workLocation !== undefined
+                  body.workLocation !==
+                  undefined
                     ? toNullableString(
                         body.workLocation,
                       )
                     : undefined,
 
                 crewSize:
-                  body.crewSize !== undefined
+                  body.crewSize !==
+                  undefined
                     ? toNullableInt(
                         body.crewSize,
                       )
                     : undefined,
 
                 shift:
-                  body.shift !== undefined
+                  body.shift !==
+                  undefined
                     ? toNullableString(
                         body.shift,
                       )
@@ -519,7 +858,8 @@ export async function PATCH(
                     : undefined,
 
                 requiredPpe:
-                  body.requiredPpe !== undefined
+                  body.requiredPpe !==
+                  undefined
                     ? toNullableString(
                         body.requiredPpe,
                       )
@@ -558,14 +898,37 @@ export async function PATCH(
                     : undefined,
 
                 qualityScore:
-                  body.qualityScore !== undefined
+                  body.qualityScore !==
+                  undefined
                     ? toNullableInt(
                         body.qualityScore,
                       ) ?? 0
                     : undefined,
 
+                submittedAt:
+                  nextStatus === "Submitted" &&
+                  !existing.submittedAt
+                    ? transitionTimestamp
+                    : undefined,
+
+                approvedAt:
+                  nextStatus === "Approved"
+                    ? transitionTimestamp
+                    : undefined,
+
+                /*
+                 * Deprecated field retained temporarily for compatibility.
+                 * Field readiness is now derived from Approved status plus
+                 * effectiveStartDate/effectiveEndDate.
+                 */
+                activeAt:
+                  nextStatus === "Approved"
+                    ? null
+                    : undefined,
+
                 updatedBy:
-                  body.updatedBy !== undefined
+                  body.updatedBy !==
+                  undefined
                     ? toNullableString(
                         body.updatedBy,
                       )
@@ -599,16 +962,16 @@ export async function PATCH(
               },
             });
 
-          if (
-            nextStatus !== existing.status
-          ) {
+          if (statusChanged) {
             await tx.planningEvent.create({
               data: {
                 tenantId,
                 planningRecordId,
 
                 eventType:
-                  "Planning Status Changed",
+                  lifecycleEventType(
+                    nextStatus,
+                  ),
 
                 previousStatus:
                   existing.status,
@@ -638,6 +1001,21 @@ export async function PATCH(
                   toNullableString(
                     body.statusChangeComment,
                   ),
+
+                metadata: {
+                  lifecycleTransition:
+                    true,
+                  from:
+                    existing.status,
+                  to:
+                    nextStatus,
+                  effectiveStartDate:
+                    nextEffectiveStartDate?.toISOString() ??
+                    null,
+                  effectiveEndDate:
+                    nextEffectiveEndDate?.toISOString() ??
+                    null,
+                },
               },
             });
           }

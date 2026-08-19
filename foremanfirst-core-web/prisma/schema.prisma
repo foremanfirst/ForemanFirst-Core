@@ -61,6 +61,9 @@ model Project {
   superintendent String?
   safetyManager  String?
 
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
   contractValue     Decimal? @db.Decimal(14, 2)
   plannedWorkforce  Int      @default(0)
   currentWorkforce  Int      @default(0)
@@ -363,10 +366,13 @@ model PlanningRecord {
   responsibleSupervisor   String?
   responsibleSupervisorId String?
 
-  plannedStartDate DateTime?
-  workLocation     String?
-  crewSize         Int?
-  shift            String?
+  plannedStartDate   DateTime?
+  effectiveStartDate DateTime?
+  effectiveEndDate   DateTime?
+
+  workLocation String?
+  crewSize     Int?
+  shift        String?
 
   scopeDescription   String?
   equipmentTools     String?
@@ -417,6 +423,8 @@ model PlanningRecord {
   @@index([planType])
   @@index([status])
   @@index([revisionNumber])
+  @@index([effectiveStartDate])
+  @@index([effectiveEndDate])
   @@index([isArchived])
   @@index([createdAt])
 }
@@ -707,6 +715,10 @@ model DailyWorkerSafetyEngagement {
 
   endOfShiftIncidentsOrNearMisses Boolean?
   endOfShiftConditionsChanged     Boolean?
+  endOfShiftControlsEffective     Boolean?
+  endOfShiftAdditionalHazards     Boolean?
+  endOfShiftWorkedSafely          Boolean?
+  endOfShiftLessonsToShare        Boolean?
   endOfShiftLessonsLearned        String?
   endOfShiftNotes                 String?
 

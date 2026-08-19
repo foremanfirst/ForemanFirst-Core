@@ -249,6 +249,68 @@ type SubmissionSignature = {
   signatureDataUrl: string | null;
 };
 
+type EditablePlanningRecordResponse = {
+  record?: {
+    id: string;
+    tenantId: string;
+    companyId: string;
+    projectId: string;
+    contractorId: string | null;
+    planType: string;
+    title: string;
+    status: string;
+    revisionNumber: number;
+    responsibleSupervisor: string | null;
+    plannedStartDate: string | null;
+    workLocation: string | null;
+    crewSize: number | null;
+    shift: string | null;
+    scopeDescription: string | null;
+    equipmentTools: string | null;
+    materialsChemicals: string | null;
+    adjacentWork: string | null;
+    specialConditions: string | null;
+    requiredPpe: string | null;
+    requiredPermits: string | null;
+    emergencyPlan: string | null;
+    stopWorkTriggers: string | null;
+    planningNotes: string | null;
+    qualityScore: number;
+    workSteps: Array<{
+      id: string;
+      sequence: number;
+      title: string;
+      description: string | null;
+      hazards: string | null;
+      controls: string | null;
+      safetyCritical: boolean;
+      riskLevel: string | null;
+    }>;
+    questionResponses: Array<{
+      questionId: string;
+      category: string;
+      responseValue: string | null;
+      notes: string | null;
+    }>;
+    sourceDocuments: Array<{
+      contractorDocumentId: string | null;
+      isSelected: boolean;
+    }>;
+    revisions: Array<{
+      revisionNumber: number;
+      snapshot: {
+        scope?: {
+          safetyCriticalCategories?: string[];
+        };
+        sourceContext?: {
+          selectedContractorDocumentIds?: string[];
+        };
+      } | null;
+    }>;
+  };
+  message?: string;
+};
+
 const corePlanningQuestions: GuidedPlanningQuestion[] = [
   {
     id: "core-prejob",
@@ -664,6 +726,24 @@ export default function CreatePlanningPage() {
   ] = useState<string | null>(null);
 
   const [
+    editPlanningRecordId,
+    setEditPlanningRecordId,
+  ] = useState<string | null>(null);
+
+  const [
+    editModeLoading,
+    setEditModeLoading,
+  ] = useState(false);
+
+  const [
+    editModeError,
+    setEditModeError,
+  ] = useState("");
+
+  const editHydrationStartedRef =
+    useRef(false);
+
+  const [
     planningDraftSaving,
     setPlanningDraftSaving,
   ] = useState(false);
@@ -937,6 +1017,412 @@ export default function CreatePlanningPage() {
     submittedAt,
     setSubmittedAt,
   ] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params =
+      new URLSearchParams(
+        window.location.search,
+      );
+
+    const existingRecordId =
+      params.get(
+        "planningRecordId",
+      );
+
+    if (existingRecordId) {
+      setEditPlanningRecordId(
+        existingRecordId,
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      !editPlanningRecordId ||
+      editHydrationStartedRef.current
+    ) {
+      return;
+    }
+
+    editHydrationStartedRef.current =
+      true;
+
+    let cancelled = false;
+
+    async function hydrateExistingDraft() {
+      setEditModeLoading(true);
+      setEditModeError("");
+      setStepError("");
+
+      try {
+        const response = await fetch(
+          `/api/planning/${editPlanningRecordId}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        const data =
+          (await response.json()) as
+            EditablePlanningRecordResponse;
+
+        if (
+          !response.ok ||
+          !data.record
+        ) {
+          throw new Error(
+            data.message ||
+              "Unable to load the planning revision for editing.",
+          );
+        }
+
+        const record = data.record;
+
+        if (
+          record.status !== "Draft"
+        ) {
+          throw new Error(
+            `Only Draft planning records can be edited. This record is currently ${record.status}.`,
+          );
+        }
+
+        if (
+          !planTypes.some(
+            (definition) =>
+              definition.type ===
+              record.planType,
+          )
+        ) {
+          throw new Error(
+            `The plan type ${record.planType} is not supported by this Planning editor.`,
+          );
+        }
+
+        const previousRevision =
+          record.revisions.find(
+            (revision) =>
+              revision.revisionNumber ===
+              record.revisionNumber - 1,
+          ) ?? null;
+
+        const snapshotCategories =
+          previousRevision?.snapshot
+            ?.scope
+            ?.safetyCriticalCategories ??
+          [];
+
+        const inferredCategories =
+          Array.from(
+            new Set(
+              record.questionResponses
+                .map(
+                  (response) =>
+                    response.category,
+                )
+                .filter((category) =>
+                  (
+                    safetyCriticalCategories as readonly string[]
+                  ).includes(
+                    category,
+                  ),
+                ),
+            ),
+          );
+
+        const restoredCategories =
+          snapshotCategories.length > 0
+            ? snapshotCategories.filter(
+                (category) =>
+                  (
+                    safetyCriticalCategories as readonly string[]
+                  ).includes(
+                    category,
+                  ),
+              )
+            : inferredCategories;
+
+        const restoredWorkSequence =
+          record.workSteps.length > 0
+            ? record.workSteps.map(
+                (step) => ({
+                  id: step.id,
+                  title: step.title,
+                  description:
+                    step.description ??
+                    "",
+                }),
+              )
+            : [
+                {
+                  id: `step-${Date.now()}`,
+                  title: "",
+                  description: "",
+                },
+              ];
+
+        const restoredWorkPlanning:
+          Record<
+            string,
+            WorkStepPlanning
+          > = {};
+
+        record.workSteps.forEach(
+          (step) => {
+            restoredWorkPlanning[
+              step.id
+            ] = {
+              hazards:
+                step.hazards ?? "",
+              controls:
+                step.controls ?? "",
+              safetyCritical:
+                step.safetyCritical,
+              riskLevel:
+                step.riskLevel ===
+                  "Low" ||
+                step.riskLevel ===
+                  "Medium" ||
+                step.riskLevel ===
+                  "High"
+                  ? step.riskLevel
+                  : "",
+            };
+          },
+        );
+
+        const restoredAnswers:
+          Record<
+            string,
+            PlanningAnswer
+          > = {};
+
+        record.questionResponses.forEach(
+          (response) => {
+            restoredAnswers[
+              response.questionId
+            ] = {
+              value:
+                response.responseValue ===
+                  "Yes" ||
+                response.responseValue ===
+                  "No" ||
+                response.responseValue ===
+                  "N/A"
+                  ? response.responseValue
+                  : "",
+              notes:
+                response.notes ?? "",
+            };
+          },
+        );
+
+        const persistedSourceIds =
+          record.sourceDocuments
+            .filter(
+              (source) =>
+                source.isSelected &&
+                Boolean(
+                  source.contractorDocumentId,
+                ),
+            )
+            .map(
+              (source) =>
+                source.contractorDocumentId as string,
+            );
+
+        const snapshotSourceIds =
+          previousRevision?.snapshot
+            ?.sourceContext
+            ?.selectedContractorDocumentIds ??
+          [];
+
+        if (cancelled) {
+          return;
+        }
+
+        setPlanningRecordId(
+          record.id,
+        );
+        setPlanningRevisionNumber(
+          record.revisionNumber,
+        );
+        setSelectedPlanType(
+          record.planType as PlanType,
+        );
+        setSelectedProjectId(
+          record.projectId,
+        );
+        setSelectedContractorId(
+          record.contractorId ?? "",
+        );
+        setResponsibleSupervisor(
+          record.responsibleSupervisor ??
+            "",
+        );
+        setPlannedStartDate(
+          toDateInputValue(
+            record.plannedStartDate,
+          ),
+        );
+        setWorkLocation(
+          record.workLocation ?? "",
+        );
+        setScopeTitle(
+          record.title ?? "",
+        );
+        setScopeDescription(
+          record.scopeDescription ??
+            "",
+        );
+        setCrewSize(
+          record.crewSize === null
+            ? ""
+            : String(
+                record.crewSize,
+              ),
+        );
+        setShift(
+          record.shift ?? "Day",
+        );
+        setEquipmentTools(
+          record.equipmentTools ??
+            "",
+        );
+        setMaterialsChemicals(
+          record.materialsChemicals ??
+            "",
+        );
+        setAdjacentWork(
+          record.adjacentWork ?? "",
+        );
+        setSpecialConditions(
+          record.specialConditions ??
+            "",
+        );
+        setSelectedSafetyCriticalCategories(
+          restoredCategories,
+        );
+        setWorkSequence(
+          restoredWorkSequence,
+        );
+        setWorkStepPlanning(
+          restoredWorkPlanning,
+        );
+        setPlanningAnswers(
+          restoredAnswers,
+        );
+        setRequiredPpe(
+          record.requiredPpe ?? "",
+        );
+        setRequiredPermits(
+          record.requiredPermits ??
+            "",
+        );
+        setEmergencyPlan(
+          record.emergencyPlan ?? "",
+        );
+        setStopWorkTriggers(
+          record.stopWorkTriggers ??
+            "",
+        );
+        setPlanningNotes(
+          record.planningNotes ?? "",
+        );
+        setSelectedDocumentIds(
+          persistedSourceIds.length > 0
+            ? persistedSourceIds
+            : snapshotSourceIds,
+        );
+
+        setDraftGenerated(false);
+        setReviewerName("");
+        setReviewerRole("");
+        setReviewNotes("");
+        setReviewConfirmations({
+          scope: false,
+          sequence: false,
+          hazards: false,
+          controls: false,
+          risk: false,
+          requirements: false,
+          emergency: false,
+        });
+        setReviewComments([]);
+        setSubmissionSignatures([]);
+        setSubmissionAcknowledged(false);
+        setSubmitted(false);
+        setSubmittedAt(null);
+
+        setCurrentStep(4);
+
+        if (
+          record.contractorId
+        ) {
+          const requirementParams =
+            new URLSearchParams({
+              projectId:
+                record.projectId,
+              contractorId:
+                record.contractorId,
+            });
+
+          const requirementsResponse =
+            await fetch(
+              `/api/planning/requirements?${requirementParams.toString()}`,
+              {
+                method: "GET",
+                cache: "no-store",
+              },
+            );
+
+          const requirementsResult =
+            (await requirementsResponse.json()) as
+              | PlanningRequirementsResponse
+              | {
+                  message?: string;
+                };
+
+          if (
+            requirementsResponse.ok &&
+            "requirements" in
+              requirementsResult &&
+            "documents" in
+              requirementsResult &&
+            !cancelled
+          ) {
+            setRequirementsData(
+              requirementsResult,
+            );
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unable to load the planning revision for editing.";
+
+          setEditModeError(
+            message,
+          );
+          setStepError(
+            message,
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setEditModeLoading(false);
+        }
+      }
+    }
+
+    void hydrateExistingDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editPlanningRecordId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3129,7 +3615,9 @@ export default function CreatePlanningPage() {
                   text-[var(--qoreva-muted)]
                 "
               >
-                Create Plan
+                {editPlanningRecordId
+                  ? "Edit Revision"
+                  : "Create Plan"}
               </span>
             </div>
 
@@ -3143,8 +3631,9 @@ export default function CreatePlanningPage() {
                 sm:text-4xl
               "
             >
-              Create a Planning
-              Record
+              {editPlanningRecordId
+                ? `Edit Planning Revision ${planningRevisionNumber}`
+                : "Create a Planning Record"}
             </h1>
 
             <p
@@ -3157,13 +3646,9 @@ export default function CreatePlanningPage() {
                 text-[var(--qoreva-muted)]
               "
             >
-              Qoreva guides the
-              planning process from
-              work setup through
-              requirements, hazards,
-              controls, qualified
-              review, and field
-              readiness.
+              {editPlanningRecordId
+                ? "Update the existing working revision without overwriting earlier submitted revision history. Regenerate the draft, complete qualified review, capture new signatures, and resubmit this revision."
+                : "Qoreva guides the planning process from work setup through requirements, hazards, controls, qualified review, and field readiness."}
             </p>
           </div>
 
@@ -3191,6 +3676,56 @@ export default function CreatePlanningPage() {
           </Link>
         </div>
       </section>
+
+      {editPlanningRecordId ? (
+        <section
+          className={`
+            rounded-[1.75rem]
+            border
+            p-5
+            shadow-[var(--qoreva-shadow-sm)]
+            sm:p-6
+            ${
+              editModeError
+                ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                : "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-faint)]"
+            }
+          `}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                Revision Editing Mode
+              </p>
+
+              <h2 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                {editModeLoading
+                  ? "Loading existing revision..."
+                  : editModeError
+                    ? "Unable to load revision"
+                    : `Editing Revision ${planningRevisionNumber}`}
+              </h2>
+
+              <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                {editModeError
+                  ? editModeError
+                  : "Changes save to this existing Planning record. Earlier revision snapshots, signatures, reviews, and audit history remain preserved."}
+              </p>
+            </div>
+
+            {!editModeLoading &&
+            !editModeError &&
+            planningRecordId ? (
+              <Link
+                href={`/planning/${planningRecordId}`}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
+              >
+                View Record
+              </Link>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {/* Progress */}
       <WizardProgress
@@ -9717,6 +10252,28 @@ function RiskLevelBadge({
       }
     />
   );
+}
+
+function toDateInputValue(
+  value: string | null,
+): string {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return "";
+  }
+
+  return date
+    .toISOString()
+    .slice(0, 10);
 }
 
 function formatSimpleDate(
