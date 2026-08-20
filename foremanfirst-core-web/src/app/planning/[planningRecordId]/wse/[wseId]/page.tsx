@@ -17,6 +17,8 @@ type WseTask = {
   hazards: string;
   mitigations: string;
   safetyCritical: boolean;
+  source: "PTP" | "Daily";
+  sourceWorkStepId: string | null;
 };
 
 type WseSignature = {
@@ -113,10 +115,13 @@ type DailyWse = {
 
 type EditableTask = {
   clientId: string;
+  id: string | null;
   taskDescription: string;
   hazards: string;
   mitigations: string;
   safetyCritical: boolean;
+  source: "PTP" | "Daily";
+  sourceWorkStepId: string | null;
 };
 
 type EndOfShiftAnswers = {
@@ -132,10 +137,13 @@ function newTask(): EditableTask {
   return {
     clientId:
       `task-${Date.now()}-${Math.random()}`,
+    id: null,
     taskDescription: "",
     hazards: "",
     mitigations: "",
     safetyCritical: false,
+    source: "Daily",
+    sourceWorkStepId: null,
   };
 }
 
@@ -215,6 +223,12 @@ export default function DailyWsePage() {
   const [
     workerEmail,
     setWorkerEmail,
+  ] =
+    useState("");
+
+  const [
+    workerIdentityMessage,
+    setWorkerIdentityMessage,
   ] =
     useState("");
 
@@ -324,6 +338,9 @@ export default function DailyWsePage() {
             clientId:
               task.id,
 
+            id:
+              task.id,
+
             taskDescription:
               task.taskDescription,
 
@@ -335,6 +352,12 @@ export default function DailyWsePage() {
 
             safetyCritical:
               task.safetyCritical,
+
+            source:
+              task.source || "Daily",
+
+            sourceWorkStepId:
+              task.sourceWorkStepId ?? null,
           }),
         ),
       );
@@ -520,6 +543,9 @@ export default function DailyWsePage() {
                     (
                       task,
                     ) => ({
+                      id:
+                        task.id,
+
                       taskDescription:
                         task.taskDescription.trim(),
 
@@ -531,6 +557,12 @@ export default function DailyWsePage() {
 
                       safetyCritical:
                         task.safetyCritical,
+
+                      source:
+                        task.source,
+
+                      sourceWorkStepId:
+                        task.sourceWorkStepId,
                     }),
                   ),
 
@@ -662,6 +694,7 @@ export default function DailyWsePage() {
 
       setWorkerName("");
       setWorkerEmail("");
+      setWorkerIdentityMessage("");
       setWorkerAcknowledged(
         false,
       );
@@ -1088,10 +1121,20 @@ export default function DailyWsePage() {
             onChange={(
               event,
             ) =>
-              setEmergencyReviewed(
-                event.target
-                  .checked,
-              )
+              {
+                setEmergencyReviewed(
+                  event.target
+                    .checked,
+                );
+
+                if (
+                  event.target.checked &&
+                  error ===
+                    "Confirm the project emergency contact number was reviewed with the crew."
+                ) {
+                  setError("");
+                }
+              }
             }
             disabled={
               isCompleted
@@ -1236,16 +1279,18 @@ export default function DailyWsePage() {
             disabled={
               isCompleted
             }
-            onClick={() =>
+            onClick={() => {
               setTasks(
-                (
-                  current,
-                ) => [
+                (current) => [
                   ...current,
                   newTask(),
                 ],
-              )
-            }
+              );
+
+              if (changeStatus === "No Changes") {
+                setChangeStatus("Minor Changes");
+              }
+            }}
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             + Add Task
@@ -1253,62 +1298,69 @@ export default function DailyWsePage() {
         </div>
 
         <div className="mt-5 space-y-4">
-          {tasks.map(
-            (
-              task,
-              index,
-            ) => (
+          {tasks.map((task, index) => {
+            const inheritedFromPtp =
+              task.source === "PTP";
+
+            return (
               <div
-                key={
-                  task.clientId
-                }
+                key={task.clientId}
                 className="rounded-2xl border border-[var(--qoreva-border)] p-4"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-black text-[var(--qoreva-obsidian)]">
-                    Work Step{" "}
-                    {index + 1}
-                  </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-black text-[var(--qoreva-obsidian)]">
+                      Work Step {index + 1}
+                    </p>
 
-                  <button
-                    type="button"
-                    disabled={
-                      isCompleted ||
-                      tasks.length <=
-                        1
-                    }
-                    onClick={() =>
-                      setTasks(
-                        (
-                          current,
-                        ) =>
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${
+                        inheritedFromPtp
+                          ? "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]"
+                          : "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
+                      }`}
+                    >
+                      {inheritedFromPtp
+                        ? "Approved PTP"
+                        : "Added Today"}
+                    </span>
+
+                    {task.safetyCritical ? (
+                      <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
+                        Safety Critical
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {!inheritedFromPtp ? (
+                    <button
+                      type="button"
+                      disabled={isCompleted}
+                      onClick={() =>
+                        setTasks((current) =>
                           current.filter(
-                            (
-                              item,
-                            ) =>
-                              item.clientId !==
-                              task.clientId,
+                            (item) =>
+                              item.clientId !== task.clientId,
                           ),
-                      )
-                    }
-                    className="text-xs font-black text-[var(--qoreva-danger)] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Remove
-                  </button>
+                        )
+                      }
+                      className="text-xs font-black text-[var(--qoreva-danger)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="text-xs font-bold text-[var(--qoreva-muted)]">
+                      Required by approved PTP
+                    </span>
+                  )}
                 </div>
 
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   <Field
                     label="Task / Work Sequence"
-                    value={
-                      task.taskDescription
-                    }
-                    disabled={
-                      isCompleted
-                    }
-                    onChange={(
-                      value,
-                    ) =>
+                    value={task.taskDescription}
+                    disabled={isCompleted}
+                    onChange={(value) =>
                       updateTask(
                         setTasks,
                         task.clientId,
@@ -1321,15 +1373,9 @@ export default function DailyWsePage() {
 
                   <Field
                     label="Hazards — What can hurt us?"
-                    value={
-                      task.hazards
-                    }
-                    disabled={
-                      isCompleted
-                    }
-                    onChange={(
-                      value,
-                    ) =>
+                    value={task.hazards}
+                    disabled={isCompleted}
+                    onChange={(value) =>
                       updateTask(
                         setTasks,
                         task.clientId,
@@ -1342,15 +1388,9 @@ export default function DailyWsePage() {
 
                   <Field
                     label="Mitigations / Controls"
-                    value={
-                      task.mitigations
-                    }
-                    disabled={
-                      isCompleted
-                    }
-                    onChange={(
-                      value,
-                    ) =>
+                    value={task.mitigations}
+                    disabled={isCompleted}
+                    onChange={(value) =>
                       updateTask(
                         setTasks,
                         task.clientId,
@@ -1362,47 +1402,49 @@ export default function DailyWsePage() {
                   />
                 </div>
 
-                <label className="mt-4 flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={
-                      task.safetyCritical
-                    }
-                    disabled={
-                      isCompleted
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setTasks(
-                        (
-                          current,
-                        ) =>
-                          current.map(
-                            (
-                              item,
-                            ) =>
-                              item.clientId ===
-                              task.clientId
-                                ? {
-                                    ...item,
-                                    safetyCritical:
-                                      event.target.checked,
-                                  }
-                                : item,
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={task.safetyCritical}
+                      disabled={
+                        isCompleted ||
+                        inheritedFromPtp
+                      }
+                      onChange={(event) =>
+                        setTasks((current) =>
+                          current.map((item) =>
+                            item.clientId === task.clientId
+                              ? {
+                                  ...item,
+                                  safetyCritical:
+                                    event.target.checked,
+                                }
+                              : item,
                           ),
-                      )
-                    }
-                    className="h-5 w-5"
-                  />
+                        )
+                      }
+                      className="h-5 w-5"
+                    />
 
-                  <span className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                    Safety Critical
-                  </span>
-                </label>
+                    <span className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Safety Critical
+                    </span>
+                  </label>
+
+                  {inheritedFromPtp ? (
+                    <p className="text-xs font-medium text-[var(--qoreva-muted)]">
+                      Safety-critical status is inherited from the approved PTP and cannot be changed here.
+                    </p>
+                  ) : (
+                    <p className="text-xs font-medium text-[var(--qoreva-muted)]">
+                      Added work is documented in today&apos;s WSE and should be escalated to a PTP revision when it materially changes scope, hazards, controls, or work method.
+                    </p>
+                  )}
+                </div>
               </div>
-            ),
-          )}
+            );
+          })}
         </div>
       </section>
 
@@ -1415,7 +1457,11 @@ export default function DailyWsePage() {
           Morning Acknowledgement
         </h2>
 
-        <label className="mt-5 flex items-start gap-3 rounded-2xl border border-[var(--qoreva-border)] p-4">
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+          Complete this acknowledgement after reviewing today&apos;s work with the crew and before work begins.
+        </p>
+
+        <label className="mt-5 flex items-start gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
           <input
             type="checkbox"
             checked={
@@ -1436,34 +1482,47 @@ export default function DailyWsePage() {
           />
 
           <span>
-            <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
-              I confirm the information above is accurate and was discussed with the crew.
+            <span className="block text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
+              I confirm I reviewed today&apos;s work with the crew, including the approved PTP, planned tasks, hazards and controls, project emergency contact information, and any changes identified for today&apos;s work.
             </span>
 
-            <span className="mt-1 block text-xs text-[var(--qoreva-muted)]">
-              Foreman:{" "}
+            <span className="mt-2 block text-xs font-semibold text-[var(--qoreva-muted)]">
+              Foreman / Supervisor:{" "}
               {
                 wse.foremanName
               }
             </span>
+
+            {wse.foremanMorningAcknowledgedAt ? (
+              <span className="mt-1 block text-xs font-semibold text-[var(--qoreva-success)]">
+                Morning review acknowledged and recorded.
+              </span>
+            ) : null}
           </span>
         </label>
 
         {!isCompleted ? (
-          <button
-            type="button"
-            onClick={() =>
-              void saveMorningReview()
-            }
-            disabled={
-              saving
-            }
-            className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:opacity-60"
-          >
-            {saving
-              ? "Saving..."
-              : "Save Morning Review"}
-          </button>
+          wse.foremanMorningAcknowledgedAt ? (
+            <div className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-5 py-3 text-sm font-black text-[var(--qoreva-success)]">
+              ✓ Morning Review Completed
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() =>
+                void saveMorningReview()
+              }
+              disabled={
+                saving ||
+                !morningAcknowledged
+              }
+              className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving
+                ? "Saving Morning Review..."
+                : "Acknowledge Morning Review"}
+            </button>
+          )
         ) : null}
       </section>
 
@@ -1476,8 +1535,8 @@ export default function DailyWsePage() {
           Crew Signatures
         </h2>
 
-        <p className="mt-2 text-sm leading-6 text-[var(--qoreva-muted)]">
-          MVP captures individual electronic acknowledgement. Future Qoreva Access™ will support hand-drawn signatures with identity verification before signing.
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+          Each worker must personally acknowledge today&apos;s Worker Safety Engagement before signing in.
         </p>
 
         {!isCompleted ? (
@@ -1493,11 +1552,12 @@ export default function DailyWsePage() {
                 }
                 onChange={(
                   event,
-                ) =>
+                ) => {
                   setWorkerName(
                     event.target.value,
-                  )
-                }
+                  );
+                  setWorkerIdentityMessage("");
+                }}
                 className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
                 placeholder="Worker full name"
               />
@@ -1524,6 +1584,49 @@ export default function DailyWsePage() {
                 placeholder="worker@example.com"
               />
             </label>
+
+            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 md:col-span-2">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                    Identity Verification
+                  </p>
+
+                  <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                    Verify the worker before the acknowledgement is signed.
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                    Identity verification is not required for this project.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!workerName.trim()) {
+                      setWorkerIdentityMessage(
+                        "Enter the worker name before starting identity verification.",
+                      );
+                      return;
+                    }
+
+                    setWorkerIdentityMessage(
+                      "Identity verification is not required for this project. Continue with the worker acknowledgement.",
+                    );
+                  }}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-soft)] px-5 py-3 text-sm font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
+                >
+                  Verify Identity
+                </button>
+              </div>
+
+              {workerIdentityMessage ? (
+                <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  {workerIdentityMessage}
+                </div>
+              ) : null}
+            </div>
 
             <label className="flex items-start gap-3 md:col-span-2">
               <input
@@ -1553,12 +1656,14 @@ export default function DailyWsePage() {
                 void addWorkerAcknowledgement()
               }
               disabled={
-                signingWorker
+                signingWorker ||
+                !workerName.trim() ||
+                !workerAcknowledged
               }
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:opacity-60 md:col-span-2"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
             >
               {signingWorker
-                ? "Signing..."
+                ? "Recording Worker Acknowledgement..."
                 : "Acknowledge & Sign In"}
             </button>
           </div>
@@ -1641,6 +1746,10 @@ export default function DailyWsePage() {
           Foreman Closeout
         </h2>
 
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+          Complete this short review at the end of the shift. Document anything that occurred, changed, did not work as planned, or should be carried forward to the next workday.
+        </p>
+
         <div className="mt-5 space-y-3">
           <YesNoQuestion
             label="Did any incident, injury, near miss, or property damage occur?"
@@ -1666,7 +1775,7 @@ export default function DailyWsePage() {
           />
 
           <YesNoQuestion
-            label="Were there any changes in the work or conditions that affected safety?"
+            label="Did the work, conditions, crew, equipment, or work method change in a way that affected safety?"
             value={
               endOfShift.conditionsChanged
             }
@@ -1689,7 +1798,7 @@ export default function DailyWsePage() {
           />
 
           <YesNoQuestion
-            label="Were all controls effective?"
+            label="Were the planned controls effective throughout the shift?"
             value={
               endOfShift.controlsEffective
             }
@@ -1712,7 +1821,7 @@ export default function DailyWsePage() {
           />
 
           <YesNoQuestion
-            label="Were additional hazards identified?"
+            label="Were any new or previously unidentified hazards found during the shift?"
             value={
               endOfShift.additionalHazards
             }
@@ -1735,7 +1844,7 @@ export default function DailyWsePage() {
           />
 
           <YesNoQuestion
-            label="Did we work safely as a crew today?"
+            label="Was the work completed safely and in accordance with the approved plan?"
             value={
               endOfShift.workedSafely
             }
@@ -1758,7 +1867,7 @@ export default function DailyWsePage() {
           />
 
           <YesNoQuestion
-            label="Are there any lessons learned to share tomorrow?"
+            label="Is there anything from today that should be communicated or carried forward to the next shift?"
             value={
               endOfShift.lessonsToShare
             }
@@ -1783,7 +1892,7 @@ export default function DailyWsePage() {
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <Field
-            label="Lessons Learned"
+            label="Lessons Learned / Carry Forward"
             value={
               lessonsLearned
             }
@@ -1793,11 +1902,11 @@ export default function DailyWsePage() {
             onChange={
               setLessonsLearned
             }
-            placeholder="What should be shared with tomorrow's crew?"
+            placeholder="Document lessons learned, changing conditions, or information the next shift should know."
           />
 
           <Field
-            label="Actions / Comments"
+            label="Follow-Up Actions / Comments"
             value={
               endOfShiftNotes
             }
@@ -1807,7 +1916,7 @@ export default function DailyWsePage() {
             onChange={
               setEndOfShiftNotes
             }
-            placeholder="Document follow-up actions or comments."
+            placeholder="Document corrective actions, follow-up items, responsible parties, or additional comments."
           />
         </div>
       </section>
@@ -1820,6 +1929,10 @@ export default function DailyWsePage() {
         <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
           Final Daily WSE Confirmation
         </h2>
+
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+          Finalize the Daily WSE only after the crew acknowledgement, end-of-shift review, and any required follow-up or change documentation are complete.
+        </p>
 
         {isCompleted ? (
           <div className="mt-5 rounded-2xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] p-4">
@@ -1855,7 +1968,7 @@ export default function DailyWsePage() {
 
               <span>
                 <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
-                  I confirm this Daily WSE accurately reflects today&apos;s work, crew acknowledgement, changes, and end-of-shift review.
+                  I confirm this Daily WSE accurately reflects today&apos;s work, worker acknowledgements, identified changes, end-of-shift conditions, and required follow-up actions.
                 </span>
 
                 <span className="mt-1 block text-xs text-[var(--qoreva-muted)]">
@@ -1873,12 +1986,13 @@ export default function DailyWsePage() {
                 void completeWse()
               }
               disabled={
-                saving
+                saving ||
+                !finalAcknowledged
               }
-              className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:opacity-60"
+              className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving
-                ? "Completing..."
+                ? "Completing & Locking..."
                 : "Complete & Lock Daily WSE"}
             </button>
           </>

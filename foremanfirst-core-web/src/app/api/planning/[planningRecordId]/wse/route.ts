@@ -80,14 +80,6 @@ function endOfDay(
   return result;
 }
 
-function utcDateKey(
-  date: Date,
-) {
-  return date
-    .toISOString()
-    .slice(0, 10);
-}
-
 export async function GET(
   _request: Request,
   context: RouteContext,
@@ -339,24 +331,29 @@ export async function POST(
     const effectiveEndDate =
       planningRecord.effectiveEndDate;
 
-    const requestedDateKey =
-      utcDateKey(
+    const requestedDayStart =
+      startOfDay(
         requestedDate,
       );
 
-    const effectiveStartDateKey =
-      utcDateKey(
+    const requestedDayEnd =
+      endOfDay(
+        requestedDate,
+      );
+
+    const effectiveStart =
+      startOfDay(
         effectiveStartDate,
       );
 
-    const effectiveEndDateKey =
-      utcDateKey(
+    const effectiveEnd =
+      endOfDay(
         effectiveEndDate,
       );
 
     if (
-      requestedDateKey <
-      effectiveStartDateKey
+      requestedDayStart <
+      effectiveStart
     ) {
       return NextResponse.json(
         {
@@ -373,8 +370,8 @@ export async function POST(
     }
 
     if (
-      requestedDateKey >
-      effectiveEndDateKey
+      requestedDayEnd >
+      effectiveEnd
     ) {
       return NextResponse.json(
         {
@@ -389,16 +386,6 @@ export async function POST(
         },
       );
     }
-
-    const requestedDayStart =
-      startOfDay(
-        requestedDate,
-      );
-
-    const requestedDayEnd =
-      endOfDay(
-        requestedDate,
-      );
 
     const approvedRevision =
       await prisma.planningRevision.findFirst({
@@ -550,10 +537,10 @@ export async function POST(
                   planningRecord.workLocation ??
                   null,
 
+                // Daily WSE does not maintain an independent risk rating.
+                // Risk remains controlled by the approved PTP.
                 dailyRiskLevel:
-                  toNullableString(
-                    body.dailyRiskLevel,
-                  ),
+                  null,
 
                 emergencyActionPlanReviewed:
                   false,
@@ -611,10 +598,16 @@ export async function POST(
                     "",
 
                   riskLevel:
-                    step.riskLevel,
+                    null,
 
                   safetyCritical:
                     step.safetyCritical,
+
+                  source:
+                    "PTP",
+
+                  sourceWorkStepId:
+                    step.id,
                 }),
               ),
           });

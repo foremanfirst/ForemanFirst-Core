@@ -196,7 +196,22 @@ export async function POST(request: Request) {
         superintendent: cleanOptionalString(
           body.superintendent,
         ),
-        safetyManager: cleanOptionalString(body.safetyManager),
+        safetyManager: cleanOptionalString(
+          body.safetyManager,
+        ),
+
+        /**
+         * Project-level emergency information.
+         *
+         * This becomes the source of truth for
+         * Daily WSE emergency contact information.
+         */
+        emergencyContactName: cleanOptionalString(
+          body.emergencyContactName,
+        ),
+        emergencyContactPhone: cleanOptionalString(
+          body.emergencyContactPhone,
+        ),
 
         contractValue: parseOptionalDecimal(
           body.contractValue,

@@ -5,33 +5,34 @@ import { useRouter } from "next/navigation";
 import {
   FormSection,
   ModalShell,
+  PrimaryButton,
   SelectField,
   TextField,
 } from "@/components";
-import { updateProject } from "./actions";
+import { createProject } from "./actions";
 import {
+  EMPTY_PROJECT_FORM,
   PROJECT_STATUS_OPTIONS,
   PROJECT_TYPE_OPTIONS,
-  type EditProjectModalProps,
   type ProjectFormData,
+  type ProjectModalProps,
 } from "./types";
 
-export default function EditProjectModal({
-  project,
+export default function AddProjectModal({
   companies,
-}: EditProjectModalProps) {
+}: ProjectModalProps) {
   const router = useRouter();
 
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState<ProjectFormData>(
-    projectToFormData(project),
+    EMPTY_PROJECT_FORM,
   );
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] =
     useState(false);
 
   function openModal() {
-    setForm(projectToFormData(project));
+    setForm(EMPTY_PROJECT_FORM);
     setError("");
     setIsOpen(true);
   }
@@ -87,15 +88,18 @@ export default function EditProjectModal({
     setIsSubmitting(true);
 
     try {
-      await updateProject({
-        id: project.id,
+      await createProject({
         companyId: form.companyId,
 
         name: form.name,
-        projectCode: form.projectCode || null,
-        clientName: form.clientName || null,
-        projectType: form.projectType || null,
-        description: form.description || null,
+        projectCode:
+          form.projectCode || null,
+        clientName:
+          form.clientName || null,
+        projectType:
+          form.projectType || null,
+        description:
+          form.description || null,
 
         address: form.address || null,
         city: form.city || null,
@@ -105,8 +109,10 @@ export default function EditProjectModal({
 
         status: form.status,
 
-        startDate: form.startDate || null,
-        endDate: form.endDate || null,
+        startDate:
+          form.startDate || null,
+        endDate:
+          form.endDate || null,
 
         projectManager:
           form.projectManager || null,
@@ -114,6 +120,11 @@ export default function EditProjectModal({
           form.superintendent || null,
         safetyManager:
           form.safetyManager || null,
+
+        emergencyContactName:
+          form.emergencyContactName || null,
+        emergencyContactPhone:
+          form.emergencyContactPhone || null,
 
         contractValue:
           form.contractValue
@@ -136,7 +147,9 @@ export default function EditProjectModal({
           form.totalManHours || 0,
         ),
 
-        progress: Number(form.progress || 0),
+        progress: Number(
+          form.progress || 0,
+        ),
         openActions: Number(
           form.openActions || 0,
         ),
@@ -146,9 +159,11 @@ export default function EditProjectModal({
         permitsOpen: Number(
           form.permitsOpen || 0,
         ),
-        planningDocumentsPending: Number(
-          form.planningDocumentsPending || 0,
-        ),
+        planningDocumentsPending:
+          Number(
+            form.planningDocumentsPending ||
+              0,
+          ),
         trainingCompliance: Number(
           form.trainingCompliance || 100,
         ),
@@ -163,12 +178,13 @@ export default function EditProjectModal({
       });
 
       setIsOpen(false);
+      setForm(EMPTY_PROJECT_FORM);
       router.refresh();
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to update the project.",
+          : "Unable to create the project.",
       );
     } finally {
       setIsSubmitting(false);
@@ -188,17 +204,13 @@ export default function EditProjectModal({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openModal}
-        className="font-semibold text-slate-700 transition hover:text-cyan-700 hover:underline"
-      >
-        Edit
-      </button>
+      <PrimaryButton onClick={openModal}>
+        + New Project
+      </PrimaryButton>
 
       <ModalShell
         isOpen={isOpen}
-        title="Edit Project"
+        title="Create New Project"
         eyebrow="ForemanFirst™ Projects"
         onClose={closeModal}
         maxWidthClass="max-w-6xl"
@@ -216,7 +228,7 @@ export default function EditProjectModal({
 
             <FormSection
               title="Project Identity"
-              description="Update the primary project information used throughout ForemanFirst™."
+              description="Enter the primary project information used throughout ForemanFirst™."
             >
               <SelectField
                 label="Managing Company"
@@ -305,7 +317,7 @@ export default function EditProjectModal({
 
             <FormSection
               title="Location and Schedule"
-              description="Update the project location and schedule."
+              description="Define where the project is located and its planned duration."
             >
               <TextField
                 label="Street Address"
@@ -372,7 +384,7 @@ export default function EditProjectModal({
 
             <FormSection
               title="Project Leadership"
-              description="Update the primary project leadership contacts."
+              description="Assign the primary project leadership contacts."
             >
               <TextField
                 label="Project Manager"
@@ -409,8 +421,37 @@ export default function EditProjectModal({
             </FormSection>
 
             <FormSection
+              title="Emergency Information"
+              description="Set the project emergency contact information that Qoreva will automatically display on Daily WSE records."
+            >
+              <TextField
+                label="Emergency Contact Name"
+                value={form.emergencyContactName}
+                placeholder="Name or role for the project emergency contact"
+                onChange={(value) =>
+                  updateField(
+                    "emergencyContactName",
+                    value,
+                  )
+                }
+              />
+
+              <TextField
+                label="Emergency Phone Number"
+                value={form.emergencyContactPhone}
+                placeholder="(###) ###-####"
+                onChange={(value) =>
+                  updateField(
+                    "emergencyContactPhone",
+                    value,
+                  )
+                }
+              />
+            </FormSection>
+
+            <FormSection
               title="Workforce and Progress"
-              description="Update workforce, financial, and progress metrics."
+              description="Enter current workforce, financial, and project-progress metrics."
             >
               <TextField
                 label="Contract Value"
@@ -513,7 +554,7 @@ export default function EditProjectModal({
 
             <FormSection
               title="Safety and Compliance"
-              description="Update current safety indicators and compliance metrics."
+              description="Enter current safety indicators and compliance metrics."
             >
               <TextField
                 label="Open Corrective Actions"
@@ -632,6 +673,20 @@ export default function EditProjectModal({
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
               />
             </div>
+
+            <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
+              <h3 className="font-black text-[#0B132B]">
+                Prime contractor assignment
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                Create the project first. Prime and
+                specialty contractors will then be assigned
+                through Contractor Management so the
+                relationship is saved correctly in
+                PostgreSQL.
+              </p>
+            </div>
           </div>
 
           <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
@@ -650,90 +705,12 @@ export default function EditProjectModal({
               className="rounded-xl bg-[#00C2FF] px-6 py-3 text-sm font-black text-[#0B132B] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting
-                ? "Saving Changes..."
-                : "Save Project Changes"}
+                ? "Creating Project..."
+                : "Create Project"}
             </button>
           </div>
         </form>
       </ModalShell>
     </>
   );
-}
-
-function projectToFormData(
-  project: EditProjectModalProps["project"],
-): ProjectFormData {
-  return {
-    companyId: project.companyId,
-
-    name: project.name,
-    projectCode: project.projectCode ?? "",
-    clientName: project.clientName ?? "",
-    projectType:
-      (project.projectType as ProjectFormData["projectType"]) ??
-      "Commercial Construction",
-    description: project.description ?? "",
-
-    address: project.address ?? "",
-    city: project.city ?? "",
-    state: project.state ?? "",
-    zipCode: project.zipCode ?? "",
-    location: project.location ?? "",
-
-    status:
-      (project.status as ProjectFormData["status"]) ??
-      "Planning",
-
-    startDate:
-      project.startDate?.slice(0, 10) ?? "",
-    endDate:
-      project.endDate?.slice(0, 10) ?? "",
-
-    projectManager:
-      project.projectManager ?? "",
-    superintendent:
-      project.superintendent ?? "",
-    safetyManager:
-      project.safetyManager ?? "",
-
-    contractValue:
-      project.contractValue === null
-        ? ""
-        : String(project.contractValue),
-
-    plannedWorkforce: String(
-      project.plannedWorkforce,
-    ),
-    currentWorkforce: String(
-      project.currentWorkforce,
-    ),
-    workersOnsite: String(
-      project.workersOnsite,
-    ),
-    activeContractors: String(
-      project.activeContractors,
-    ),
-    totalManHours: String(
-      project.totalManHours,
-    ),
-
-    progress: String(project.progress),
-    openActions: String(project.openActions),
-    recordableIncidents: String(
-      project.recordableIncidents,
-    ),
-    permitsOpen: String(project.permitsOpen),
-    planningDocumentsPending: String(
-      project.planningDocumentsPending,
-    ),
-    trainingCompliance: String(
-      project.trainingCompliance,
-    ),
-    accessCompliance: String(
-      project.accessCompliance,
-    ),
-    healthScore: String(project.healthScore),
-
-    isActive: project.isActive,
-  };
 }

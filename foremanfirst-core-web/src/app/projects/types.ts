@@ -53,6 +53,16 @@ export interface ProjectRecord {
   superintendent: string | null;
   safetyManager: string | null;
 
+  /*
+   * Project-level emergency information.
+   *
+   * This becomes the source of truth for
+   * Daily WSE emergency information so
+   * foremen do not have to re-enter it.
+   */
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+
   contractValue: number | null;
 
   plannedWorkforce: number;
@@ -120,6 +130,13 @@ export interface ProjectFormData {
   superintendent: string;
   safetyManager: string;
 
+  /*
+   * Stored once at the project level and
+   * automatically inherited by the WSE.
+   */
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+
   contractValue: string;
 
   plannedWorkforce: string;
@@ -173,6 +190,9 @@ export const EMPTY_PROJECT_FORM: ProjectFormData = {
   projectManager: "",
   superintendent: "",
   safetyManager: "",
+
+  emergencyContactName: "",
+  emergencyContactPhone: "",
 
   contractValue: "0",
 

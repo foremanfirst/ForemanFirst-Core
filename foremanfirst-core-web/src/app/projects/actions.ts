@@ -18,7 +18,7 @@ export interface CreateProjectInput {
   zipCode?: string | null;
   location?: string | null;
 
-  status?: string;
+  status?: string | null;
 
   startDate?: string | null;
   endDate?: string | null;
@@ -26,6 +26,9 @@ export interface CreateProjectInput {
   projectManager?: string | null;
   superintendent?: string | null;
   safetyManager?: string | null;
+
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
 
   contractValue?: number | null;
 
@@ -109,6 +112,12 @@ export async function getProjects() {
 
     safetyManager:
       project.safetyManager ?? "",
+
+    emergencyContactName:
+      project.emergencyContactName ?? "",
+
+    emergencyContactPhone:
+      project.emergencyContactPhone ?? "",
 
     description:
       project.description ?? "",
@@ -327,6 +336,16 @@ export async function createProject(
         safetyManager:
           cleanOptionalString(
             input.safetyManager,
+          ),
+
+        emergencyContactName:
+          cleanOptionalString(
+            input.emergencyContactName,
+          ),
+
+        emergencyContactPhone:
+          cleanOptionalString(
+            input.emergencyContactPhone,
           ),
 
         contractValue:
@@ -592,6 +611,16 @@ export async function updateProject(
       safetyManager:
         cleanOptionalString(
           input.safetyManager,
+        ),
+
+      emergencyContactName:
+        cleanOptionalString(
+          input.emergencyContactName,
+        ),
+
+      emergencyContactPhone:
+        cleanOptionalString(
+          input.emergencyContactPhone,
         ),
 
       contractValue:

@@ -11,10 +11,13 @@ type RouteContext = {
 };
 
 type TaskInput = {
+  id?: string | null;
   taskDescription?: string;
   hazards?: string;
   mitigations?: string;
   safetyCritical?: boolean;
+  source?: "PTP" | "Daily";
+  sourceWorkStepId?: string | null;
 };
 
 type MocInput = {
@@ -277,6 +280,57 @@ export async function PATCH(
           },
           {
             status: 400,
+          },
+        );
+      }
+    }
+
+    const existingTasks =
+      await prisma.dailyWorkerSafetyEngagementTask.findMany({
+        where: {
+          dailyWseId: wseId,
+          tenantId: existing.tenantId,
+        },
+        orderBy: {
+          sequence: "asc",
+        },
+      });
+
+    if (tasks) {
+      const existingPtpTasks =
+        existingTasks.filter(
+          (task) => task.source === "PTP",
+        );
+
+      const submittedPtpIds =
+        new Set(
+          tasks
+            .filter(
+              (task) => task.source === "PTP",
+            )
+            .map(
+              (task) =>
+                toNullableString(task.id),
+            )
+            .filter(
+              (id): id is string => Boolean(id),
+            ),
+        );
+
+      const missingPtpTask =
+        existingPtpTasks.find(
+          (task) =>
+            !submittedPtpIds.has(task.id),
+        );
+
+      if (missingPtpTask) {
+        return NextResponse.json(
+          {
+            message:
+              "Approved PTP work steps cannot be removed from the Daily WSE.",
+          },
+          {
+            status: 409,
           },
         );
       }
@@ -624,55 +678,102 @@ export async function PATCH(
           });
 
           if (tasks) {
+            const existingTaskMap =
+              new Map(
+                existingTasks.map(
+                  (task) => [task.id, task],
+                ),
+              );
+
+            const ptpTasks =
+              tasks.filter(
+                (task) => task.source === "PTP",
+              );
+
+            const dailyTasks =
+              tasks.filter(
+                (task) => task.source !== "PTP",
+              );
+
+            for (
+              const [index, task] of ptpTasks.entries()
+            ) {
+              const taskId =
+                toNullableString(task.id);
+
+              if (!taskId) {
+                throw new Error(
+                  "Approved PTP work step is missing its Daily WSE task ID.",
+                );
+              }
+
+              const existingTask =
+                existingTaskMap.get(taskId);
+
+              if (
+                !existingTask ||
+                existingTask.source !== "PTP"
+              ) {
+                throw new Error(
+                  "Approved PTP work step could not be verified.",
+                );
+              }
+
+              await tx.dailyWorkerSafetyEngagementTask.update({
+                where: {
+                  id: taskId,
+                },
+                data: {
+                  sequence: index + 1,
+                  taskDescription:
+                    toNullableString(task.taskDescription)!,
+                  hazards:
+                    toNullableString(task.hazards)!,
+                  mitigations:
+                    toNullableString(task.mitigations)!,
+                  riskLevel: null,
+                  // Safety-critical status is inherited from the approved PTP.
+                  safetyCritical:
+                    existingTask.safetyCritical,
+                  source: "PTP",
+                  sourceWorkStepId:
+                    existingTask.sourceWorkStepId,
+                },
+              });
+            }
+
             await tx.dailyWorkerSafetyEngagementTask.deleteMany({
               where: {
-                dailyWseId:
-                  wseId,
-                tenantId:
-                  existing.tenantId,
+                dailyWseId: wseId,
+                tenantId: existing.tenantId,
+                source: "Daily",
               },
             });
 
-            await tx.dailyWorkerSafetyEngagementTask.createMany({
-              data:
-                tasks.map(
-                  (
-                    task,
-                    index,
-                  ) => ({
-                    tenantId:
-                      existing.tenantId,
-
-                    dailyWseId:
-                      wseId,
-
-                    sequence:
-                      index + 1,
-
-                    taskDescription:
-                      toNullableString(
-                        task.taskDescription,
-                      )!,
-
-                    hazards:
-                      toNullableString(
-                        task.hazards,
-                      )!,
-
-                    mitigations:
-                      toNullableString(
-                        task.mitigations,
-                      )!,
-
-                    riskLevel:
-                      null,
-
-                    safetyCritical:
-                      task.safetyCritical ===
-                      true,
-                  }),
-                ),
-            });
+            if (dailyTasks.length > 0) {
+              await tx.dailyWorkerSafetyEngagementTask.createMany({
+                data:
+                  dailyTasks.map(
+                    (task, index) => ({
+                      tenantId: existing.tenantId,
+                      dailyWseId: wseId,
+                      sequence:
+                        ptpTasks.length + index + 1,
+                      taskDescription:
+                        toNullableString(task.taskDescription)!,
+                      hazards:
+                        toNullableString(task.hazards)!,
+                      mitigations:
+                        toNullableString(task.mitigations)!,
+                      riskLevel: null,
+                      safetyCritical:
+                        task.safetyCritical === true,
+                      source: "Daily",
+                      sourceWorkStepId: null,
+                    }),
+                  ),
+              });
+            }
           }
 
           if (mocRecords) {

@@ -765,6 +765,14 @@ model DailyWorkerSafetyEngagementTask {
   riskLevel      String?
   safetyCritical Boolean @default(false)
 
+  // Tracks whether this task came from the approved PTP
+  // or was added during the Daily WSE.
+  source String @default("Daily")
+
+  // When source = "PTP", this links the Daily WSE task
+  // back to the exact approved PlanningWorkStep it came from.
+  sourceWorkStepId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -775,6 +783,8 @@ model DailyWorkerSafetyEngagementTask {
   @@index([dailyWseId])
   @@index([riskLevel])
   @@index([safetyCritical])
+  @@index([source])
+  @@index([sourceWorkStepId])
 }
 
 model DailyWorkerSafetyEngagementSignature {

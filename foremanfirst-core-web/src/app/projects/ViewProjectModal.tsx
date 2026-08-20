@@ -142,6 +142,24 @@ export default function ViewProjectModal({
               />
             </ViewSection>
 
+            <ViewSection title="Emergency Information">
+              <DetailItem
+                label="Emergency Contact"
+                value={
+                  project.emergencyContactName ||
+                  "Not entered"
+                }
+              />
+
+              <DetailItem
+                label="Emergency Phone Number"
+                value={
+                  project.emergencyContactPhone ||
+                  "Not entered"
+                }
+              />
+            </ViewSection>
+
             <ViewSection title="Workforce">
               <DetailItem
                 label="Planned Workforce"

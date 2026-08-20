@@ -53,6 +53,8 @@ interface Project {
   projectManager: string;
   superintendent: string;
   safetyManager: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
   description: string;
   contractValue: number;
   plannedWorkforce: number;
@@ -89,6 +91,8 @@ interface ProjectFormData {
   projectManager: string;
   superintendent: string;
   safetyManager: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
   description: string;
   contractValue: string;
   plannedWorkforce: string;
@@ -147,6 +151,8 @@ const emptyForm: ProjectFormData = {
   projectManager: "",
   superintendent: "",
   safetyManager: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
   description: "",
   contractValue: "0",
   plannedWorkforce: "0",
@@ -447,6 +453,8 @@ function projectToForm(project: Project): ProjectFormData {
     projectManager: project.projectManager,
     superintendent: project.superintendent,
     safetyManager: project.safetyManager,
+    emergencyContactName: project.emergencyContactName,
+    emergencyContactPhone: project.emergencyContactPhone,
     description: project.description,
     contractValue: String(project.contractValue),
     plannedWorkforce: String(project.plannedWorkforce),
@@ -619,6 +627,8 @@ export default function ProjectsPage() {
           project.projectManager,
           project.superintendent,
           project.safetyManager,
+          project.emergencyContactName,
+          project.emergencyContactPhone,
         ]
           .join(" ")
           .toLowerCase()
@@ -744,6 +754,8 @@ export default function ProjectsPage() {
       projectManager: data.projectManager.trim(),
       superintendent: data.superintendent.trim(),
       safetyManager: data.safetyManager.trim(),
+      emergencyContactName: data.emergencyContactName.trim(),
+      emergencyContactPhone: data.emergencyContactPhone.trim(),
       contractValue: Math.max(0, safeNumber(data.contractValue)),
       plannedWorkforce: Math.max(0, safeNumber(data.plannedWorkforce)),
       currentWorkforce: Math.max(0, safeNumber(data.currentWorkforce)),
@@ -846,6 +858,8 @@ export default function ProjectsPage() {
         projectManager: project.projectManager,
         superintendent: project.superintendent,
         safetyManager: project.safetyManager,
+        emergencyContactName: project.emergencyContactName,
+        emergencyContactPhone: project.emergencyContactPhone,
         contractValue: project.contractValue,
         plannedWorkforce: project.plannedWorkforce,
         currentWorkforce: 0,
@@ -1310,6 +1324,13 @@ export default function ProjectsPage() {
                       name={workspaceProject.safetyManager}
                     />
                     <ContactRow
+                      role="Emergency Contact"
+                      name={
+                        workspaceProject.emergencyContactName ||
+                        workspaceProject.emergencyContactPhone
+                      }
+                    />
+                    <ContactRow
                       role="Managing Company"
                       name={workspaceProject.managingCompany}
                     />
@@ -1379,6 +1400,14 @@ export default function ProjectsPage() {
                     <DetailItem
                       label="Status"
                       value={workspaceProject.status}
+                    />
+                    <DetailItem
+                      label="Emergency Contact"
+                      value={workspaceProject.emergencyContactName}
+                    />
+                    <DetailItem
+                      label="Emergency Phone Number"
+                      value={workspaceProject.emergencyContactPhone}
                     />
                   </dl>
                 </div>
@@ -1677,6 +1706,14 @@ export default function ProjectsPage() {
                   value={selectedProject.safetyManager}
                 />
                 <DetailItem
+                  label="Emergency Contact"
+                  value={selectedProject.emergencyContactName}
+                />
+                <DetailItem
+                  label="Emergency Phone Number"
+                  value={selectedProject.emergencyContactPhone}
+                />
+                <DetailItem
                   label="Start Date"
                   value={formatDate(selectedProject.startDate)}
                 />
@@ -1870,6 +1907,27 @@ export default function ProjectsPage() {
                     label="Safety Manager"
                     value={form.safetyManager}
                     onChange={(value) => updateForm("safetyManager", value)}
+                  />
+                </FormSection>
+
+                <FormSection
+                  title="Emergency Information"
+                  description="Set the project emergency contact information that Qoreva will automatically display on Daily WSE records."
+                >
+                  <TextField
+                    label="Emergency Contact Name"
+                    value={form.emergencyContactName}
+                    onChange={(value) =>
+                      updateForm("emergencyContactName", value)
+                    }
+                  />
+
+                  <TextField
+                    label="Emergency Phone Number"
+                    value={form.emergencyContactPhone}
+                    onChange={(value) =>
+                      updateForm("emergencyContactPhone", value)
+                    }
                   />
                 </FormSection>
  
