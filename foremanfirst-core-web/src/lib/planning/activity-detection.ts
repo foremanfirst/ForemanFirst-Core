@@ -28,10 +28,57 @@ function normalizeKeyword(value: string) {
   return normalizeText(value);
 }
 
+function keywordMatches(
+  normalizedScope: string,
+  keyword: string,
+) {
+  if (!keyword) {
+    return false;
+  }
+
+  const escaped = keyword.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
+
+  const pattern = new RegExp(
+    `(^|\\s)${escaped}(?=\\s|$|/|-)`,
+    "i",
+  );
+
+  return pattern.test(normalizedScope);
+}
+
+function removeOverlappingMatches(
+  keywords: string[],
+) {
+  const sorted = [...new Set(keywords)].sort(
+    (a, b) => b.length - a.length,
+  );
+
+  const retained: string[] = [];
+
+  for (const keyword of sorted) {
+    const overlapsExisting = retained.some(
+      (existing) =>
+        existing.includes(keyword) ||
+        keyword.includes(existing),
+    );
+
+    if (!overlapsExisting) {
+      retained.push(keyword);
+    }
+  }
+
+  return retained;
+}
+
 export async function detectPlanningActivities({
   tenantId,
   scopeText,
-}: DetectPlanningActivitiesInput): Promise<ActivityMatch[]> {
+}: DetectPlanningActivitiesInput): Promise<
+  ActivityMatch[]
+> {
   const normalizedScope = normalizeText(scopeText);
 
   if (!normalizedScope) {
@@ -69,47 +116,38 @@ export async function detectPlanningActivities({
   const matches: ActivityMatch[] = [];
 
   for (const definition of definitions) {
-    const rawKeywords = Array.isArray(definition.keywords)
+    const rawKeywords = Array.isArray(
+      definition.keywords,
+    )
       ? definition.keywords
       : [];
 
-    const matchedKeywords = rawKeywords
-      .filter(
-        (keyword): keyword is string =>
-          typeof keyword === "string",
-      )
-      .map(normalizeKeyword)
-      .filter(
-        (keyword) =>
-          keyword.length > 0 &&
-          normalizedScope.includes(keyword),
+    const matchedKeywords =
+      removeOverlappingMatches(
+        rawKeywords
+          .filter(
+            (keyword): keyword is string =>
+              typeof keyword === "string",
+          )
+          .map(normalizeKeyword)
+          .filter((keyword) =>
+            keywordMatches(
+              normalizedScope,
+              keyword,
+            ),
+          ),
       );
 
     if (matchedKeywords.length === 0) {
       continue;
     }
 
-    const uniqueMatchedKeywords = [
-      ...new Set(matchedKeywords),
-    ];
-
-    /*
-     * V1 deterministic confidence score.
-     *
-     * One keyword match = 60
-     * Each additional unique match = +10
-     * Maximum deterministic score = 95
-     *
-     * This is NOT a safety risk score.
-     * It only represents confidence that the
-     * activity applies to the entered scope.
-     */
     const score = Math.min(
       95,
       60 +
         Math.max(
           0,
-          uniqueMatchedKeywords.length - 1,
+          matchedKeywords.length - 1,
         ) *
           10,
     );
@@ -120,13 +158,23 @@ export async function detectPlanningActivities({
       name: definition.name,
       category: definition.category,
       isHighRisk: definition.isHighRisk,
-      matchedKeywords: uniqueMatchedKeywords,
+      matchedKeywords,
       score,
       sourceType: definition.sourceType,
     });
   }
 
-  return matches.sort((a, b) => {
+  const specializedMatches = matches.filter(
+    (match) =>
+      match.activityCode !== "GENERAL_WORK",
+  );
+
+  const filteredMatches =
+    specializedMatches.length > 0
+      ? specializedMatches
+      : matches;
+
+  return filteredMatches.sort((a, b) => {
     if (b.score !== a.score) {
       return b.score - a.score;
     }

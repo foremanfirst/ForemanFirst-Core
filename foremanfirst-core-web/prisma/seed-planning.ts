@@ -96,7 +96,6 @@ const activities = [
       "underground utility",
       "utility",
       "utilities",
-      "conduit",
       "gas line",
       "water line",
       "electrical line",
@@ -147,6 +146,8 @@ const activities = [
       "Work where personnel may be exposed to a fall from elevation.",
     keywords: [
       "elevated",
+      "elevation",
+      "at elevation",
       "height",
       "heights",
       "roof",
@@ -240,7 +241,6 @@ const activities = [
       "hoisting",
       "hoist",
       "lifting",
-      "lift",
       "sling",
       "shackle",
       "chain",
@@ -279,7 +279,9 @@ const activities = [
 ];
 
 async function main() {
-  console.log("Seeding Qoreva Planning activity library...");
+  console.log(
+    "Seeding Qoreva Planning activity library...",
+  );
 
   for (const activity of activities) {
     await prisma.planningActivityDefinition.upsert({
@@ -289,6 +291,7 @@ async function main() {
           activityCode: activity.activityCode,
         },
       },
+
       update: {
         tenantId: null,
         name: activity.name,
@@ -302,6 +305,7 @@ async function main() {
         isArchived: false,
         archivedAt: null,
       },
+
       create: {
         tenantId: null,
         scopeKey: QOREVA_SCOPE,
