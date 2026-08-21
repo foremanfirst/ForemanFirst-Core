@@ -865,6 +865,43 @@ model DailyWorkerSafetyEngagementMoc {
 // QOREVA PLANNING - GUIDED PTP INTAKE FOUNDATION
 // ============================================================
 
+model PlanningActivityDefinition {
+  id       String @id @default(cuid())
+  tenantId String
+
+  activityCode String
+  name         String
+  category     String
+
+  description String?
+
+  // Keywords help AI/rules map scope descriptions
+  // and equipment selections to likely activities.
+  keywords Json?
+
+  isHighRisk Boolean @default(false)
+
+  // Qoreva, Tenant, Owner, GC, Company, Project
+  sourceType String @default("Qoreva")
+
+  sortOrder Int @default(0)
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, activityCode])
+  @@index([tenantId])
+  @@index([activityCode])
+  @@index([category])
+  @@index([isHighRisk])
+  @@index([isActive])
+  @@index([isArchived])
+}
+
 model PlanningActivity {
   id       String @id @default(cuid())
   tenantId String
