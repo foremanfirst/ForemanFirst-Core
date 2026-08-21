@@ -407,6 +407,7 @@ model PlanningRecord {
   contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
 
   workSteps         PlanningWorkStep[]
+  activities        PlanningActivity[]
   questionResponses PlanningQuestionResponse[]
   sourceDocuments   PlanningSourceDocument[]
   revisions         PlanningRevision[]
@@ -858,4 +859,248 @@ model DailyWorkerSafetyEngagementMoc {
   @@index([affectedTaskId])
   @@index([requiresPtpRevision])
   @@index([createdAt])
+}
+
+// ============================================================
+// QOREVA PLANNING - GUIDED PTP INTAKE FOUNDATION
+// ============================================================
+
+model PlanningActivity {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  activityCode String
+  name         String
+  category     String?
+
+  // How Qoreva identified the activity:
+  // User, AI, Requirement, System
+  detectionSource String @default("User")
+
+  aiConfidence Decimal? @db.Decimal(5, 4)
+
+  // AI may suggest an activity, but a qualified user
+  // confirms whether it applies to the official PTP.
+  confirmationStatus String    @default("Pending")
+  confirmedBy        String?
+  confirmedAt        DateTime?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, activityCode])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([activityCode])
+  @@index([category])
+  @@index([confirmationStatus])
+}
+
+model PlanningQuestionDefinition {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionCode String
+  version      Int    @default(1)
+
+  category String
+  section  String?
+
+  questionText String
+  helpText     String?
+
+  // Examples:
+  // Text, TextArea, Boolean, SingleSelect,
+  // MultiSelect, Number, Date, Person, Equipment
+  questionType String
+
+  options Json?
+
+  unit String?
+
+  isRequired Boolean @default(false)
+  isCritical Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  // Determines whether this is part of the Qoreva base library,
+  // tenant configuration, owner pack, etc.
+  sourceType String @default("Qoreva")
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules            PlanningQuestionRule[]
+  requirementLinks PlanningQuestionRequirement[]
+
+  @@unique([tenantId, questionCode, version])
+  @@index([tenantId])
+  @@index([category])
+  @@index([section])
+  @@index([questionCode])
+  @@index([isActive])
+  @@index([isArchived])
+}
+
+model PlanningQuestionRule {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionDefinitionId String
+
+  // Examples:
+  // ActivityDetected
+  // AnswerEquals
+  // AnswerContains
+  // RequirementApplies
+  // Always
+  ruleType String
+
+  // Structured deterministic condition.
+  // AI does NOT decide whether required compliance
+  // questions can be skipped.
+  conditions Json
+
+  action String @default("Show")
+
+  priority Int @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questionDefinition PlanningQuestionDefinition @relation(fields: [questionDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([questionDefinitionId])
+  @@index([ruleType])
+  @@index([isActive])
+}
+
+model RequirementPack {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name        String
+  description String?
+
+  // Qoreva, Owner, GC, Company, Project
+  packType String
+
+  organizationName String?
+
+  version Int @default(1)
+
+  status String @default("Draft")
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  // Allows applicability without hardcoding GM,
+  // Barton Malow, Ford, etc. into application logic.
+  applicability Json?
+
+  createdBy  String?
+  approvedBy String?
+  approvedAt DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules RequirementRule[]
+
+  @@index([tenantId])
+  @@index([packType])
+  @@index([organizationName])
+  @@index([status])
+  @@index([version])
+  @@index([isArchived])
+}
+
+model RequirementRule {
+  id       String @id @default(cuid())
+  tenantId String
+
+  requirementPackId String
+
+  ruleCode String
+
+  title           String
+  requirementText String
+
+  category String?
+
+  // Structured trigger conditions evaluated by Qoreva.
+  triggerConditions Json?
+
+  // Information Qoreva must know before it can
+  // determine whether the requirement applies.
+  requiredInformation Json?
+
+  // Controls or actions required when rule applies.
+  requiredControls Json?
+
+  severity String?
+
+  sourceDocumentName String?
+  sourcePage         String?
+  sourceReference    Json?
+
+  status String @default("Draft")
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requirementPack RequirementPack @relation(fields: [requirementPackId], references: [id], onDelete: Cascade)
+
+  questionLinks PlanningQuestionRequirement[]
+
+  @@unique([requirementPackId, ruleCode])
+  @@index([tenantId])
+  @@index([requirementPackId])
+  @@index([category])
+  @@index([status])
+  @@index([isActive])
+}
+
+model PlanningQuestionRequirement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionDefinitionId String
+  requirementRuleId    String
+
+  // Information, Validation, ControlConfirmation
+  purpose String @default("Information")
+
+  createdAt DateTime @default(now())
+
+  questionDefinition PlanningQuestionDefinition @relation(fields: [questionDefinitionId], references: [id], onDelete: Cascade)
+
+  requirementRule RequirementRule @relation(fields: [requirementRuleId], references: [id], onDelete: Cascade)
+
+  @@unique([questionDefinitionId, requirementRuleId])
+  @@index([tenantId])
+  @@index([questionDefinitionId])
+  @@index([requirementRuleId])
 }
