@@ -174,7 +174,7 @@ const safetyCriticalCategories = [
 
 
 type PlanningAnswer = {
-  value: "Yes" | "No" | "N/A" | "";
+  value: string;
   notes: string;
 };
 
@@ -184,6 +184,33 @@ type GuidedPlanningQuestion = {
   question: string;
   helpText: string;
   critical?: boolean;
+};
+
+type DetectedPlanningActivity = {
+  id: string;
+  activityCode: string;
+  name: string;
+  category: string;
+  isHighRisk: boolean;
+  matchedKeywords: string[];
+  score: number;
+  sourceType: string;
+};
+
+type DynamicPlanningQuestion = {
+  id: string;
+  questionCode: string;
+  category: string;
+  section: string | null;
+  questionText: string;
+  helpText: string | null;
+  questionType: string;
+  options: unknown;
+  unit: string | null;
+  isRequired: boolean;
+  isCritical: boolean;
+  sortOrder: number;
+  sourceType: string;
 };
 
 type WorkStepPlanning = {
@@ -911,6 +938,41 @@ export default function CreatePlanningPage() {
   ] = useState<Record<string, PlanningAnswer>>({});
 
   const [
+    detectedActivities,
+    setDetectedActivities,
+  ] = useState<DetectedPlanningActivity[]>([]);
+
+  const [
+    confirmedActivityCodes,
+    setConfirmedActivityCodes,
+  ] = useState<string[]>([]);
+
+  const [
+    activityDetectionLoading,
+    setActivityDetectionLoading,
+  ] = useState(false);
+
+  const [
+    activityDetectionError,
+    setActivityDetectionError,
+  ] = useState("");
+
+  const [
+    guidedPlanningQuestions,
+    setGuidedPlanningQuestions,
+  ] = useState<DynamicPlanningQuestion[]>([]);
+
+  const [
+    guidedQuestionsLoading,
+    setGuidedQuestionsLoading,
+  ] = useState(false);
+
+  const [
+    guidedQuestionsError,
+    setGuidedQuestionsError,
+  ] = useState("");
+
+  const [
     workStepPlanning,
     setWorkStepPlanning,
   ] = useState<Record<string, WorkStepPlanning>>({});
@@ -1203,14 +1265,7 @@ export default function CreatePlanningPage() {
               response.questionId
             ] = {
               value:
-                response.responseValue ===
-                  "Yes" ||
-                response.responseValue ===
-                  "No" ||
-                response.responseValue ===
-                  "N/A"
-                  ? response.responseValue
-                  : "",
+                response.responseValue ?? "",
               notes:
                 response.notes ?? "",
             };
@@ -1564,27 +1619,89 @@ export default function CreatePlanningPage() {
     );
 
 
-  const guidedPlanningQuestions =
-    useMemo(() => {
-      const selectedQuestions =
-        selectedSafetyCriticalCategories.flatMap(
-          (category) =>
-            categoryQuestionLibrary[category] ?? [],
-        );
+  useEffect(() => {
+    let cancelled = false;
 
-      const questionMap = new Map<
-        string,
-        GuidedPlanningQuestion
-      >();
+    const timeoutId = window.setTimeout(() => {
+      async function loadGuidedQuestions() {
+        if (!selectedProject) {
+          return;
+        }
 
-      [...corePlanningQuestions, ...selectedQuestions].forEach(
-        (question) => {
-          questionMap.set(question.id, question);
-        },
-      );
+        setGuidedQuestionsLoading(true);
+        setGuidedQuestionsError("");
 
-      return Array.from(questionMap.values());
-    }, [selectedSafetyCriticalCategories]);
+        try {
+          const answers = Object.fromEntries(
+            (
+              Object.entries(planningAnswers) as Array<
+                [string, PlanningAnswer]
+              >
+            ).map(([questionCode, answer]) => [
+              questionCode,
+              answer.value,
+            ]),
+          );
+
+          const response = await fetch(
+            "/api/planning/question-evaluation",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                tenantId: selectedProject.tenantId,
+                activityCodes: confirmedActivityCodes,
+                answers,
+              }),
+            },
+          );
+
+          const data = (await response.json()) as {
+            questions?: DynamicPlanningQuestion[];
+            message?: string;
+          };
+
+          if (!response.ok) {
+            throw new Error(
+              data.message ||
+                "Unable to load guided planning questions.",
+            );
+          }
+
+          if (!cancelled) {
+            setGuidedPlanningQuestions(
+              data.questions ?? [],
+            );
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setGuidedQuestionsError(
+              error instanceof Error
+                ? error.message
+                : "Unable to load guided planning questions.",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setGuidedQuestionsLoading(false);
+          }
+        }
+      }
+
+      void loadGuidedQuestions();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    confirmedActivityCodes,
+    planningAnswers,
+    selectedProject,
+  ]);
 
   const planningProgress =
     useMemo(() => {
@@ -1601,22 +1718,27 @@ export default function CreatePlanningPage() {
         guidedPlanningQuestions.filter(
           (question) =>
             Boolean(
-              planningAnswers[question.id]?.value,
+              planningAnswers[
+                question.questionCode
+              ]?.value.trim(),
             ),
         ).length;
 
       const criticalUnresolved =
         guidedPlanningQuestions.filter(
           (question) =>
-            question.critical &&
-            !planningAnswers[question.id]?.value,
+            question.isCritical &&
+            !planningAnswers[
+              question.questionCode
+            ]?.value.trim(),
         ).length;
 
       return {
         answered,
         total: guidedPlanningQuestions.length,
         percent: Math.round(
-          (answered / guidedPlanningQuestions.length) *
+          (answered /
+            guidedPlanningQuestions.length) *
             100,
         ),
         criticalUnresolved,
@@ -1645,6 +1767,18 @@ export default function CreatePlanningPage() {
           "High",
       ),
     [activeWorkSteps, workStepPlanning],
+  );
+
+  const confirmedHighRiskActivities = useMemo(
+    () =>
+      detectedActivities.filter(
+        (activity) =>
+          activity.isHighRisk &&
+          confirmedActivityCodes.includes(
+            activity.activityCode,
+          ),
+      ),
+    [detectedActivities, confirmedActivityCodes],
   );
 
   const planningQualityChecks =
@@ -1808,8 +1942,8 @@ export default function CreatePlanningPage() {
         title: "Permits and authorizations",
         detail: requiredPermits.trim()
           ? "Required permits and authorizations have been identified."
-          : selectedSafetyCriticalCategories.length > 0
-            ? "Safety-critical work is selected, but no permits or authorizations are listed. Confirm none are required."
+          : confirmedHighRiskActivities.length > 0
+            ? "High-risk work activities are confirmed, but no permits or authorizations are listed. Confirm none are required."
             : "No task-specific permits or authorizations are listed.",
         status: requiredPermits.trim()
           ? "Pass"
@@ -1903,7 +2037,7 @@ export default function CreatePlanningPage() {
       selectedContractor,
       selectedDocumentIds.length,
       selectedProject,
-      selectedSafetyCriticalCategories.length,
+      confirmedHighRiskActivities.length,
       stopWorkTriggers,
       workStepPlanning,
     ]);
@@ -2366,6 +2500,27 @@ export default function CreatePlanningPage() {
       return;
     }
 
+    if (!workLocation.trim()) {
+      setStepError(
+        "Enter the work location or area before continuing.",
+      );
+      return;
+    }
+
+    if (!crewSize.trim()) {
+      setStepError(
+        "Enter the expected crew size before continuing.",
+      );
+      return;
+    }
+
+    if (!equipmentTools.trim()) {
+      setStepError(
+        "Enter the equipment and tools the crew expects to use.",
+      );
+      return;
+    }
+
     const completedSequence = workSequence.filter(
       (step) =>
         step.title.trim() ||
@@ -2417,8 +2572,17 @@ export default function CreatePlanningPage() {
       return;
     }
 
+    if (!selectedProject) {
+      setStepError(
+        "The selected project is not available. Return to Assignment and reload the project before continuing.",
+      );
+      return;
+    }
+
     setStepError("");
     setPlanningDraftSaving(true);
+    setActivityDetectionLoading(true);
+    setActivityDetectionError("");
 
     try {
       const response =
@@ -2477,6 +2641,89 @@ export default function CreatePlanningPage() {
         );
       }
 
+      const activityScopeText = [
+        scopeTitle.trim(),
+        scopeDescription.trim(),
+        equipmentTools.trim(),
+        materialsChemicals.trim(),
+        adjacentWork.trim(),
+        specialConditions.trim(),
+        ...completedSequence.flatMap((step) => [
+          step.title.trim(),
+          step.description.trim(),
+        ]),
+      ]
+        .filter(Boolean)
+        .join(". ");
+
+      const activityResponse = await fetch(
+        "/api/planning/activity-detection",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            tenantId: selectedProject.tenantId,
+            scopeText: activityScopeText,
+          }),
+        },
+      );
+
+      const activityData =
+        (await activityResponse.json()) as {
+          activities?: DetectedPlanningActivity[];
+          message?: string;
+        };
+
+      if (!activityResponse.ok) {
+        throw new Error(
+          activityData.message ||
+            "Unable to analyze the work scope for applicable activities.",
+        );
+      }
+
+      const nextDetectedActivities =
+        activityData.activities ?? [];
+
+      setDetectedActivities(
+        nextDetectedActivities,
+      );
+      setConfirmedActivityCodes(
+        nextDetectedActivities.map(
+          (activity) => activity.activityCode,
+        ),
+      );
+
+      setPlanningAnswers((current) => ({
+        ...current,
+        CORE_SCOPE_DESCRIPTION: {
+          value: scopeDescription.trim(),
+          notes:
+            current.CORE_SCOPE_DESCRIPTION?.notes ?? "",
+        },
+        CORE_WORK_LOCATION: {
+          value: workLocation.trim(),
+          notes:
+            current.CORE_WORK_LOCATION?.notes ?? "",
+        },
+        CORE_CREW_SIZE: {
+          value: crewSize.trim(),
+          notes:
+            current.CORE_CREW_SIZE?.notes ?? "",
+        },
+        CORE_EQUIPMENT_TOOLS: {
+          value: equipmentTools.trim(),
+          notes:
+            current.CORE_EQUIPMENT_TOOLS?.notes ?? "",
+        },
+        CORE_MATERIALS: {
+          value: materialsChemicals.trim(),
+          notes:
+            current.CORE_MATERIALS?.notes ?? "",
+        },
+      }));
+
       const initialStepPlanning: Record<
         string,
         WorkStepPlanning
@@ -2502,34 +2749,51 @@ export default function CreatePlanningPage() {
       );
       setCurrentStep(5);
     } catch (error) {
-      setStepError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Unable to save the work scope.",
-      );
+          : "Unable to save and analyze the work scope.";
+
+      setActivityDetectionError(message);
+      setStepError(message);
     } finally {
       setPlanningDraftSaving(false);
+      setActivityDetectionLoading(false);
     }
   }
 
   function updatePlanningAnswer(
-    questionId: string,
+    questionCode: string,
     field: "value" | "notes",
     value: string,
   ) {
     setPlanningAnswers((current) => ({
       ...current,
-      [questionId]: {
+      [questionCode]: {
         value:
           field === "value"
-            ? (value as PlanningAnswer["value"])
-            : current[questionId]?.value ?? "",
+            ? value
+            : current[questionCode]?.value ?? "",
         notes:
           field === "notes"
             ? value
-            : current[questionId]?.notes ?? "",
+            : current[questionCode]?.notes ?? "",
       },
     }));
+
+    setStepError("");
+  }
+
+  function toggleConfirmedActivity(
+    activityCode: string,
+  ) {
+    setConfirmedActivityCodes((current) =>
+      current.includes(activityCode)
+        ? current.filter(
+            (code) => code !== activityCode,
+          )
+        : [...current, activityCode],
+    );
 
     setStepError("");
   }
@@ -2559,8 +2823,10 @@ export default function CreatePlanningPage() {
     const unansweredCritical =
       guidedPlanningQuestions.filter(
         (question) =>
-          question.critical &&
-          !planningAnswers[question.id]?.value,
+          question.isCritical &&
+          !planningAnswers[
+            question.questionCode
+          ]?.value.trim(),
       );
 
     if (unansweredCritical.length > 0) {
@@ -2653,18 +2919,22 @@ export default function CreatePlanningPage() {
         guidedPlanningQuestions.map(
           (question) => {
             const answer =
-              planningAnswers[question.id] ?? {
+              planningAnswers[
+                question.questionCode
+              ] ?? {
                 value: "",
                 notes: "",
               };
 
             return {
-              questionId: question.id,
+              questionId:
+                question.questionCode,
               category: question.category,
-              question: question.question,
+              question:
+                question.questionText,
               helpText: question.helpText,
               isCritical:
-                Boolean(question.critical),
+                question.isCritical,
               responseValue:
                 answer.value || null,
               notes:
@@ -2791,6 +3061,15 @@ export default function CreatePlanningPage() {
             specialConditions.trim() || null,
           safetyCriticalCategories:
             selectedSafetyCriticalCategories,
+          confirmedActivityCodes,
+          detectedActivities:
+            detectedActivities.map((activity) => ({
+              activityCode: activity.activityCode,
+              name: activity.name,
+              category: activity.category,
+              isHighRisk: activity.isHighRisk,
+              score: activity.score,
+            })),
         },
 
         workSteps:
@@ -2825,7 +3104,7 @@ export default function CreatePlanningPage() {
               (question) => {
                 const answer =
                   planningAnswers[
-                    question.id
+                    question.questionCode
                   ] ?? {
                     value: "",
                     notes: "",
@@ -2833,17 +3112,21 @@ export default function CreatePlanningPage() {
 
                 return {
                   questionId:
+                    question.questionCode,
+                  definitionId:
                     question.id,
                   category:
                     question.category,
+                  section:
+                    question.section,
                   question:
-                    question.question,
+                    question.questionText,
                   helpText:
                     question.helpText,
+                  questionType:
+                    question.questionType,
                   critical:
-                    Boolean(
-                      question.critical,
-                    ),
+                    question.isCritical,
                   response:
                     answer.value || null,
                   notes:
@@ -5318,65 +5601,25 @@ export default function CreatePlanningPage() {
                 />
               </section>
 
-              <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                    Safety-Critical Work
-                  </p>
+              <section className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
+                    AI
+                  </div>
 
-                  <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                    What could create serious or fatal risk if something goes wrong?
-                  </h3>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                      Activity Detection
+                    </p>
 
-                  <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                    Select every category that may apply. These selections do not replace the hazard assessment; they help Qoreva ask the right planning questions in Step 5.
-                  </p>
-                </div>
+                    <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                      Qoreva will analyze the work you described
+                    </h3>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {safetyCriticalCategories.map((category) => {
-                    const selected =
-                      selectedSafetyCriticalCategories.includes(
-                        category,
-                      );
-
-                    return (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() =>
-                          toggleSafetyCriticalCategory(
-                            category,
-                          )
-                        }
-                        className={`flex min-h-14 items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
-                          selected
-                            ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)] ring-4 ring-[rgba(102,87,232,0.06)]"
-                            : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] hover:border-[rgba(102,87,232,0.28)]"
-                        }`}
-                      >
-                        <span
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
-                            selected
-                              ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
-                              : "border-[var(--qoreva-border-strong)] bg-white text-transparent"
-                          }`}
-                        >
-                          <CheckIcon />
-                        </span>
-
-                        <span
-                          className={`text-sm font-black ${
-                            selected
-                              ? "text-[var(--qoreva-violet-dark)]"
-                              : "text-[var(--qoreva-text)]"
-                          }`}
-                        >
-                          {category}
-                        </span>
-                      </button>
-                    );
-                  })}
+                    <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                      When you continue, Qoreva analyzes the scope, equipment, materials, interfaces, conditions, and work sequence to suggest the activities that apply. You confirm the detected activities before they control the guided questions. Qoreva assists; the foreman and qualified reviewers remain responsible for the final planning decisions.
+                    </p>
+                  </div>
                 </div>
               </section>
 
@@ -5392,7 +5635,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Qoreva will use the work scope, work sequence, safety-critical selections, project requirements, and selected source documents to guide the user through hazards, controls, PPE, permits, energy isolation, emergency planning, and other applicable questions. The user still reviews and answers the planning questions.
+                      Qoreva will analyze the work scope and suggest applicable activities first. After you confirm those activities, the Guided Questions Engine will ask only the questions that apply while preserving work-step hazard, control, risk, PPE, permit, and emergency planning. The user still reviews and answers the planning questions.
                     </p>
                   </div>
                 </div>
@@ -5443,16 +5686,21 @@ export default function CreatePlanningPage() {
             <button
               type="button"
               onClick={continueFromScope}
-              disabled={planningDraftSaving}
+              disabled={
+                planningDraftSaving ||
+                activityDetectionLoading
+              }
               className={`
                 ${primaryButtonClassName}
                 disabled:cursor-not-allowed
                 disabled:opacity-60
               `}
             >
-              {planningDraftSaving
-                ? "Saving Work Scope..."
-                : "Continue to Guided Planning →"}
+              {activityDetectionLoading
+                ? "Analyzing Work Activities..."
+                : planningDraftSaving
+                  ? "Saving Work Scope..."
+                  : "Analyze Scope & Continue →"}
             </button>
           </section>
         </>
@@ -5485,7 +5733,7 @@ export default function CreatePlanningPage() {
                 number="05"
                 eyebrow="Guided Planning"
                 title="Plan the Work Safely"
-                description="Qoreva uses the work scope and safety-critical selections to present the planning questions that apply. The user answers and confirms the controls; Qoreva does not make the final safety decision."
+                description="Confirm the activities Qoreva detected, then answer only the planning questions that apply. Questions can appear dynamically as prior answers trigger additional requirements. Qualified people remain responsible for the final safety decisions."
               />
             </div>
 
@@ -5553,10 +5801,102 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      The question set is generated from the task scope and the safety-critical categories selected in Step 4. As the Owner Requirements Engine and document intelligence mature, project requirements and approved source documents will add or modify questions here.
+                      The question set is evaluated from the confirmed activities and your prior answers. Qoreva only reveals follow-up questions when their deterministic rules apply. Owner, GC, company, and project Requirement Packs can later add required questions without hardcoding one customer into the workflow.
                     </p>
                   </div>
                 </div>
+              </section>
+
+              <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                      Detected Activities
+                    </p>
+
+                    <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                      Confirm what applies to this work
+                    </h3>
+
+                    <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                      Qoreva suggested these activities from the scope you entered. Remove any activity that does not apply. If the suggestions are incomplete, return to Work Scope and add the missing work detail before proceeding.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                    {confirmedActivityCodes.length} confirmed
+                  </span>
+                </div>
+
+                {activityDetectionError ? (
+                  <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-danger)]">
+                    {activityDetectionError}
+                  </div>
+                ) : null}
+
+                {detectedActivities.length === 0 ? (
+                  <div className="mt-5 rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-4">
+                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      No specific activity was detected.
+                    </p>
+                    <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                      The Qoreva core questions will still be evaluated. Return to Work Scope if the description needs more detail.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {detectedActivities.map((activity) => {
+                      const confirmed =
+                        confirmedActivityCodes.includes(
+                          activity.activityCode,
+                        );
+
+                      return (
+                        <button
+                          key={activity.id}
+                          type="button"
+                          onClick={() =>
+                            toggleConfirmedActivity(
+                              activity.activityCode,
+                            )
+                          }
+                          aria-pressed={confirmed}
+                          className={`rounded-xl border p-4 text-left transition ${
+                            confirmed
+                              ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)] ring-4 ring-[rgba(102,87,232,0.06)]"
+                              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] hover:border-[rgba(102,87,232,0.28)]"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span
+                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
+                                confirmed
+                                  ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                                  : "border-[var(--qoreva-border-strong)] bg-white text-transparent"
+                              }`}
+                            >
+                              <CheckIcon />
+                            </span>
+
+                            <span className="min-w-0">
+                              <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
+                                {activity.name}
+                              </span>
+                              <span className="mt-1 block text-xs font-medium text-[var(--qoreva-muted)]">
+                                {activity.category} • Match {activity.score}
+                              </span>
+                              {activity.matchedKeywords.length > 0 ? (
+                                <span className="mt-1 block text-[10px] font-bold text-[var(--qoreva-subtle)]">
+                                  Matched: {activity.matchedKeywords.join(", ")}
+                                </span>
+                              ) : null}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
@@ -5758,95 +6098,118 @@ export default function CreatePlanningPage() {
                   </span>
                 </div>
 
-                <div className="mt-5 grid gap-4">
-                  {guidedPlanningQuestions.map(
-                    (question, index) => {
-                      const answer =
-                        planningAnswers[question.id] ?? {
-                          value: "",
-                          notes: "",
-                        };
+                {guidedQuestionsError ? (
+                  <div className="mt-5 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-danger)]">
+                    {guidedQuestionsError}
+                  </div>
+                ) : null}
 
-                      return (
-                        <article
-                          key={question.id}
-                          className={`rounded-2xl border p-4 ${
-                            question.critical
-                              ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
-                              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-[var(--qoreva-violet-dark)]">
-                              {index + 1}
-                            </span>
+                {guidedQuestionsLoading ? (
+                  <div className="mt-5 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-5 text-sm font-bold text-[var(--qoreva-muted)]">
+                    Updating applicable questions...
+                  </div>
+                ) : (
+                  <div className="mt-5 grid gap-4">
+                    {guidedPlanningQuestions
+                      .filter(
+                        (question) =>
+                          question.category !== "Core",
+                      )
+                      .map((question, index) => {
+                        const answer =
+                          planningAnswers[
+                            question.questionCode
+                          ] ?? {
+                            value: "",
+                            notes: "",
+                          };
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
-                                  {question.category}
-                                </p>
+                        return (
+                          <article
+                            key={question.id}
+                            className={`rounded-2xl border p-4 ${
+                              question.isCritical
+                                ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
+                                : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                {index + 1}
+                              </span>
 
-                                {question.critical ? (
-                                  <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
-                                    Safety Critical
-                                  </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                                    {question.category}
+                                    {question.section
+                                      ? ` • ${question.section}`
+                                      : ""}
+                                  </p>
+
+                                  {question.isCritical ? (
+                                    <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                      Safety Critical
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <h4 className="mt-1 font-black leading-6 text-[var(--qoreva-obsidian)]">
+                                  {question.questionText}
+                                </h4>
+
+                                {question.helpText ? (
+                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    {question.helpText}
+                                  </p>
                                 ) : null}
+
+                                <DynamicPlanningQuestionInput
+                                  question={question}
+                                  value={answer.value}
+                                  onChange={(value) =>
+                                    updatePlanningAnswer(
+                                      question.questionCode,
+                                      "value",
+                                      value,
+                                    )
+                                  }
+                                />
+
+                                <textarea
+                                  value={answer.notes}
+                                  rows={2}
+                                  placeholder="Add task-specific details, method, verification, or explanation..."
+                                  onChange={(event) =>
+                                    updatePlanningAnswer(
+                                      question.questionCode,
+                                      "notes",
+                                      event.target.value,
+                                    )
+                                  }
+                                  className={`mt-3 ${textareaClassName}`}
+                                />
                               </div>
-
-                              <h4 className="mt-1 font-black leading-6 text-[var(--qoreva-obsidian)]">
-                                {question.question}
-                              </h4>
-
-                              <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                {question.helpText}
-                              </p>
-
-                              <div className="mt-4 flex flex-wrap gap-2">
-                                {(["Yes", "No", "N/A"] as const).map(
-                                  (option) => (
-                                    <button
-                                      key={option}
-                                      type="button"
-                                      onClick={() =>
-                                        updatePlanningAnswer(
-                                          question.id,
-                                          "value",
-                                          option,
-                                        )
-                                      }
-                                      className={`min-h-10 rounded-xl border px-4 py-2 text-xs font-black transition ${
-                                        answer.value === option
-                                          ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
-                                          : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-violet-faint)]"
-                                      }`}
-                                    >
-                                      {option}
-                                    </button>
-                                  ),
-                                )}
-                              </div>
-
-                              <textarea
-                                value={answer.notes}
-                                rows={2}
-                                placeholder="Add task-specific details, method, verification, or explanation..."
-                                onChange={(event) =>
-                                  updatePlanningAnswer(
-                                    question.id,
-                                    "notes",
-                                    event.target.value,
-                                  )
-                                }
-                                className={`mt-3 ${textareaClassName}`}
-                              />
                             </div>
-                          </div>
-                        </article>
-                      );
-                    },
-                  )}
-                </div>
+                          </article>
+                        );
+                      })}
+
+                    {guidedPlanningQuestions.filter(
+                      (question) =>
+                        question.category !== "Core",
+                    ).length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-5">
+                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                          No additional activity questions apply yet.
+                        </p>
+                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                          Qoreva has the core scope information from Step 4. Confirm the detected activities above or return to Work Scope if more detail is needed.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </section>
 
               <section className="grid gap-4 lg:grid-cols-2">
@@ -5963,7 +6326,10 @@ export default function CreatePlanningPage() {
             <button
               type="button"
               onClick={continueFromGuidedPlanning}
-              disabled={planningDraftSaving}
+              disabled={
+                planningDraftSaving ||
+                guidedQuestionsLoading
+              }
               className={`
                 ${primaryButtonClassName}
                 disabled:cursor-not-allowed
@@ -6407,7 +6773,7 @@ export default function CreatePlanningPage() {
                           (question) => {
                             const answer =
                               planningAnswers[
-                                question.id
+                                question.questionCode
                               ] ?? {
                                 value: "",
                                 notes: "",
@@ -6425,26 +6791,21 @@ export default function CreatePlanningPage() {
                                     </p>
 
                                     <p className="mt-1 text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
-                                      {question.question}
+                                      {question.questionText}
                                     </p>
                                   </div>
 
                                   <DocumentStatusBadge
                                     label={
-                                      answer.value ||
-                                      "Needs Input"
+                                      formatDynamicAnswer(
+                                        question,
+                                        answer.value,
+                                      ) || "Needs Input"
                                     }
                                     tone={
-                                      answer.value ===
-                                      "Yes"
+                                      answer.value
                                         ? "success"
-                                        : answer.value ===
-                                            "No"
-                                          ? "warning"
-                                          : answer.value ===
-                                              "N/A"
-                                            ? "neutral"
-                                            : "danger"
+                                        : "danger"
                                     }
                                   />
                                 </div>
@@ -8231,6 +8592,135 @@ export default function CreatePlanningPage() {
       </section>
     </div>
   );
+}
+
+function DynamicPlanningQuestionInput({
+  question,
+  value,
+  onChange,
+}: {
+  question: DynamicPlanningQuestion;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const options = Array.isArray(question.options)
+    ? question.options.filter(
+        (option): option is string =>
+          typeof option === "string",
+      )
+    : [];
+
+  if (question.questionType === "Boolean") {
+    return (
+      <div className="mt-4 flex flex-wrap gap-2">
+        {[
+          { label: "Yes", value: "true" },
+          { label: "No", value: "false" },
+        ].map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={value === option.value}
+            className={`min-h-10 rounded-xl border px-4 py-2 text-xs font-black transition ${
+              value === option.value
+                ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-violet-faint)]"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  if (
+    question.questionType === "SingleSelect" &&
+    options.length > 0
+  ) {
+    return (
+      <select
+        value={value}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        className={`mt-4 ${fieldClassName}`}
+      >
+        <option value="">Select an option</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (question.questionType === "TextArea") {
+    return (
+      <textarea
+        value={value}
+        rows={3}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        placeholder="Enter the task-specific answer..."
+        className={`mt-4 ${textareaClassName}`}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <input
+        type={
+          question.questionType === "Number"
+            ? "number"
+            : question.questionType === "Date"
+              ? "date"
+              : "text"
+        }
+        value={value}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        placeholder={
+          question.questionType === "Person"
+            ? "Enter responsible person"
+            : question.questionType === "Equipment"
+              ? "Enter equipment"
+              : "Enter answer"
+        }
+        className={fieldClassName}
+      />
+
+      {question.unit ? (
+        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--qoreva-subtle)]">
+          Unit: {question.unit}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function formatDynamicAnswer(
+  question: DynamicPlanningQuestion,
+  value: string,
+) {
+  if (!value) {
+    return "";
+  }
+
+  if (question.questionType === "Boolean") {
+    return value === "true"
+      ? "Yes"
+      : value === "false"
+        ? "No"
+        : value;
+  }
+
+  return value;
 }
 
 function WizardProgress({
