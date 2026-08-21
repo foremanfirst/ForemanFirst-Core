@@ -866,8 +866,9 @@ model DailyWorkerSafetyEngagementMoc {
 // ============================================================
 
 model PlanningActivityDefinition {
-  id       String @id @default(cuid())
-  tenantId String
+  id       String  @id @default(cuid())
+  tenantId String?
+  scopeKey String  @default("QOREVA")
 
   activityCode String
   name         String
@@ -893,8 +894,9 @@ model PlanningActivityDefinition {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([tenantId, activityCode])
+  @@unique([scopeKey, activityCode])
   @@index([tenantId])
+  @@index([scopeKey])
   @@index([activityCode])
   @@index([category])
   @@index([isHighRisk])
