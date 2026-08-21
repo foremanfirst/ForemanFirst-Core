@@ -1,0 +1,1193 @@
+import type {
+  DraftControlSuggestion,
+  DraftWorkStepSuggestion,
+  PlanningDraftGenerationResult,
+  PlanningGenerationContext,
+} from "./planning-types";
+
+type ActivityGuidance = {
+  hazards: string[];
+  controls: string[];
+  ppe: string[];
+  permits: string[];
+  emergency: string[];
+  stopWork: string[];
+  riskAttention:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention";
+};
+
+const activityGuidanceLibrary: Record<
+  string,
+  ActivityGuidance
+> = {
+  GENERAL_WORK: {
+    hazards: [
+      "Changing work conditions",
+      "Hand and power tool exposure",
+      "Poor housekeeping or access",
+    ],
+
+    controls: [
+      "Review the planned work sequence with the crew before starting.",
+      "Inspect tools and equipment before use.",
+      "Maintain housekeeping and clear access around the work area.",
+      "Stop and reassess when the scope or field conditions change.",
+    ],
+
+    ppe: [],
+
+    permits: [],
+
+    emergency: [
+      "Confirm the crew understands the project emergency communication method and response expectations.",
+    ],
+
+    stopWork: [
+      "Stop work if site conditions differ materially from the approved plan.",
+    ],
+
+    riskAttention:
+      "Normal",
+  },
+
+  MOBILE_EQUIPMENT: {
+    hazards: [
+      "Struck-by or caught-between exposure from moving equipment",
+      "Blind spots and limited operator visibility",
+      "Equipment rollover or unstable operating surface",
+      "Pedestrian and equipment interaction",
+    ],
+
+    controls: [
+      "Use trained and authorized equipment operators.",
+      "Complete the required pre-use equipment inspection.",
+      "Establish controlled travel paths and equipment operating areas.",
+      "Separate workers from moving equipment whenever practical.",
+      "Use a spotter when visibility, backing, congestion, or site conditions require one.",
+      "Maintain effective communication between operators and spotters.",
+      "Keep personnel outside equipment swing radius and line-of-fire areas.",
+    ],
+
+    ppe: [
+      "High-visibility apparel where vehicle or equipment interaction exists.",
+    ],
+
+    permits: [],
+
+    emergency: [
+      "Stop equipment movement immediately following a collision, struck-by event, utility contact, or loss of control.",
+    ],
+
+    stopWork: [
+      "Stop equipment operations when visibility, ground conditions, pedestrian control, or communication cannot be maintained.",
+    ],
+
+    riskAttention:
+      "Elevated",
+  },
+
+  EXCAVATION: {
+    hazards: [
+      "Cave-in or soil collapse",
+      "Underground utility contact",
+      "Falls into excavation",
+      "Spoil or material falling into excavation",
+      "Mobile equipment operating near excavation edges",
+      "Water accumulation or changing soil conditions",
+    ],
+
+    controls: [
+      "A competent person must inspect the excavation and surrounding conditions as required.",
+      "Determine the required protective system based on excavation depth, soil, loading, water, and actual site conditions.",
+      "Provide safe access and egress where required.",
+      "Maintain required spoil, material, and equipment setback from the excavation edge.",
+      "Protect workers from equipment operating near excavation edges.",
+      "Reinspect after weather, vibration, water intrusion, or other conditions that could affect excavation stability.",
+    ],
+
+    ppe: [],
+
+    permits: [
+      "Determine whether an excavation permit or project-specific excavation authorization is required.",
+    ],
+
+    emergency: [
+      "Establish response expectations for utility contact, collapse, water intrusion, equipment incident, or worker injury.",
+    ],
+
+    stopWork: [
+      "Stop excavation if an unknown utility is encountered.",
+      "Stop excavation if soil, water, protective-system, or surrounding conditions differ from the plan.",
+      "Stop work if the competent person determines the excavation is unsafe.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  UNDERGROUND_UTILITIES: {
+    hazards: [
+      "Contact with underground electrical, gas, communication, water, sewer, or other utilities",
+      "Unexpected utility location or elevation",
+      "Stored energy or hazardous release from damaged utilities",
+    ],
+
+    controls: [
+      "Obtain applicable utility locate information before disturbing the ground.",
+      "Review available drawings, records, and field markings.",
+      "Use private locating or additional locating methods when required by project conditions.",
+      "Positively expose or verify utilities where required before mechanical excavation.",
+      "Maintain required clearances from known utilities.",
+      "Use approved non-destructive excavation methods where required.",
+      "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+    ],
+
+    ppe: [],
+
+    permits: [
+      "Confirm utility locate ticket and excavation authorization requirements.",
+    ],
+
+    emergency: [
+      "Establish utility-strike response, including stopping work, securing the area, and notifying the required project or utility contacts.",
+    ],
+
+    stopWork: [
+      "Stop work if utility markings conflict with field conditions.",
+      "Stop work if an undocumented or unidentified utility is discovered.",
+      "Stop mechanical excavation when required utility clearance cannot be verified.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  ELECTRICAL_LOTO: {
+    hazards: [
+      "Electric shock",
+      "Arc-flash or arc-blast exposure",
+      "Unexpected energization",
+      "Stored or hazardous energy",
+      "Incorrect circuit or equipment identification",
+    ],
+
+    controls: [
+      "De-energized work should be the default whenever feasible.",
+      "Identify all hazardous energy sources that could affect the work.",
+      "Apply the required energy-isolation and lockout/tagout process before work begins.",
+      "Only qualified or authorized persons may perform tasks requiring those qualifications.",
+      "Verify the required safe condition before work begins.",
+      "Maintain control of personal locks and energy-isolation devices in accordance with the applicable procedure.",
+      "Address group lockout, lockbox, transfer, and shift-change requirements when applicable.",
+    ],
+
+    ppe: [
+      "Determine task-specific electrical PPE from the actual electrical exposure and applicable electrical-safety requirements.",
+    ],
+
+    permits: [
+      "Determine whether energized-work authorization or another electrical permit is required.",
+    ],
+
+    emergency: [
+      "Establish response expectations for electrical contact, arc-flash event, unexpected energization, or loss of energy isolation.",
+    ],
+
+    stopWork: [
+      "Stop work when the correct energy source or isolation point cannot be verified.",
+      "Stop work if zero-energy or the required safe electrical condition cannot be established.",
+      "Stop work if electrical conditions differ from the approved plan.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  WORK_AT_HEIGHT: {
+    hazards: [
+      "Fall from elevation",
+      "Falling objects",
+      "Improper anchorage or fall-protection setup",
+      "Insufficient fall clearance",
+    ],
+
+    controls: [
+      "Use the appropriate fall-prevention or fall-arrest system for the actual exposure.",
+      "Inspect fall-protection equipment before use.",
+      "Verify anchors, connectors, and system configuration are appropriate.",
+      "Maintain required fall clearance.",
+      "Protect personnel below from falling-object exposure.",
+      "Establish a rescue method when personal fall arrest is used and rescue planning is required.",
+    ],
+
+    ppe: [
+      "Personal fall-protection equipment where required by the selected system.",
+    ],
+
+    permits: [],
+
+    emergency: [
+      "Establish the applicable rescue and emergency-response method for a fall event.",
+    ],
+
+    stopWork: [
+      "Stop elevated work when required fall protection cannot be maintained.",
+      "Stop elevated work when weather or site conditions make the work unsafe.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  MEWP: {
+    hazards: [
+      "Fall from the platform",
+      "Tip-over",
+      "Crushing or entrapment",
+      "Collision with structures, vehicles, or equipment",
+      "Overhead electrical exposure",
+    ],
+
+    controls: [
+      "Only trained and authorized operators may operate the MEWP.",
+      "Complete the required pre-use inspection.",
+      "Evaluate floor or ground conditions and platform setup before elevation.",
+      "Maintain required clearance from overhead electrical hazards.",
+      "Control the area around the lift to prevent collision and struck-by exposure.",
+      "Use the required fall-protection system for the equipment and task.",
+      "Follow manufacturer operating limitations.",
+    ],
+
+    ppe: [
+      "Required fall-protection equipment for the specific MEWP and task.",
+    ],
+
+    permits: [],
+
+    emergency: [
+      "Confirm ground-control lowering and emergency-lowering procedures are understood.",
+    ],
+
+    stopWork: [
+      "Stop MEWP operations if wind, ground conditions, overhead clearance, equipment condition, or surrounding operations become unsafe.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  HOT_WORK: {
+    hazards: [
+      "Fire",
+      "Burns",
+      "Sparks or molten material contacting combustible materials",
+      "Hot-work fumes",
+      "Ignition of concealed or adjacent combustible materials",
+    ],
+
+    controls: [
+      "Remove or protect combustible materials from the hot-work area.",
+      "Provide appropriate fire-extinguishing equipment.",
+      "Establish fire-watch requirements when applicable.",
+      "Control sparks, slag, and hot material.",
+      "Inspect adjacent levels, openings, and concealed spaces that may be affected.",
+      "Maintain required post-work fire monitoring.",
+    ],
+
+    ppe: [
+      "Task-specific eye, face, hand, body, and respiratory protection as required by the hot-work process.",
+    ],
+
+    permits: [
+      "Determine whether a hot-work permit is required.",
+    ],
+
+    emergency: [
+      "Establish fire-response and emergency-notification expectations before hot work begins.",
+    ],
+
+    stopWork: [
+      "Stop hot work if combustible exposure cannot be adequately controlled.",
+      "Stop hot work if fire-watch or fire-protection requirements cannot be maintained.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  CHEMICAL_USE: {
+    hazards: [
+      "Skin or eye contact",
+      "Inhalation exposure",
+      "Chemical incompatibility",
+      "Flammable or combustible material exposure",
+      "Spill or release",
+    ],
+
+    controls: [
+      "Review the applicable SDS before use.",
+      "Use materials in accordance with manufacturer instructions.",
+      "Provide required ventilation.",
+      "Control ignition sources where applicable.",
+      "Store and handle chemicals to prevent incompatible-material contact.",
+      "Provide appropriate spill-control materials.",
+    ],
+
+    ppe: [
+      "Select chemical-resistant gloves, eye/face protection, respiratory protection, and protective clothing based on the actual product and exposure.",
+    ],
+
+    permits: [
+      "Confirm owner/project chemical approval requirements before introducing controlled chemicals to the site.",
+    ],
+
+    emergency: [
+      "Establish spill, splash, inhalation, fire, and exposure-response expectations based on the product hazards.",
+    ],
+
+    stopWork: [
+      "Stop chemical use if the SDS is unavailable when required.",
+      "Stop work if adequate ventilation or required PPE cannot be provided.",
+      "Stop work if an uncontrolled spill or unexpected reaction occurs.",
+    ],
+
+    riskAttention:
+      "Elevated",
+  },
+
+  RIGGING_MATERIAL_HANDLING: {
+    hazards: [
+      "Dropped or suspended load",
+      "Rigging failure",
+      "Crushing or pinch-point exposure",
+      "Personnel entering the fall zone",
+      "Unexpected load movement",
+    ],
+
+    controls: [
+      "Verify load weight and lifting points where required.",
+      "Use rigging suitable for the load and lifting method.",
+      "Inspect rigging before use.",
+      "Use qualified personnel for rigging and signaling where required.",
+      "Establish and maintain the suspended-load exclusion area.",
+      "Keep personnel out of pinch points and the load travel path.",
+      "Maintain clear communication throughout the lift or material movement.",
+    ],
+
+    ppe: [],
+
+    permits: [
+      "Determine whether a lift plan or critical-lift approval is required.",
+    ],
+
+    emergency: [
+      "Stop lifting operations immediately after rigging failure, dropped load, uncontrolled load movement, or equipment malfunction.",
+    ],
+
+    stopWork: [
+      "Stop the lift if load weight, rigging capacity, lifting points, communication, or equipment capacity cannot be verified.",
+      "Stop lifting operations if personnel enter the controlled fall zone.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+
+  TRAFFIC_VEHICLE_INTERACTION: {
+    hazards: [
+      "Worker struck by vehicle or equipment",
+      "Backing vehicle exposure",
+      "Public traffic entering the work zone",
+      "Driver blind spots",
+      "Conflicting pedestrian and vehicle routes",
+    ],
+
+    controls: [
+      "Establish traffic and pedestrian routes before work begins.",
+      "Use barricades, signs, cones, flaggers, or spotters as required.",
+      "Minimize backing whenever practical.",
+      "Maintain effective operator/spotter communication.",
+      "Keep workers out of vehicle blind spots and line-of-fire areas.",
+      "Provide adequate lighting and visibility for traffic-control activities.",
+    ],
+
+    ppe: [
+      "High-visibility apparel where required for traffic or vehicle exposure.",
+    ],
+
+    permits: [
+      "Determine whether a traffic-control plan or roadway permit is required.",
+    ],
+
+    emergency: [
+      "Establish response expectations for vehicle impact, pedestrian struck-by events, or loss of traffic control.",
+    ],
+
+    stopWork: [
+      "Stop work when traffic-control devices, visibility, communication, or worker separation cannot be maintained.",
+    ],
+
+    riskAttention:
+      "HighAttention",
+  },
+};
+
+function uniqueStrings(
+  values: Array<string | null | undefined>,
+) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) =>
+          value?.trim(),
+        )
+        .filter(
+          (value): value is string =>
+            Boolean(value),
+        ),
+    ),
+  );
+}
+
+function buildSuggestion(
+  text: string,
+  activityCode?: string,
+): DraftControlSuggestion {
+  return {
+    text,
+
+    source: "Rule",
+
+    sourceActivityCodes:
+      activityCode
+        ? [activityCode]
+        : [],
+
+    sourceQuestionCodes: [],
+
+    sourceRequirementIds: [],
+  };
+}
+
+function mergeRiskAttention(
+  current:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention",
+  next:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention",
+) {
+  const rank = {
+    Normal: 1,
+    Elevated: 2,
+    HighAttention: 3,
+  };
+
+  return rank[next] > rank[current]
+    ? next
+    : current;
+}
+
+function findRelevantActivityCodes(
+  stepText: string,
+  context: PlanningGenerationContext,
+) {
+  const normalized =
+    stepText.toLowerCase();
+
+  const matched =
+    context.activities
+      .filter((activity) => {
+        const name =
+          activity.name.toLowerCase();
+
+        const category =
+          activity.category?.toLowerCase() ??
+          "";
+
+        if (
+          normalized.includes(name) ||
+          (
+            category &&
+            normalized.includes(category)
+          )
+        ) {
+          return true;
+        }
+
+        const code =
+          activity.activityCode;
+
+        if (
+          code === "EXCAVATION" &&
+          /\b(excavat|trench|dig|grading|backfill)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code ===
+            "UNDERGROUND_UTILITIES" &&
+          /\b(utility|utilities|conduit|daylight|hydrovac|underground)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code === "MOBILE_EQUIPMENT" &&
+          /\b(excavator|dozer|loader|forklift|telehandler|backhoe|grader|equipment)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code === "MEWP" &&
+          /\b(mewp|boom lift|scissor lift|aerial lift|manlift)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code ===
+            "ELECTRICAL_LOTO" &&
+          /\b(electrical|circuit|breaker|panel|energized|loto|lockout|voltage)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code === "HOT_WORK" &&
+          /\b(weld|welding|grind|grinding|torch|cutting|hot work)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code ===
+            "RIGGING_MATERIAL_HANDLING" &&
+          /\b(rig|rigging|hoist|lifting|sling|shackle|chain fall)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code === "WORK_AT_HEIGHT" &&
+          /\b(height|elevated|roof|ladder|scaffold|fall protection)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code === "CHEMICAL_USE" &&
+          /\b(chemical|epoxy|primer|paint|coating|adhesive|solvent|cement)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          code ===
+            "TRAFFIC_VEHICLE_INTERACTION" &&
+          /\b(traffic|roadway|vehicle|truck|delivery|spotter|flagger|pedestrian)/i.test(
+            normalized,
+          )
+        ) {
+          return true;
+        }
+
+        return false;
+      })
+      .map(
+        (activity) =>
+          activity.activityCode,
+      );
+
+  if (matched.length > 0) {
+    return matched;
+  }
+
+  /*
+   * If a work step cannot be mapped reliably,
+   * do not invent a relationship. The broader
+   * confirmed activities can still be surfaced
+   * through review flags.
+   */
+  return [];
+}
+
+function buildWorkStepSuggestions(
+  context: PlanningGenerationContext,
+): DraftWorkStepSuggestion[] {
+  return context.workSteps.map(
+    (step, index) => {
+      const stepText = [
+        step.title,
+        step.description,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const relevantActivityCodes =
+        findRelevantActivityCodes(
+          stepText,
+          context,
+        );
+
+      const hazards: string[] = [];
+      const controls: string[] = [];
+
+      let riskAttention:
+        | "Normal"
+        | "Elevated"
+        | "HighAttention" =
+        "Normal";
+
+      for (
+        const activityCode of
+        relevantActivityCodes
+      ) {
+        const guidance =
+          activityGuidanceLibrary[
+            activityCode
+          ];
+
+        if (!guidance) {
+          continue;
+        }
+
+        hazards.push(
+          ...guidance.hazards,
+        );
+
+        controls.push(
+          ...guidance.controls,
+        );
+
+        riskAttention =
+          mergeRiskAttention(
+            riskAttention,
+            guidance.riskAttention,
+          );
+      }
+
+      /*
+       * Existing field-entered hazards and controls
+       * remain the strongest source because they
+       * came directly from the planning user.
+       */
+      if (step.hazards) {
+        hazards.unshift(
+          step.hazards,
+        );
+      }
+
+      if (step.controls) {
+        controls.unshift(
+          step.controls,
+        );
+      }
+
+      if (
+        step.safetyCritical ||
+        step.riskLevel === "High"
+      ) {
+        riskAttention =
+          "HighAttention";
+      }
+
+      const source =
+        step.hazards ||
+        step.controls
+          ? "User"
+          : "Rule";
+
+      return {
+        sequence:
+          step.sequence ||
+          index + 1,
+
+        title:
+          step.title,
+
+        description:
+          step.description,
+
+        suggestedHazards:
+          uniqueStrings(
+            hazards,
+          ),
+
+        suggestedControls:
+          uniqueStrings(
+            controls,
+          ),
+
+        safetyCriticalSuggested:
+          Boolean(
+            step.safetyCritical ||
+            relevantActivityCodes.some(
+              (activityCode) =>
+                context.activities.find(
+                  (activity) =>
+                    activity.activityCode ===
+                    activityCode,
+                )?.isHighRisk,
+            ),
+          ),
+
+        riskAttention,
+
+        source,
+
+        sourceActivityCodes:
+          relevantActivityCodes,
+
+        sourceQuestionCodes: [],
+
+        sourceRequirementIds: [],
+      };
+    },
+  );
+}
+
+function buildCategorySuggestions(
+  context: PlanningGenerationContext,
+  category:
+    | "ppe"
+    | "permits"
+    | "emergency"
+    | "stopWork",
+) {
+  const suggestions:
+    DraftControlSuggestion[] =
+    [];
+
+  for (
+    const activity of
+    context.activities
+  ) {
+    const guidance =
+      activityGuidanceLibrary[
+        activity.activityCode
+      ];
+
+    if (!guidance) {
+      continue;
+    }
+
+    for (
+      const text of
+      guidance[category]
+    ) {
+      suggestions.push(
+        buildSuggestion(
+          text,
+          activity.activityCode,
+        ),
+      );
+    }
+  }
+
+  const byText =
+    new Map<
+      string,
+      DraftControlSuggestion
+    >();
+
+  for (
+    const suggestion of suggestions
+  ) {
+    const key =
+      suggestion.text
+        .trim()
+        .toLowerCase();
+
+    const existing =
+      byText.get(key);
+
+    if (!existing) {
+      byText.set(
+        key,
+        suggestion,
+      );
+
+      continue;
+    }
+
+    existing.sourceActivityCodes =
+      uniqueStrings([
+        ...existing.sourceActivityCodes,
+        ...suggestion.sourceActivityCodes,
+      ]);
+  }
+
+  return Array.from(
+    byText.values(),
+  );
+}
+
+function buildRequirementSuggestions(
+  context: PlanningGenerationContext,
+) {
+  const suggestions:
+    DraftControlSuggestion[] =
+    [];
+
+  for (
+    const requirement of
+    context.requirements
+  ) {
+    const requiredControls =
+      requirement.requiredControls;
+
+    if (
+      Array.isArray(
+        requiredControls,
+      )
+    ) {
+      for (
+        const control of
+        requiredControls
+      ) {
+        if (
+          typeof control ===
+            "string" &&
+          control.trim()
+        ) {
+          suggestions.push({
+            text:
+              control.trim(),
+
+            source:
+              "Requirement",
+
+            sourceActivityCodes:
+              [],
+
+            sourceQuestionCodes:
+              [],
+
+            sourceRequirementIds:
+              [
+                requirement.id,
+              ],
+          });
+        }
+      }
+    }
+  }
+
+  /*
+   * Deduplicate identical Requirement Pack controls
+   * while preserving every RequirementRule that
+   * contributed to the suggestion.
+   */
+  const byText =
+    new Map<
+      string,
+      DraftControlSuggestion
+    >();
+
+  for (
+    const suggestion of suggestions
+  ) {
+    const key =
+      suggestion.text
+        .trim()
+        .toLowerCase();
+
+    const existing =
+      byText.get(key);
+
+    if (!existing) {
+      byText.set(
+        key,
+        suggestion,
+      );
+
+      continue;
+    }
+
+    existing.sourceRequirementIds =
+      uniqueStrings([
+        ...existing.sourceRequirementIds,
+        ...suggestion.sourceRequirementIds,
+      ]);
+  }
+
+  return Array.from(
+    byText.values(),
+  );
+}
+
+function buildReviewFlags(
+  context: PlanningGenerationContext,
+  workSteps:
+    DraftWorkStepSuggestion[],
+) {
+  const flags:
+    PlanningDraftGenerationResult["reviewFlags"] =
+    [];
+
+  if (
+    context.activities.length ===
+    0
+  ) {
+    flags.push({
+      code:
+        "NO_CONFIRMED_ACTIVITIES",
+
+      title:
+        "No confirmed planning activities",
+
+      detail:
+        "No confirmed activity classifications are available for this planning record. Review the scope and activity detection before relying on generated suggestions.",
+
+      severity:
+        "Warning",
+    });
+  }
+
+  const unansweredCritical =
+    context.questions.filter(
+      (question) =>
+        question.isCritical &&
+        !question.responseValue,
+    );
+
+  if (
+    unansweredCritical.length >
+    0
+  ) {
+    flags.push({
+      code:
+        "CRITICAL_QUESTIONS_OPEN",
+
+      title:
+        "Safety-critical questions remain unanswered",
+
+      detail:
+        `${unansweredCritical.length} safety-critical planning question${
+          unansweredCritical.length ===
+          1
+            ? ""
+            : "s"
+        } still require a user response.`,
+
+      severity:
+        "Critical",
+    });
+  }
+
+  const workStepsWithoutActivityMapping =
+    workSteps.filter(
+      (step) =>
+        step.sourceActivityCodes
+          .length === 0,
+    );
+
+  if (
+    workStepsWithoutActivityMapping.length >
+    0
+  ) {
+    flags.push({
+      code:
+        "UNMAPPED_WORK_STEPS",
+
+      title:
+        "Some work steps need additional review",
+
+      detail:
+        `${workStepsWithoutActivityMapping.length} work step${
+          workStepsWithoutActivityMapping.length ===
+          1
+            ? ""
+            : "s"
+        } could not be confidently mapped to a confirmed activity. Review the scope and hazards manually.`,
+
+      severity:
+        "Warning",
+    });
+  }
+
+  const highAttentionSteps =
+    workSteps.filter(
+      (step) =>
+        step.riskAttention ===
+        "HighAttention",
+    );
+
+  if (
+    highAttentionSteps.length >
+    0
+  ) {
+    flags.push({
+      code:
+        "HIGH_ATTENTION_WORK",
+
+      title:
+        "High-attention work identified",
+
+      detail:
+        `${highAttentionSteps.length} work step${
+          highAttentionSteps.length ===
+          1
+            ? ""
+            : "s"
+        } involve confirmed activities or conditions that warrant focused qualified review. Qoreva has not assigned the official risk rating.`,
+
+      severity:
+        "Warning",
+    });
+  }
+
+  if (
+    context.requirements.length ===
+    0
+  ) {
+    flags.push({
+      code:
+        "NO_REQUIREMENT_RULES",
+
+      title:
+        "No active Requirement Pack rules loaded",
+
+      detail:
+        "The draft currently reflects Qoreva base planning logic and user-entered information. No active tenant/owner/GC/company/project Requirement Pack rules were included in this generation context.",
+
+      severity:
+        "Info",
+    });
+  }
+
+  if (
+    context.sourceDocuments.length ===
+    0
+  ) {
+    flags.push({
+      code:
+        "NO_SOURCE_DOCUMENTS",
+
+      title:
+        "No selected planning source documents",
+
+      detail:
+        "No selected contractor source documents are currently attached to the generation context.",
+
+      severity:
+        "Info",
+    });
+  }
+
+  return flags;
+}
+
+export function generatePlanningDraft(
+  context: PlanningGenerationContext,
+): PlanningDraftGenerationResult {
+  const workSteps =
+    buildWorkStepSuggestions(
+      context,
+    );
+
+  const requirementControlSuggestions =
+    buildRequirementSuggestions(
+      context,
+    );
+
+  const ppeSuggestions =
+    buildCategorySuggestions(
+      context,
+      "ppe",
+    );
+
+  const permitSuggestions =
+    buildCategorySuggestions(
+      context,
+      "permits",
+    );
+
+  const emergencySuggestions =
+    buildCategorySuggestions(
+      context,
+      "emergency",
+    );
+
+  const stopWorkSuggestions =
+    buildCategorySuggestions(
+      context,
+      "stopWork",
+    );
+
+  /*
+   * Requirement Pack controls intentionally remain
+   * separate from generic stop-work suggestions.
+   *
+   * Owner, GC, company, tenant, or project controls
+   * are authoritative planning context, but they do
+   * not automatically represent stop-work triggers.
+   *
+   * A qualified user reviews these controls before
+   * they become part of the official planning record.
+   */
+  return {
+    generatedAt:
+      new Date().toISOString(),
+
+    workSteps,
+
+    ppeSuggestions,
+
+    permitSuggestions,
+
+    emergencySuggestions,
+
+    stopWorkSuggestions,
+
+    requirementControlSuggestions,
+
+    reviewFlags:
+      buildReviewFlags(
+        context,
+        workSteps,
+      ),
+
+    metadata: {
+      activityCount:
+        context.activities.length,
+
+      questionCount:
+        context.questions.length,
+
+      requirementCount:
+        context.requirements.length,
+
+      sourceDocumentCount:
+        context.sourceDocuments.length,
+
+      generatorVersion:
+        "qoreva-planning-draft-v1",
+    },
+  };
+}

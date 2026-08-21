@@ -220,6 +220,86 @@ type WorkStepPlanning = {
   riskLevel: "Low" | "Medium" | "High" | "";
 };
 
+type GeneratedDraftControlSuggestion = {
+  text: string;
+
+  source:
+    | "User"
+    | "Rule"
+    | "Requirement"
+    | "AI";
+
+  sourceActivityCodes: string[];
+  sourceQuestionCodes: string[];
+  sourceRequirementIds: string[];
+};
+
+type GeneratedDraftWorkStep = {
+  sequence: number;
+  title: string;
+  description: string | null;
+
+  suggestedHazards: string[];
+  suggestedControls: string[];
+
+  safetyCriticalSuggested: boolean;
+
+  riskAttention:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention";
+
+  source:
+    | "User"
+    | "Rule"
+    | "Requirement"
+    | "AI";
+
+  sourceActivityCodes: string[];
+  sourceQuestionCodes: string[];
+  sourceRequirementIds: string[];
+};
+
+type GeneratedPlanningDraft = {
+  generatedAt: string;
+
+  workSteps: GeneratedDraftWorkStep[];
+
+  ppeSuggestions:
+    GeneratedDraftControlSuggestion[];
+
+  permitSuggestions:
+    GeneratedDraftControlSuggestion[];
+
+  emergencySuggestions:
+    GeneratedDraftControlSuggestion[];
+
+  stopWorkSuggestions:
+    GeneratedDraftControlSuggestion[];
+
+  requirementControlSuggestions:
+    GeneratedDraftControlSuggestion[];
+
+  reviewFlags: Array<{
+    code: string;
+    title: string;
+    detail: string;
+
+    severity:
+      | "Info"
+      | "Warning"
+      | "Critical";
+  }>;
+
+  metadata: {
+    activityCount: number;
+    questionCount: number;
+    requirementCount: number;
+    sourceDocumentCount: number;
+    generatorVersion: string;
+  };
+};
+
 type PlanningQualityStatus =
   | "Pass"
   | "Warning"
@@ -779,6 +859,13 @@ export default function CreatePlanningPage() {
     draftBuildSaving,
     setDraftBuildSaving,
   ] = useState(false);
+
+  const [
+    generatedPlanningDraft,
+    setGeneratedPlanningDraft,
+  ] = useState<GeneratedPlanningDraft | null>(
+    null,
+  );
 
   const [
     qualifiedReviewSaving,
@@ -1391,6 +1478,7 @@ export default function CreatePlanningPage() {
         );
 
         setDraftGenerated(false);
+      setGeneratedPlanningDraft(null);
         setReviewerName("");
         setReviewerRole("");
         setReviewNotes("");
@@ -1691,7 +1779,7 @@ export default function CreatePlanningPage() {
       }
 
       void loadGuidedQuestions();
-    }, 250);
+    }, 700);
 
     return () => {
       cancelled = true;
@@ -2953,6 +3041,30 @@ export default function CreatePlanningPage() {
                 "application/json",
             },
             body: JSON.stringify({
+              confirmedActivities:
+                detectedActivities
+                  .filter((activity) =>
+                    confirmedActivityCodes.includes(
+                      activity.activityCode,
+                    ),
+                  )
+                  .map((activity) => ({
+                    activityCode:
+                      activity.activityCode,
+                    name:
+                      activity.name,
+                    category:
+                      activity.category,
+                    detectionSource:
+                      "System",
+                    score:
+                      activity.score,
+                  })),
+
+              confirmedBy:
+                responsibleSupervisor.trim() ||
+                null,
+
               workSteps:
                 workStepsPayload,
               questionResponses:
@@ -2999,6 +3111,7 @@ export default function CreatePlanningPage() {
       }
 
       setDraftGenerated(false);
+    setGeneratedPlanningDraft(null);
       setCurrentStep(6);
     } catch (error) {
       setStepError(
@@ -3023,77 +3136,376 @@ export default function CreatePlanningPage() {
     setDraftBuildSaving(true);
 
     try {
+      const generationResponse =
+        await fetch(
+          `/api/planning/${planningRecordId}/draft-generation`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+          },
+        );
+
+      const generationData =
+        (await generationResponse.json()) as {
+          planningRecordId?: string;
+          draft?: GeneratedPlanningDraft;
+          message?: string;
+        };
+
+      if (!generationResponse.ok) {
+        throw new Error(
+          generationData.message ||
+            "Unable to generate the planning draft.",
+        );
+      }
+
+      if (!generationData.draft) {
+        throw new Error(
+          "Qoreva did not return a generated planning draft.",
+        );
+      }
+
+      const generatedDraft =
+        generationData.draft;
+
+      setGeneratedPlanningDraft(
+        generatedDraft,
+      );
+
+      const nextWorkStepPlanning: Record<
+        string,
+        WorkStepPlanning
+      > = {
+        ...workStepPlanning,
+      };
+
+      activeWorkSteps.forEach(
+        (step, index) => {
+          const generatedStep =
+            generatedDraft.workSteps.find(
+              (generated) =>
+                generated.sequence === index + 1 ||
+                generated.title
+                  .trim()
+                  .toLowerCase() ===
+                  step.title
+                    .trim()
+                    .toLowerCase(),
+            );
+
+          const currentPlanning =
+            nextWorkStepPlanning[
+              step.id
+            ] ?? {
+              hazards: "",
+              controls: "",
+              safetyCritical: false,
+              riskLevel: "",
+            };
+
+          if (!generatedStep) {
+            nextWorkStepPlanning[
+              step.id
+            ] = currentPlanning;
+            return;
+          }
+
+          const generatedHazards =
+            Array.from(
+              new Set(
+                generatedStep
+                  .suggestedHazards
+                  .map((hazard) =>
+                    hazard.trim(),
+                  )
+                  .filter(Boolean),
+              ),
+            );
+
+          const generatedControls =
+            Array.from(
+              new Set(
+                generatedStep
+                  .suggestedControls
+                  .map((control) =>
+                    control.trim(),
+                  )
+                  .filter(Boolean),
+              ),
+            );
+
+          nextWorkStepPlanning[
+            step.id
+          ] = {
+            hazards:
+              currentPlanning.hazards.trim()
+                ? currentPlanning.hazards
+                : generatedHazards.join(
+                    "\n",
+                  ),
+
+            controls:
+              currentPlanning.controls.trim()
+                ? currentPlanning.controls
+                : generatedControls.join(
+                    "\n",
+                  ),
+
+            safetyCritical:
+              currentPlanning.safetyCritical ||
+              generatedStep.safetyCriticalSuggested,
+
+            riskLevel:
+              currentPlanning.riskLevel,
+          };
+        },
+      );
+
+      setWorkStepPlanning(
+        nextWorkStepPlanning,
+      );
+
+      function mergeGeneratedText(
+        existingValue: string,
+        suggestions:
+          GeneratedDraftControlSuggestion[],
+      ) {
+        if (existingValue.trim()) {
+          return existingValue;
+        }
+
+        return Array.from(
+          new Set(
+            suggestions
+              .map(
+                (suggestion) =>
+                  suggestion.text.trim(),
+              )
+              .filter(Boolean),
+          ),
+        ).join("\n");
+      }
+
+      const nextRequiredPpe =
+        mergeGeneratedText(
+          requiredPpe,
+          generatedDraft.ppeSuggestions,
+        );
+
+      const nextRequiredPermits =
+        mergeGeneratedText(
+          requiredPermits,
+          generatedDraft.permitSuggestions,
+        );
+
+      const nextEmergencyPlan =
+        mergeGeneratedText(
+          emergencyPlan,
+          generatedDraft.emergencySuggestions,
+        );
+
+      const nextStopWorkTriggers =
+        mergeGeneratedText(
+          stopWorkTriggers,
+          generatedDraft.stopWorkSuggestions,
+        );
+
+      setRequiredPpe(
+        nextRequiredPpe,
+      );
+
+      setRequiredPermits(
+        nextRequiredPermits,
+      );
+
+      setEmergencyPlan(
+        nextEmergencyPlan,
+      );
+
+      setStopWorkTriggers(
+        nextStopWorkTriggers,
+      );
+
       const snapshot = {
-        version: 1,
-        capturedAt: new Date().toISOString(),
+        version: 2,
+        capturedAt:
+          new Date().toISOString(),
 
         assignment: {
-          planType: selectedPlanType,
-          projectId: selectedProject?.id ?? null,
-          projectName: selectedProject?.name ?? null,
-          projectCode: selectedProject?.projectCode ?? null,
-          contractorId: selectedContractor?.id ?? null,
-          contractorName: selectedContractor?.name ?? null,
+          planType:
+            selectedPlanType,
+
+          projectId:
+            selectedProject?.id ??
+            null,
+
+          projectName:
+            selectedProject?.name ??
+            null,
+
+          projectCode:
+            selectedProject?.projectCode ??
+            null,
+
+          contractorId:
+            selectedContractor?.id ??
+            null,
+
+          contractorName:
+            selectedContractor?.name ??
+            null,
+
           responsibleSupervisor:
-            responsibleSupervisor.trim() || null,
+            responsibleSupervisor.trim() ||
+            null,
+
           plannedStartDate:
-            plannedStartDate || null,
+            plannedStartDate ||
+            null,
+
           workLocation:
-            workLocation.trim() || null,
+            workLocation.trim() ||
+            null,
+
           crewSize:
-            crewSize || null,
+            crewSize ||
+            null,
+
           shift:
-            shift || null,
+            shift ||
+            null,
         },
 
         scope: {
           title:
-            scopeTitle.trim() || null,
+            scopeTitle.trim() ||
+            null,
+
           description:
-            scopeDescription.trim() || null,
+            scopeDescription.trim() ||
+            null,
+
           equipmentTools:
-            equipmentTools.trim() || null,
+            equipmentTools.trim() ||
+            null,
+
           materialsChemicals:
-            materialsChemicals.trim() || null,
+            materialsChemicals.trim() ||
+            null,
+
           adjacentWork:
-            adjacentWork.trim() || null,
+            adjacentWork.trim() ||
+            null,
+
           specialConditions:
-            specialConditions.trim() || null,
+            specialConditions.trim() ||
+            null,
+
           safetyCriticalCategories:
             selectedSafetyCriticalCategories,
+
           confirmedActivityCodes,
+
           detectedActivities:
-            detectedActivities.map((activity) => ({
-              activityCode: activity.activityCode,
-              name: activity.name,
-              category: activity.category,
-              isHighRisk: activity.isHighRisk,
-              score: activity.score,
-            })),
+            detectedActivities.map(
+              (activity) => ({
+                activityCode:
+                  activity.activityCode,
+
+                name:
+                  activity.name,
+
+                category:
+                  activity.category,
+
+                isHighRisk:
+                  activity.isHighRisk,
+
+                score:
+                  activity.score,
+              }),
+            ),
         },
 
         workSteps:
           activeWorkSteps.map(
             (step, index) => {
               const planning =
-                workStepPlanning[step.id];
+                nextWorkStepPlanning[
+                  step.id
+                ];
+
+              const generatedStep =
+                generatedDraft.workSteps.find(
+                  (generated) =>
+                    generated.sequence ===
+                      index + 1 ||
+                    generated.title
+                      .trim()
+                      .toLowerCase() ===
+                      step.title
+                        .trim()
+                        .toLowerCase(),
+                );
 
               return {
-                sequence: index + 1,
-                sourceId: step.id,
-                title: step.title,
+                sequence:
+                  index + 1,
+
+                sourceId:
+                  step.id,
+
+                title:
+                  step.title,
+
                 description:
-                  step.description || null,
+                  step.description ||
+                  null,
+
                 hazards:
-                  planning?.hazards || null,
+                  planning?.hazards ||
+                  null,
+
                 controls:
-                  planning?.controls || null,
+                  planning?.controls ||
+                  null,
+
                 safetyCritical:
                   Boolean(
                     planning?.safetyCritical,
                   ),
+
                 riskLevel:
-                  planning?.riskLevel || null,
+                  planning?.riskLevel ||
+                  null,
+
+                qorevaGeneration: {
+                  riskAttention:
+                    generatedStep?.riskAttention ??
+                    "Normal",
+
+                  source:
+                    generatedStep?.source ??
+                    null,
+
+                  sourceActivityCodes:
+                    generatedStep
+                      ?.sourceActivityCodes ??
+                    [],
+
+                  sourceQuestionCodes:
+                    generatedStep
+                      ?.sourceQuestionCodes ??
+                    [],
+
+                  sourceRequirementIds:
+                    generatedStep
+                      ?.sourceRequirementIds ??
+                    [],
+                },
               };
             },
           ),
@@ -3113,52 +3525,114 @@ export default function CreatePlanningPage() {
                 return {
                   questionId:
                     question.questionCode,
+
                   definitionId:
                     question.id,
+
                   category:
                     question.category,
+
                   section:
                     question.section,
+
                   question:
                     question.questionText,
+
                   helpText:
                     question.helpText,
+
                   questionType:
                     question.questionType,
+
                   critical:
                     question.isCritical,
+
                   response:
-                    answer.value || null,
+                    answer.value ||
+                    null,
+
                   notes:
-                    answer.notes || null,
+                    answer.notes ||
+                    null,
                 };
               },
             ),
+
           requiredPpe:
-            requiredPpe.trim() || null,
+            nextRequiredPpe.trim() ||
+            null,
+
           requiredPermits:
-            requiredPermits.trim() || null,
+            nextRequiredPermits.trim() ||
+            null,
+
           emergencyPlan:
-            emergencyPlan.trim() || null,
+            nextEmergencyPlan.trim() ||
+            null,
+
           stopWorkTriggers:
-            stopWorkTriggers.trim() || null,
+            nextStopWorkTriggers.trim() ||
+            null,
+
           planningNotes:
-            planningNotes.trim() || null,
+            planningNotes.trim() ||
+            null,
+        },
+
+        qorevaDraftGeneration: {
+          generatedAt:
+            generatedDraft.generatedAt,
+
+          generatorVersion:
+            generatedDraft.metadata
+              .generatorVersion,
+
+          metadata:
+            generatedDraft.metadata,
+
+          reviewFlags:
+            generatedDraft.reviewFlags,
+
+          workSteps:
+            generatedDraft.workSteps,
+
+          ppeSuggestions:
+            generatedDraft.ppeSuggestions,
+
+          permitSuggestions:
+            generatedDraft.permitSuggestions,
+
+          emergencySuggestions:
+            generatedDraft.emergencySuggestions,
+
+          stopWorkSuggestions:
+            generatedDraft.stopWorkSuggestions,
+
+          requirementControlSuggestions:
+            generatedDraft.requirementControlSuggestions,
         },
 
         sourceContext: {
           selectedContractorDocumentIds:
             selectedDocumentIds,
+
           planSpecificFiles:
             planSpecificFiles.map(
               (file) => ({
-                name: file.name,
-                type: file.type,
-                size: file.size,
+                name:
+                  file.name,
+
+                type:
+                  file.type,
+
+                size:
+                  file.size,
+
                 lastModified:
                   file.lastModified,
               }),
             ),
+
           requirementsSummary:
             requirementsData?.summary ??
             null,
@@ -3167,12 +3641,16 @@ export default function CreatePlanningPage() {
         quality: {
           score:
             planningQualitySummary.score,
+
           actionRequired:
             planningQualitySummary.actionRequired,
+
           warnings:
             planningQualitySummary.warnings,
+
           passed:
             planningQualitySummary.passed,
+
           checks:
             planningQualityChecks,
         },
@@ -3187,14 +3665,19 @@ export default function CreatePlanningPage() {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               revisionNumber:
                 planningRevisionNumber,
-              status: "Draft",
+
+              status:
+                "Draft",
+
               revisionReason:
                 draftGenerated
-                  ? "Draft refreshed before qualified review."
-                  : "Initial draft generated for qualified review.",
+                  ? "Qoreva-assisted draft refreshed before qualified review."
+                  : "Initial Qoreva-assisted draft generated for qualified review.",
+
               snapshot,
             }),
           },
@@ -3206,6 +3689,7 @@ export default function CreatePlanningPage() {
             id: string;
             revisionNumber: number;
           };
+
           message?: string;
         };
 
@@ -3225,13 +3709,15 @@ export default function CreatePlanningPage() {
       setPlanningRevisionNumber(
         data.revision.revisionNumber,
       );
+
       setDraftGenerated(true);
     } catch (error) {
       setDraftGenerated(false);
+
       setStepError(
         error instanceof Error
           ? error.message
-          : "Unable to persist the draft planning revision.",
+          : "Unable to generate and persist the planning draft.",
       );
     } finally {
       setDraftBuildSaving(false);
@@ -6105,11 +6591,13 @@ export default function CreatePlanningPage() {
                 ) : null}
 
                 {guidedQuestionsLoading ? (
-                  <div className="mt-5 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-5 text-sm font-bold text-[var(--qoreva-muted)]">
-                    Updating applicable questions...
+                  <div className="mt-4 flex items-center gap-2 text-xs font-bold text-[var(--qoreva-muted)]">
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--qoreva-violet)]" />
+                    Checking for additional applicable questions...
                   </div>
-                ) : (
-                  <div className="mt-5 grid gap-4">
+                ) : null}
+
+                <div className="mt-5 grid gap-4">
                     {guidedPlanningQuestions
                       .filter(
                         (question) =>
@@ -6208,8 +6696,7 @@ export default function CreatePlanningPage() {
                         </p>
                       </div>
                     ) : null}
-                  </div>
-                )}
+                </div>
               </section>
 
               <section className="grid gap-4 lg:grid-cols-2">
@@ -6460,13 +6947,338 @@ export default function CreatePlanningPage() {
                     `}
                   >
                     {draftBuildSaving
-                      ? "Saving Draft Revision..."
+                      ? "Generating Draft..."
                       : draftGenerated
                         ? "Refresh Draft Plan"
                         : `Generate Draft ${selectedPlanType ?? "Plan"}`}
                   </button>
                 </div>
               </section>
+
+              {generatedPlanningDraft ? (
+                <section className="overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                  <div className="border-b border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
+                          Qoreva Draft Intelligence
+                        </p>
+
+                        <h3 className="mt-1 text-xl font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
+                          Review What Qoreva Added
+                        </h3>
+
+                        <p className="mt-2 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          Qoreva analyzed the confirmed activities, planning answers,
+                          work steps, and applicable requirement context. Generated
+                          content remains draft planning assistance until reviewed by a
+                          qualified person.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.activityCount} Activities`}
+                          tone="neutral"
+                        />
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.questionCount} Questions`}
+                          tone="neutral"
+                        />
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.requirementCount} Requirements`}
+                          tone={
+                            generatedPlanningDraft.metadata.requirementCount > 0
+                              ? "success"
+                              : "neutral"
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6 p-5 sm:p-6">
+                    {generatedPlanningDraft.reviewFlags.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                          Review Attention
+                        </p>
+
+                        <div className="mt-3 grid gap-3">
+                          {generatedPlanningDraft.reviewFlags.map((flag) => (
+                            <div
+                              key={flag.code}
+                              className={`rounded-2xl border p-4 ${
+                                flag.severity === "Critical"
+                                  ? "border-red-200 bg-red-50"
+                                  : flag.severity === "Warning"
+                                    ? "border-amber-200 bg-amber-50"
+                                    : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                              }`}
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-black text-[var(--qoreva-obsidian)]">
+                                    {flag.title}
+                                  </p>
+
+                                  <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                                    {flag.detail}
+                                  </p>
+                                </div>
+
+                                <DocumentStatusBadge
+                                  label={flag.severity}
+                                  tone={
+                                    flag.severity === "Critical"
+                                      ? "danger"
+                                      : flag.severity === "Warning"
+                                        ? "warning"
+                                        : "neutral"
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="font-black text-[var(--qoreva-obsidian)]">
+                          No generation review flags
+                        </p>
+
+                        <p className="mt-1 text-sm font-medium text-[var(--qoreva-muted)]">
+                          Qoreva did not identify additional generation issues
+                          requiring attention. Qualified review is still required.
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                        Work-Step Intelligence
+                      </p>
+
+                      <div className="mt-3 grid gap-4">
+                        {generatedPlanningDraft.workSteps.map((step) => (
+                          <div
+                            key={`${step.sequence}-${step.title}`}
+                            className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-porcelain)] p-4"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                                  Work Step {step.sequence}
+                                </p>
+
+                                <h4 className="mt-1 font-black text-[var(--qoreva-obsidian)]">
+                                  {step.title}
+                                </h4>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <DocumentStatusBadge
+                                  label={step.riskAttention}
+                                  tone={
+                                    step.riskAttention === "HighAttention" ||
+                                    step.riskAttention === "Elevated"
+                                      ? "warning"
+                                      : "neutral"
+                                  }
+                                />
+
+                                {step.safetyCriticalSuggested ? (
+                                  <DocumentStatusBadge
+                                    label="Safety Critical"
+                                    tone="danger"
+                                  />
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {step.sourceActivityCodes.length > 0 ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {step.sourceActivityCodes.map((activityCode) => (
+                                  <span
+                                    key={activityCode}
+                                    className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-violet)]"
+                                  >
+                                    {activityCode}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                              <div>
+                                <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                  Suggested Hazards
+                                </p>
+
+                                {step.suggestedHazards.length > 0 ? (
+                                  <ul className="mt-2 space-y-2">
+                                    {step.suggestedHazards.map((hazard) => (
+                                      <li
+                                        key={hazard}
+                                        className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
+                                      >
+                                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--qoreva-violet)]" />
+                                        <span>{hazard}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
+                                    No additional hazards generated.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div>
+                                <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                  Suggested Controls
+                                </p>
+
+                                {step.suggestedControls.length > 0 ? (
+                                  <ul className="mt-2 space-y-2">
+                                    {step.suggestedControls.map((control) => (
+                                      <li
+                                        key={control}
+                                        className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
+                                      >
+                                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                                        <span>{control}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
+                                    No additional controls generated.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {generatedPlanningDraft.requirementControlSuggestions.length > 0 ? (
+                      <div className="rounded-2xl border border-[rgba(102,87,232,0.2)] bg-[var(--qoreva-violet-faint)] p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                          Requirement Pack
+                        </p>
+
+                        <h4 className="mt-1 font-black text-[var(--qoreva-obsidian)]">
+                          Applicable Requirement Controls
+                        </h4>
+
+                        <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          These controls originate from applicable requirement rules
+                          and remain separate from generic stop-work triggers.
+                        </p>
+
+                        <div className="mt-3 space-y-2">
+                          {generatedPlanningDraft.requirementControlSuggestions.map(
+                            (suggestion, index) => (
+                              <div
+                                key={`${suggestion.text}-${index}`}
+                                className="rounded-xl border border-[rgba(102,87,232,0.16)] bg-white p-3"
+                              >
+                                <p className="text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                                  {suggestion.text}
+                                </p>
+
+                                {suggestion.sourceRequirementIds.length > 0 ? (
+                                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                    Source: {suggestion.sourceRequirementIds.length}{" "}
+                                    applicable requirement
+                                    {suggestion.sourceRequirementIds.length === 1
+                                      ? ""
+                                      : "s"}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      {[
+                        {
+                          title: "PPE Suggestions",
+                          items: generatedPlanningDraft.ppeSuggestions,
+                        },
+                        {
+                          title: "Permit / Authorization Suggestions",
+                          items: generatedPlanningDraft.permitSuggestions,
+                        },
+                        {
+                          title: "Emergency Planning Suggestions",
+                          items: generatedPlanningDraft.emergencySuggestions,
+                        },
+                        {
+                          title: "Stop-Work Suggestions",
+                          items: generatedPlanningDraft.stopWorkSuggestions,
+                        },
+                      ].map((group) => (
+                        <div
+                          key={group.title}
+                          className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4"
+                        >
+                          <p className="font-black text-[var(--qoreva-obsidian)]">
+                            {group.title}
+                          </p>
+
+                          {group.items.length > 0 ? (
+                            <ul className="mt-3 space-y-2">
+                              {group.items.map((suggestion, index) => (
+                                <li
+                                  key={`${suggestion.text}-${index}`}
+                                  className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
+                                >
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--qoreva-violet)]" />
+                                  <span>{suggestion.text}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
+                              No additional suggestions generated.
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-col gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-black text-[var(--qoreva-obsidian)]">
+                          Generation Trace
+                        </p>
+
+                        <p className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
+                          Generator {generatedPlanningDraft.metadata.generatorVersion} •{" "}
+                          {generatedPlanningDraft.metadata.sourceDocumentCount} selected
+                          source document
+                          {generatedPlanningDraft.metadata.sourceDocumentCount === 1
+                            ? ""
+                            : "s"}
+                        </p>
+                      </div>
+
+                      <p className="text-xs font-bold text-[var(--qoreva-muted)]">
+                        AI assists. Qualified people make final decisions.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

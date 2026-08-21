@@ -29,6 +29,40 @@ type QuestionResponseInput = {
   notes?: string | null;
 };
 
+type ConfirmedActivityInput = {
+  activityCode: string;
+  name: string;
+  category?: string | null;
+
+  /**
+   * How the activity was originally identified.
+   *
+   * Current supported values:
+   * - User
+   * - AI
+   * - Requirement
+   * - System
+   *
+   * The current keyword/rule detection engine should normally
+   * send System rather than AI.
+   */
+  detectionSource?: string | null;
+
+  /**
+   * Detection score returned by the current activity detector.
+   * The browser currently works with scores such as 60, 70, 80.
+   * We convert these to 0.6000, 0.7000, 0.8000 for persistence.
+   */
+  score?: number | string | null;
+
+  /**
+   * Future AI integrations may send confidence directly.
+   * Values from 0-1 are stored directly.
+   * Values from 0-100 are converted to 0-1.
+   */
+  aiConfidence?: number | string | null;
+};
+
 function nullableString(
   value: unknown,
 ) {
@@ -61,6 +95,141 @@ function boundedScore(
   );
 }
 
+function normalizeDetectionSource(
+  value: unknown,
+) {
+  const normalized =
+    nullableString(value);
+
+  if (
+    normalized === "User" ||
+    normalized === "AI" ||
+    normalized === "Requirement" ||
+    normalized === "System"
+  ) {
+    return normalized;
+  }
+
+  return "System";
+}
+
+function normalizeConfidence(
+  value: unknown,
+) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  /**
+   * Allow either:
+   *
+   * 0.70
+   *
+   * or:
+   *
+   * 70
+   *
+   * from the caller.
+   */
+  const normalized =
+    parsed > 1
+      ? parsed / 100
+      : parsed;
+
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      normalized,
+    ),
+  );
+}
+
+function getActivityConfidence(
+  activity: ConfirmedActivityInput,
+) {
+  if (
+    activity.aiConfidence !== null &&
+    activity.aiConfidence !== undefined
+  ) {
+    return normalizeConfidence(
+      activity.aiConfidence,
+    );
+  }
+
+  return normalizeConfidence(
+    activity.score,
+  );
+}
+
+function normalizeConfirmedActivities(
+  value: unknown,
+) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const activities =
+    value as ConfirmedActivityInput[];
+
+  /**
+   * A Map prevents the same activityCode from being
+   * persisted twice if the browser accidentally sends
+   * duplicate selections.
+   */
+  const byCode =
+    new Map<
+      string,
+      ConfirmedActivityInput
+    >();
+
+  for (const activity of activities) {
+    const activityCode =
+      nullableString(
+        activity?.activityCode,
+      );
+
+    const name =
+      nullableString(
+        activity?.name,
+      );
+
+    if (
+      !activityCode ||
+      !name
+    ) {
+      continue;
+    }
+
+    byCode.set(
+      activityCode,
+      {
+        ...activity,
+        activityCode,
+        name,
+        category:
+          nullableString(
+            activity.category,
+          ),
+      },
+    );
+  }
+
+  return Array.from(
+    byCode.values(),
+  );
+}
+
 export async function PUT(
   request: Request,
   context: RouteContext,
@@ -83,6 +252,7 @@ export async function PUT(
           id: true,
           tenantId: true,
           status: true,
+          responsibleSupervisor: true,
         },
       });
 
@@ -123,6 +293,19 @@ export async function PUT(
       )
         ? (body.questionResponses as QuestionResponseInput[])
         : [];
+
+    const confirmedActivities =
+      normalizeConfirmedActivities(
+        body.confirmedActivities,
+      );
+
+    const confirmedBy =
+      nullableString(
+        body.confirmedBy,
+      ) ??
+      nullableString(
+        existing.responsibleSupervisor,
+      );
 
     if (workSteps.length === 0) {
       return NextResponse.json(
@@ -193,7 +376,11 @@ export async function PUT(
       }
 
       if (
-        !["Low", "Medium", "High"].includes(
+        ![
+          "Low",
+          "Medium",
+          "High",
+        ].includes(
           nullableString(
             step.riskLevel,
           ) ?? "",
@@ -276,6 +463,189 @@ export async function PUT(
               },
             });
 
+          // ===================================================
+          // CURRENT ACTIVITY STATE BEFORE SAVE
+          // ===================================================
+
+          const existingActivities =
+            await tx.planningActivity.findMany({
+              where: {
+                planningRecordId,
+                tenantId:
+                  existing.tenantId,
+              },
+
+              select: {
+                activityCode: true,
+                name: true,
+                category: true,
+                detectionSource: true,
+                aiConfidence: true,
+                confirmationStatus: true,
+                confirmedBy: true,
+                confirmedAt: true,
+                isActive: true,
+              },
+            });
+
+          const previouslyActiveCodes =
+            existingActivities
+              .filter(
+                (activity) =>
+                  activity.isActive,
+              )
+              .map(
+                (activity) =>
+                  activity.activityCode,
+              );
+
+          const confirmedCodes =
+            confirmedActivities.map(
+              (activity) =>
+                activity.activityCode,
+            );
+
+          const confirmedCodeSet =
+            new Set(
+              confirmedCodes,
+            );
+
+          const removedActivityCodes =
+            previouslyActiveCodes.filter(
+              (activityCode) =>
+                !confirmedCodeSet.has(
+                  activityCode,
+                ),
+            );
+
+          const now =
+            new Date();
+
+          // ===================================================
+          // DEACTIVATE ACTIVITIES USER REMOVED
+          // ===================================================
+
+          if (
+            removedActivityCodes.length >
+            0
+          ) {
+            await tx.planningActivity.updateMany({
+              where: {
+                planningRecordId,
+                tenantId:
+                  existing.tenantId,
+
+                activityCode: {
+                  in: removedActivityCodes,
+                },
+              },
+
+              data: {
+                isActive: false,
+                confirmationStatus:
+                  "Removed",
+              },
+            });
+          }
+
+          // ===================================================
+          // UPSERT CURRENT CONFIRMED ACTIVITIES
+          // ===================================================
+
+          for (
+            const activity of
+            confirmedActivities
+          ) {
+            const confidence =
+              getActivityConfidence(
+                activity,
+              );
+
+            await tx.planningActivity.upsert({
+              where: {
+                planningRecordId_activityCode:
+                  {
+                    planningRecordId,
+                    activityCode:
+                      activity.activityCode,
+                  },
+              },
+
+              create: {
+                tenantId:
+                  existing.tenantId,
+
+                planningRecordId,
+
+                activityCode:
+                  activity.activityCode,
+
+                name:
+                  activity.name,
+
+                category:
+                  nullableString(
+                    activity.category,
+                  ),
+
+                detectionSource:
+                  normalizeDetectionSource(
+                    activity.detectionSource,
+                  ),
+
+                aiConfidence:
+                  confidence,
+
+                confirmationStatus:
+                  "Confirmed",
+
+                confirmedBy,
+
+                confirmedAt:
+                  now,
+
+                isActive:
+                  true,
+              },
+
+              update: {
+                tenantId:
+                  existing.tenantId,
+
+                name:
+                  activity.name,
+
+                category:
+                  nullableString(
+                    activity.category,
+                  ),
+
+                detectionSource:
+                  normalizeDetectionSource(
+                    activity.detectionSource,
+                  ),
+
+                aiConfidence:
+                  confidence,
+
+                confirmationStatus:
+                  "Confirmed",
+
+                confirmedBy,
+
+                confirmedAt:
+                  now,
+
+                isActive:
+                  true,
+              },
+            });
+          }
+
+          // ===================================================
+          // REPLACE WORK STEPS
+          // ===================================================
+
           await tx.planningWorkStep.deleteMany({
             where: {
               planningRecordId,
@@ -340,6 +710,10 @@ export async function PUT(
               ),
           });
 
+          // ===================================================
+          // REPLACE GUIDED QUESTION RESPONSES
+          // ===================================================
+
           if (
             questionResponses.length >
             0
@@ -386,19 +760,92 @@ export async function PUT(
             });
           }
 
-          return record;
+          // ===================================================
+          // AUDIT EVENT
+          // ===================================================
+
+          await tx.planningEvent.create({
+            data: {
+              tenantId:
+                existing.tenantId,
+
+              planningRecordId,
+
+              eventType:
+                "GuidedPlanningSaved",
+
+              revisionNumber:
+                null,
+
+              actorName:
+                confirmedBy,
+
+              actorRole:
+                confirmedBy
+                  ? "Responsible Supervisor"
+                  : null,
+
+              comment:
+                "Guided planning, confirmed activities, work steps, and planning responses were saved.",
+
+              metadata: {
+                confirmedActivityCodes:
+                  confirmedCodes,
+
+                removedActivityCodes,
+
+                workStepCount:
+                  workSteps.length,
+
+                questionResponseCount:
+                  questionResponses.length,
+              },
+            },
+          });
+
+          return {
+            record,
+
+            activitySummary: {
+              confirmed:
+                confirmedCodes.length,
+
+              removed:
+                removedActivityCodes.length,
+
+              confirmedCodes,
+
+              removedCodes:
+                removedActivityCodes,
+            },
+          };
         },
       );
 
     return NextResponse.json({
-      record: saved,
+      record:
+        saved.record,
 
       saved: {
+        activities:
+          saved.activitySummary.confirmed,
+
+        removedActivities:
+          saved.activitySummary.removed,
+
         workSteps:
           workSteps.length,
 
         questionResponses:
           questionResponses.length,
+      },
+
+      activities: {
+        confirmedCodes:
+          saved.activitySummary.confirmedCodes,
+
+        removedCodes:
+          saved.activitySummary.removedCodes,
       },
     });
   } catch (error) {
