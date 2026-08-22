@@ -349,11 +349,58 @@ type SubmissionSignatureStatus =
 type SubmissionSignature = {
   id: string;
   role: string;
+
+  signerId: string | null;
   signerName: string;
+  signerEmail: string | null;
+
   required: boolean;
   status: SubmissionSignatureStatus;
   signedAt: string | null;
   signatureDataUrl: string | null;
+};
+
+
+type ResolvedPlanningApprovalRole = {
+  code: string;
+  label: string;
+  required: boolean;
+  order: number;
+  signerName: string | null;
+  signerId: string | null;
+  signerEmail: string | null;
+  sourceType: "Qoreva" | "RequirementPack";
+  sources: Array<{
+    requirementPackId: string | null;
+    requirementPackName: string;
+    packType: string;
+    organizationName: string | null;
+  }>;
+};
+
+type PlanningApprovalRoutingResponse = {
+  routing?: {
+    planningRecordId: string;
+    tenantId: string;
+    revisionNumber: number;
+    planType: string;
+    roles: ResolvedPlanningApprovalRole[];
+    applicablePacks: Array<{
+      id: string;
+      name: string;
+      packType: string;
+      organizationName: string | null;
+      version: number;
+    }>;
+    metadata: {
+      baselineRoleCount: number;
+      requirementPackRoleCount: number;
+      resolvedRoleCount: number;
+      applicablePackCount: number;
+      resolverVersion: string;
+    };
+  };
+  message?: string;
 };
 
 type EditablePlanningRecordResponse = {
@@ -367,6 +414,7 @@ type EditablePlanningRecordResponse = {
     title: string;
     status: string;
     revisionNumber: number;
+    submittedAt: string | null;
     responsibleSupervisor: string | null;
     plannedStartDate: string | null;
     workLocation: string | null;
@@ -403,6 +451,49 @@ type EditablePlanningRecordResponse = {
       contractorDocumentId: string | null;
       isSelected: boolean;
     }>;
+    reviews: Array<{
+      id: string;
+      revisionNumber: number;
+      reviewerId: string | null;
+      reviewerName: string;
+      reviewerRole: string;
+      status: string;
+      confirmations: unknown;
+      reviewNotes: string | null;
+      startedAt: string;
+      completedAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+      comments: Array<{
+        id: string;
+        targetId: string;
+        section: string;
+        label: string;
+        comment: string;
+        status: string;
+        createdByName: string | null;
+        createdAt: string;
+        resolvedAt: string | null;
+      }>;
+    }>;
+    signatures: Array<{
+      id: string;
+      revisionNumber: number;
+      role: string;
+      signerId: string | null;
+      signerName: string;
+      signerEmail: string | null;
+      isRequired: boolean;
+      sortOrder: number;
+      status: string;
+      signatureType: string;
+      signatureStorageProvider: string | null;
+      signatureStorageKey: string | null;
+      signatureStorageUrl: string | null;
+      signedAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
     revisions: Array<{
       revisionNumber: number;
       snapshot: {
@@ -412,11 +503,58 @@ type EditablePlanningRecordResponse = {
         sourceContext?: {
           selectedContractorDocumentIds?: string[];
         };
+        qorevaDraftGeneration?:
+          | (GeneratedPlanningDraft & {
+              generatorVersion?: string;
+            })
+          | null;
       } | null;
     }>;
   };
   message?: string;
 };
+
+function normalizeReviewConfirmations(
+  value: unknown,
+): ReviewConfirmations {
+  const defaults: ReviewConfirmations = {
+    scope: false,
+    sequence: false,
+    hazards: false,
+    controls: false,
+    risk: false,
+    requirements: false,
+    emergency: false,
+  };
+
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return defaults;
+  }
+
+  const record =
+    value as Record<string, unknown>;
+
+  return {
+    scope:
+      record.scope === true,
+    sequence:
+      record.sequence === true,
+    hazards:
+      record.hazards === true,
+    controls:
+      record.controls === true,
+    risk:
+      record.risk === true,
+    requirements:
+      record.requirements === true,
+    emergency:
+      record.emergency === true,
+  };
+}
 
 const corePlanningQuestions: GuidedPlanningQuestion[] = [
   {
@@ -877,6 +1015,17 @@ export default function CreatePlanningPage() {
     setSubmissionSaving,
   ] = useState(false);
 
+
+  const [
+    approvalRoutingLoading,
+    setApprovalRoutingLoading,
+  ] = useState(false);
+
+  const [
+    approvalRoutingError,
+    setApprovalRoutingError,
+  ] = useState("");
+
   const [
     planningRevisionNumber,
     setPlanningRevisionNumber,
@@ -1229,12 +1378,16 @@ export default function CreatePlanningPage() {
         const record = data.record;
 
         if (
-          record.status !== "Draft"
+          record.status !== "Draft" &&
+          record.status !== "Submitted"
         ) {
           throw new Error(
-            `Only Draft planning records can be edited. This record is currently ${record.status}.`,
+            `Only Draft or Submitted planning records can be opened in this workflow. This record is currently ${record.status}.`,
           );
         }
+
+        const submittedRecord =
+          record.status === "Submitted";
 
         if (
           !planTypes.some(
@@ -1248,6 +1401,13 @@ export default function CreatePlanningPage() {
           );
         }
 
+        const currentRevision =
+          record.revisions.find(
+            (revision) =>
+              revision.revisionNumber ===
+              record.revisionNumber,
+          ) ?? null;
+
         const previousRevision =
           record.revisions.find(
             (revision) =>
@@ -1255,8 +1415,104 @@ export default function CreatePlanningPage() {
               record.revisionNumber - 1,
           ) ?? null;
 
+        /*
+         * Prefer the active revision snapshot whenever it exists.
+         * A prior revision is used only as edit-mode context when the
+         * active revision has not yet been generated.
+         */
+        const contextRevision =
+          currentRevision ??
+          previousRevision;
+
+        const currentReview =
+          record.reviews.find(
+            (review) =>
+              review.revisionNumber ===
+              record.revisionNumber,
+          ) ?? null;
+
+        const restoredGeneratedDraft =
+          currentRevision?.snapshot
+            ?.qorevaDraftGeneration ??
+          null;
+
+        const restoredReviewConfirmations =
+          normalizeReviewConfirmations(
+            currentReview?.confirmations,
+          );
+
+        const restoredReviewComments:
+          ReviewComment[] =
+          currentReview
+            ? currentReview.comments.map(
+                (comment) => ({
+                  id:
+                    comment.id,
+                  targetId:
+                    comment.targetId,
+                  section:
+                    comment.section,
+                  label:
+                    comment.label,
+                  comment:
+                    comment.comment,
+                  status:
+                    comment.status ===
+                    "Resolved"
+                      ? "Resolved"
+                      : "Open",
+                  createdBy:
+                    comment.createdByName ??
+                    currentReview.reviewerName ??
+                    "Qualified Reviewer",
+                  createdAt:
+                    comment.createdAt,
+                  resolvedAt:
+                    comment.resolvedAt,
+                }),
+              )
+            : [];
+
+        const restoredSubmissionSignatures:
+          SubmissionSignature[] =
+          record.signatures
+            .filter(
+              (signature) =>
+                signature.revisionNumber ===
+                record.revisionNumber,
+            )
+            .map(
+              (signature) => ({
+                id:
+                  signature.id,
+                role:
+                  signature.role,
+
+                signerId:
+                  signature.signerId,
+
+                signerName:
+                  signature.signerName,
+
+                signerEmail:
+                  signature.signerEmail,
+
+                required:
+                  signature.isRequired,
+                status:
+                  signature.status ===
+                  "Signed"
+                    ? "Signed"
+                    : "Pending",
+                signedAt:
+                  signature.signedAt,
+                signatureDataUrl:
+                  signature.signatureStorageUrl,
+              }),
+            );
+
         const snapshotCategories =
-          previousRevision?.snapshot
+          contextRevision?.snapshot
             ?.scope
             ?.safetyCriticalCategories ??
           [];
@@ -1374,7 +1630,7 @@ export default function CreatePlanningPage() {
             );
 
         const snapshotSourceIds =
-          previousRevision?.snapshot
+          contextRevision?.snapshot
             ?.sourceContext
             ?.selectedContractorDocumentIds ??
           [];
@@ -1477,27 +1733,106 @@ export default function CreatePlanningPage() {
             : snapshotSourceIds,
         );
 
-        setDraftGenerated(false);
-      setGeneratedPlanningDraft(null);
-        setReviewerName("");
-        setReviewerRole("");
-        setReviewNotes("");
-        setReviewConfirmations({
-          scope: false,
-          sequence: false,
-          hazards: false,
-          controls: false,
-          risk: false,
-          requirements: false,
-          emergency: false,
-        });
-        setReviewComments([]);
-        setSubmissionSignatures([]);
-        setSubmissionAcknowledged(false);
-        setSubmitted(false);
-        setSubmittedAt(null);
+        setDraftGenerated(
+          Boolean(
+            restoredGeneratedDraft,
+          ),
+        );
+        setGeneratedPlanningDraft(
+          restoredGeneratedDraft,
+        );
 
-        setCurrentStep(4);
+        /*
+         * Qualified-review state is revision-scoped.
+         * Restore only a review whose revisionNumber matches the
+         * Planning record's active revision. Never carry review
+         * approval or comments forward from an older revision.
+         */
+        setReviewerName(
+          currentReview?.reviewerName ??
+            "",
+        );
+        setReviewerRole(
+          currentReview?.reviewerRole ??
+            "",
+        );
+        setReviewNotes(
+          currentReview?.reviewNotes ??
+            "",
+        );
+        setReviewConfirmations(
+          restoredReviewConfirmations,
+        );
+        setReviewComments(
+          restoredReviewComments,
+        );
+        setActiveReviewTargetId(null);
+        setReviewCommentDraft("");
+
+        /*
+         * Submission/signature state is revision-scoped.
+         * Restore only signatures tied to the Planning record's
+         * active revision. Never carry signatures from an older
+         * revision into a new working revision.
+         */
+        setSubmissionSignatures(
+          restoredSubmissionSignatures,
+        );
+        setSubmissionAcknowledged(
+          submittedRecord,
+        );
+        setSubmitted(
+          submittedRecord,
+        );
+        setSubmittedAt(
+          submittedRecord
+            ? record.submittedAt
+            : null,
+        );
+        setAdditionalApproverRole("");
+        setAdditionalApproverName("");
+
+        /*
+         * Resume at the most advanced safe point represented by
+         * persisted state.
+         *
+         * Submitted records reopen at Step 8 in read-only mode.
+         * A Draft with persisted signatures also resumes at Step 8.
+         * A completed/current review resumes at Step 7.
+         * A generated current draft resumes at Step 6.
+         * Otherwise edit mode begins at Work Scope.
+         */
+        setCurrentStep(
+          submittedRecord ||
+          restoredSubmissionSignatures.length > 0
+            ? 8
+            : currentReview
+              ? 7
+              : restoredGeneratedDraft
+                ? 6
+                : 4,
+        );
+
+        if (
+          !submittedRecord &&
+          currentReview &&
+          restoredSubmissionSignatures.length === 0
+        ) {
+          try {
+            await loadApprovalRouting(
+              record.id,
+            );
+
+            if (!cancelled) {
+              setCurrentStep(8);
+            }
+          } catch {
+            /*
+             * Keep the hydrated qualified review visible.
+             * The Step 8 routing error UI will provide a retry.
+             */
+          }
+        }
 
         if (
           record.contractorId
@@ -3872,6 +4207,118 @@ export default function CreatePlanningPage() {
     }
   }
 
+  function mapResolvedApprovalRolesToSignatures(
+    roles: ResolvedPlanningApprovalRole[],
+  ): SubmissionSignature[] {
+    return roles.map(
+      (role) => ({
+        id:
+          `routing-${role.code}`,
+
+        role:
+          role.label,
+
+        signerId:
+          role.signerId,
+
+        signerName:
+          role.signerName ?? "",
+
+        signerEmail:
+          role.signerEmail,
+
+        required:
+          role.required,
+
+        status:
+          "Pending",
+
+        signedAt:
+          null,
+
+        signatureDataUrl:
+          null,
+      }),
+    );
+  }
+
+  async function loadApprovalRouting(
+    activePlanningRecordId: string,
+  ) {
+    setApprovalRoutingLoading(
+      true,
+    );
+    setApprovalRoutingError("");
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${activePlanningRecordId}/approval-routing`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+      const data =
+        (await response.json()) as
+          PlanningApprovalRoutingResponse;
+
+      if (
+        !response.ok ||
+        !data.routing
+      ) {
+        throw new Error(
+          data.message ||
+            "Unable to load approval routing.",
+        );
+      }
+
+      if (
+        data.routing.revisionNumber !==
+        planningRevisionNumber
+      ) {
+        throw new Error(
+          "Approval routing does not match the active planning revision.",
+        );
+      }
+
+      if (
+        data.routing.roles.length === 0
+      ) {
+        throw new Error(
+          "No approval roles were resolved for this planning record.",
+        );
+      }
+
+      const resolvedSignatures =
+        mapResolvedApprovalRolesToSignatures(
+          data.routing.roles,
+        );
+
+      setSubmissionSignatures(
+        resolvedSignatures,
+      );
+
+      return resolvedSignatures;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to load approval routing.";
+
+      setApprovalRoutingError(
+        message,
+      );
+
+      throw error;
+    } finally {
+      setApprovalRoutingLoading(
+        false,
+      );
+    }
+  }
+
   async function continueFromQualifiedReview() {
     if (!reviewerName.trim()) {
       setStepError(
@@ -3887,12 +4334,47 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    const incompleteConfirmations =
-      Object.entries(reviewConfirmations).filter(
-        ([, confirmed]) => !confirmed,
+    if (!generatedPlanningDraft) {
+      setStepError(
+        "The current Qoreva draft intelligence is not loaded. Return to Build Plan and regenerate the draft before completing qualified review.",
+      );
+      return;
+    }
+
+    const criticalGenerationFlags =
+      generatedPlanningDraft.reviewFlags.filter(
+        (flag) =>
+          flag.severity === "Critical",
       );
 
-    if (incompleteConfirmations.length > 0) {
+    if (
+      criticalGenerationFlags.length > 0
+    ) {
+      setStepError(
+        `Resolve the critical Qoreva review item${
+          criticalGenerationFlags.length === 1
+            ? ""
+            : "s"
+        } before continuing to submission. ${criticalGenerationFlags.length} critical item${
+          criticalGenerationFlags.length === 1
+            ? ""
+            : "s"
+        } remain.`,
+      );
+      return;
+    }
+
+    const incompleteConfirmations =
+      Object.entries(
+        reviewConfirmations,
+      ).filter(
+        ([, confirmed]) =>
+          !confirmed,
+      );
+
+    if (
+      incompleteConfirmations.length > 0
+    ) {
       setStepError(
         `Complete all qualified-review confirmations before continuing. ${incompleteConfirmations.length} item${
           incompleteConfirmations.length === 1
@@ -3904,7 +4386,8 @@ export default function CreatePlanningPage() {
     }
 
     if (
-      planningQualitySummary.actionRequired > 0
+      planningQualitySummary.actionRequired >
+      0
     ) {
       setStepError(
         "Resolve all Action Required planning quality items before continuing to submission.",
@@ -3912,10 +4395,14 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    if (reviewCommentSummary.open > 0) {
+    if (
+      reviewCommentSummary.open > 0
+    ) {
       setStepError(
         `Resolve all open review comments before continuing to submission. ${reviewCommentSummary.open} open comment${
-          reviewCommentSummary.open === 1 ? "" : "s"
+          reviewCommentSummary.open === 1
+            ? ""
+            : "s"
         } remain.`,
       );
       return;
@@ -3948,36 +4435,51 @@ export default function CreatePlanningPage() {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               revisionNumber:
                 planningRevisionNumber,
+
               reviewerName:
                 reviewerName.trim(),
+
               reviewerRole:
                 reviewerRole.trim(),
+
               reviewNotes:
-                reviewNotes.trim() || null,
+                reviewNotes.trim() ||
+                null,
+
               confirmations:
                 reviewConfirmations,
+
               comments:
                 reviewComments.map(
                   (comment) => ({
                     clientId:
                       comment.id,
+
                     targetId:
                       comment.targetId,
+
                     section:
                       comment.section,
+
                     label:
                       comment.label,
+
                     comment:
                       comment.comment,
+
                     status:
                       comment.status,
+
                     createdByName:
                       comment.createdBy,
+
                     createdAt:
                       comment.createdAt,
+
                     resolvedAt:
                       comment.resolvedAt,
                   }),
@@ -3995,6 +4497,7 @@ export default function CreatePlanningPage() {
               | string
               | null;
           };
+
           message?: string;
         };
 
@@ -4011,41 +4514,16 @@ export default function CreatePlanningPage() {
         );
       }
 
-      const defaultSignatures: SubmissionSignature[] = [
-        {
-          id: "responsible-supervisor",
-          role: "Responsible Supervisor / Foreman",
-          signerName:
-            responsibleSupervisor.trim(),
-          required: true,
-          status: "Pending",
-          signedAt: null,
-          signatureDataUrl: null,
-        },
-        {
-          id: "qualified-reviewer",
-          role:
-            reviewerRole.trim() ||
-            "Qualified Reviewer",
-          signerName:
-            reviewerName.trim(),
-          required: true,
-          status: "Pending",
-          signedAt: null,
-          signatureDataUrl: null,
-        },
-      ];
-
-      setSubmissionSignatures(
-        (current) =>
-          current.length > 0
-            ? current
-            : defaultSignatures,
+      await loadApprovalRouting(
+        planningRecordId,
       );
 
       setSubmitted(false);
       setSubmittedAt(null);
-      setSubmissionAcknowledged(false);
+      setSubmissionAcknowledged(
+        false,
+      );
+
       setCurrentStep(8);
     } catch (error) {
       setStepError(
@@ -4054,7 +4532,9 @@ export default function CreatePlanningPage() {
           : "Unable to persist the qualified review.",
       );
     } finally {
-      setQualifiedReviewSaving(false);
+      setQualifiedReviewSaving(
+        false,
+      );
     }
   }
 
@@ -4123,8 +4603,16 @@ export default function CreatePlanningPage() {
         id: `additional-${Date.now()}`,
         role:
           additionalApproverRole.trim(),
+
+        signerId:
+          null,
+
         signerName:
           additionalApproverName.trim(),
+
+        signerEmail:
+          null,
+
         required: false,
         status: "Pending",
         signedAt: null,
@@ -4231,8 +4719,16 @@ export default function CreatePlanningPage() {
                   ) => ({
                     role:
                       signature.role,
+
+                    signerId:
+                      signature.signerId,
+
                     signerName:
                       signature.signerName,
+
+                    signerEmail:
+                      signature.signerEmail,
+
                     isRequired:
                       signature.required,
                     sortOrder:
@@ -4385,7 +4881,9 @@ export default function CreatePlanningPage() {
                 "
               >
                 {editPlanningRecordId
-                  ? "Edit Revision"
+                  ? submitted
+                    ? "Submitted Record"
+                    : "Edit Revision"
                   : "Create Plan"}
               </span>
             </div>
@@ -4401,7 +4899,9 @@ export default function CreatePlanningPage() {
               "
             >
               {editPlanningRecordId
-                ? `Edit Planning Revision ${planningRevisionNumber}`
+                ? submitted
+                  ? `Submitted Planning Revision ${planningRevisionNumber}`
+                  : `Edit Planning Revision ${planningRevisionNumber}`
                 : "Create a Planning Record"}
             </h1>
 
@@ -4416,7 +4916,9 @@ export default function CreatePlanningPage() {
               "
             >
               {editPlanningRecordId
-                ? "Update the existing working revision without overwriting earlier submitted revision history. Regenerate the draft, complete qualified review, capture new signatures, and resubmit this revision."
+                ? submitted
+                  ? "This submitted revision is an official record. Review the final package, qualified review history, signatures, and submission timestamp. Create a new revision to make changes."
+                  : "Update the existing working revision without overwriting earlier submitted revision history. Regenerate the draft, complete qualified review, capture new signatures, and resubmit this revision."
                 : "Qoreva guides the planning process from work setup through requirements, hazards, controls, qualified review, and field readiness."}
             </p>
           </div>
@@ -4472,13 +4974,17 @@ export default function CreatePlanningPage() {
                   ? "Loading existing revision..."
                   : editModeError
                     ? "Unable to load revision"
-                    : `Editing Revision ${planningRevisionNumber}`}
+                    : submitted
+                      ? `Submitted Revision ${planningRevisionNumber}`
+                      : `Editing Revision ${planningRevisionNumber}`}
               </h2>
 
               <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
                 {editModeError
                   ? editModeError
-                  : "Changes save to this existing Planning record. Earlier revision snapshots, signatures, reviews, and audit history remain preserved."}
+                  : submitted
+                    ? "This submitted revision is read-only in the guided workflow. Its revision snapshot, qualified review, signatures, submission timestamp, and audit history remain preserved."
+                    : "Changes save to this existing Planning record. Earlier revision snapshots, signatures, reviews, and audit history remain preserved."}
               </p>
             </div>
 
@@ -7865,6 +8371,304 @@ export default function CreatePlanningPage() {
                 </div>
               </section>
 
+              {generatedPlanningDraft ? (
+                <section className="overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                  <div className="border-b border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
+                          Qoreva Intelligence
+                        </p>
+
+                        <h3 className="mt-1 text-xl font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
+                          Qualified Review Intelligence
+                        </h3>
+
+                        <p className="mt-2 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          Review the planning intelligence carried forward from the Draft Builder before making the official qualified-review decision. Qoreva recommendations are advisory and do not replace the reviewer&apos;s professional judgment.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.activityCount} Activities`}
+                          tone="neutral"
+                        />
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.questionCount} Questions`}
+                          tone="neutral"
+                        />
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.requirementCount} Requirements`}
+                          tone={
+                            generatedPlanningDraft.metadata.requirementCount > 0
+                              ? "success"
+                              : "neutral"
+                          }
+                        />
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.metadata.sourceDocumentCount} Sources`}
+                          tone={
+                            generatedPlanningDraft.metadata.sourceDocumentCount > 0
+                              ? "success"
+                              : "neutral"
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6 p-5 sm:p-6">
+                    <div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                            Qoreva Review Flags
+                          </p>
+
+                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                            These flags explain where the generated draft deserves additional reviewer attention.
+                          </p>
+                        </div>
+
+                        <DocumentStatusBadge
+                          label={`${generatedPlanningDraft.reviewFlags.length} Flag${
+                            generatedPlanningDraft.reviewFlags.length === 1
+                              ? ""
+                              : "s"
+                          }`}
+                          tone={
+                            generatedPlanningDraft.reviewFlags.some(
+                              (flag) => flag.severity === "Critical",
+                            )
+                              ? "danger"
+                              : generatedPlanningDraft.reviewFlags.some(
+                                    (flag) => flag.severity === "Warning",
+                                  )
+                                ? "warning"
+                                : "neutral"
+                          }
+                        />
+                      </div>
+
+                      {generatedPlanningDraft.reviewFlags.length > 0 ? (
+                        <div className="mt-4 grid gap-3">
+                          {generatedPlanningDraft.reviewFlags.map((flag) => (
+                            <div
+                              key={flag.code}
+                              className={`rounded-2xl border p-4 ${
+                                flag.severity === "Critical"
+                                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                                  : flag.severity === "Warning"
+                                    ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
+                                    : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                              }`}
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-black text-[var(--qoreva-obsidian)]">
+                                    {flag.title}
+                                  </p>
+
+                                  <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                                    {flag.detail}
+                                  </p>
+                                </div>
+
+                                <DocumentStatusBadge
+                                  label={flag.severity}
+                                  tone={
+                                    flag.severity === "Critical"
+                                      ? "danger"
+                                      : flag.severity === "Warning"
+                                        ? "warning"
+                                        : "neutral"
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-4 rounded-2xl border border-[#B8DFC9] bg-[var(--qoreva-success-soft)] p-4">
+                          <p className="font-black text-[var(--qoreva-obsidian)]">
+                            No generation flags remain.
+                          </p>
+
+                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                            Qoreva did not surface additional draft-generation concerns. The qualified reviewer still verifies the complete plan before submission.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {generatedPlanningDraft.workSteps.some(
+                      (step) =>
+                        step.riskAttention === "HighAttention" ||
+                        step.riskAttention === "Elevated",
+                    ) ? (
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                          Generated Work-Step Attention
+                        </p>
+
+                        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                          {generatedPlanningDraft.workSteps
+                            .filter(
+                              (step) =>
+                                step.riskAttention === "HighAttention" ||
+                                step.riskAttention === "Elevated",
+                            )
+                            .map((step) => (
+                              <div
+                                key={`review-intelligence-${step.sequence}-${step.title}`}
+                                className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                                      Work Step {step.sequence}
+                                    </p>
+
+                                    <p className="mt-1 font-black text-[var(--qoreva-obsidian)]">
+                                      {step.title}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <DocumentStatusBadge
+                                      label={step.riskAttention}
+                                      tone="warning"
+                                    />
+
+                                    {step.safetyCriticalSuggested ? (
+                                      <DocumentStatusBadge
+                                        label="Safety Critical Suggested"
+                                        tone="danger"
+                                      />
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                {step.sourceActivityCodes.length > 0 ? (
+                                  <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    Activity basis:{" "}
+                                    {step.sourceActivityCodes.join(", ")}
+                                  </p>
+                                ) : (
+                                  <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    Qoreva could not map this work step to a confirmed activity with sufficient confidence. Verify the step manually.
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {generatedPlanningDraft.requirementControlSuggestions.length > 0 ? (
+                      <div className="rounded-2xl border border-[rgba(102,87,232,0.2)] bg-[var(--qoreva-violet-faint)] p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                              Requirement Pack Intelligence
+                            </p>
+
+                            <h4 className="mt-1 font-black text-[var(--qoreva-obsidian)]">
+                              Applicable Requirement Controls
+                            </h4>
+
+                            <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                              These controls came from applicable requirement rules. The reviewer confirms whether they are correctly addressed in the official plan and may request revision when they are not.
+                            </p>
+                          </div>
+
+                          <DocumentStatusBadge
+                            label={`${generatedPlanningDraft.requirementControlSuggestions.length} Control${
+                              generatedPlanningDraft.requirementControlSuggestions.length === 1
+                                ? ""
+                                : "s"
+                            }`}
+                            tone="success"
+                          />
+                        </div>
+
+                        <div className="mt-4 grid gap-2">
+                          {generatedPlanningDraft.requirementControlSuggestions.map(
+                            (suggestion, index) => (
+                              <div
+                                key={`qualified-requirement-${suggestion.text}-${index}`}
+                                className="rounded-xl border border-[rgba(102,87,232,0.16)] bg-white p-3"
+                              >
+                                <p className="text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                                  {suggestion.text}
+                                </p>
+
+                                {suggestion.sourceRequirementIds.length > 0 ? (
+                                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                    Requirement source count:{" "}
+                                    {suggestion.sourceRequirementIds.length}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+                        <p className="font-black text-[var(--qoreva-obsidian)]">
+                          No Requirement Pack controls generated
+                        </p>
+
+                        <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          No generated requirement controls are attached to this draft. Review the project requirements and source context before confirming the requirement review.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-black text-[var(--qoreva-obsidian)]">
+                          Generation Trace
+                        </p>
+
+                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                          {generatedPlanningDraft.metadata.generatorVersion} • Generated{" "}
+                          {new Date(
+                            generatedPlanningDraft.generatedAt,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <p className="text-xs font-bold text-[var(--qoreva-muted)]">
+                        Qoreva assists. Qualified people make final decisions.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className="rounded-2xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#B97917] text-xs font-black text-white">
+                      !
+                    </div>
+
+                    <div>
+                      <h3 className="font-black text-[var(--qoreva-obsidian)]">
+                        Draft intelligence is not loaded
+                      </h3>
+
+                      <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                        Return to Build Plan and regenerate the current draft before completing qualified review.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              )}
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -8775,7 +9579,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      The MVP starts with the Responsible Supervisor / Foreman and Qualified Reviewer. Production signature roles should come from the plan type, tenant configuration, project settings, and applicable Owner Requirement Pack rather than being hardcoded to one owner or contractor.
+                      Qoreva resolves the Responsible Supervisor / Foreman and Qualified Reviewer as baseline roles, then adds applicable approval roles from active Requirement Packs for this tenant, project, contractor, and plan type. Signature routing is no longer hardcoded to a specific owner or contractor.
                     </p>
                   </div>
                 </div>
@@ -8983,6 +9787,43 @@ export default function CreatePlanningPage() {
                 </div>
               </section>
 
+              {approvalRoutingError ? (
+                <section className="rounded-2xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-danger)] text-xs font-black text-white">
+                      !
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-black text-[var(--qoreva-obsidian)]">
+                        Approval routing could not be loaded
+                      </h3>
+
+                      <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                        {approvalRoutingError}
+                      </p>
+
+                      {!submitted && planningRecordId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void loadApprovalRouting(
+                              planningRecordId,
+                            );
+                          }}
+                          disabled={approvalRoutingLoading}
+                          className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-[#F0BDC4] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {approvalRoutingLoading
+                            ? "Reloading Approval Routing..."
+                            : "Reload Approval Routing"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -9028,6 +9869,7 @@ export default function CreatePlanningPage() {
                       <SignatureRoleCard
                         key={signature.id}
                         signature={signature}
+                        disabled={submitted}
                         onSign={(signatureDataUrl) =>
                           signSubmissionRole(
                             signature.id,
@@ -9040,6 +9882,7 @@ export default function CreatePlanningPage() {
                           )
                         }
                         onRemove={
+                          !submitted &&
                           signature.id.startsWith(
                             "additional-",
                           )
@@ -9075,6 +9918,7 @@ export default function CreatePlanningPage() {
                       value={additionalApproverRole}
                       placeholder="Example: Contractor Safety Manager"
                       onChange={setAdditionalApproverRole}
+                      disabled={submitted}
                     />
 
                     <TextControl
@@ -9082,13 +9926,15 @@ export default function CreatePlanningPage() {
                       value={additionalApproverName}
                       placeholder="Enter approver name"
                       onChange={setAdditionalApproverName}
+                      disabled={submitted}
                     />
                   </div>
 
                   <button
                     type="button"
                     onClick={addAdditionalApprover}
-                    className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.22)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
+                    disabled={submitted}
+                    className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.22)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     + Add Optional Approver
                   </button>
@@ -9230,7 +10076,11 @@ export default function CreatePlanningPage() {
                     onClick={submitPlanningRecord}
                     disabled={
                       submitted ||
-                      submissionSaving
+                      submissionSaving ||
+                      approvalRoutingLoading ||
+                      Boolean(
+                        approvalRoutingError,
+                      )
                     }
                     className={`
                       ${primaryButtonClassName}
@@ -9891,12 +10741,14 @@ function TextControl({
   value,
   placeholder = "",
   type = "text",
+  disabled = false,
   onChange,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   type?: "text" | "date" | "number";
+  disabled?: boolean;
 
   onChange: (
     value: string,
@@ -9932,14 +10784,13 @@ function TextControl({
         placeholder={
           placeholder
         }
+        disabled={disabled}
         onChange={(event) =>
           onChange(
             event.target.value,
           )
         }
-        className={
-          fieldClassName
-        }
+        className={`${fieldClassName} disabled:cursor-not-allowed disabled:opacity-60`}
       />
     </label>
   );
@@ -10486,11 +11337,13 @@ function formatFileSize(bytes: number): string {
 
 function SignatureRoleCard({
   signature,
+  disabled = false,
   onSign,
   onClear,
   onRemove,
 }: {
   signature: SubmissionSignature;
+  disabled?: boolean;
   onSign: (signatureDataUrl: string) => void;
   onClear: () => void;
   onRemove?: () => void;
@@ -10573,9 +11426,12 @@ function SignatureRoleCard({
               <button
                 type="button"
                 onClick={onClear}
-                className="rounded-lg border border-[#F0D5A4] bg-white px-3 py-2 text-xs font-black text-[#9B6212] transition hover:bg-[var(--qoreva-warning-soft)]"
+                disabled={disabled}
+                className="rounded-lg border border-[#F0D5A4] bg-white px-3 py-2 text-xs font-black text-[#9B6212] transition hover:bg-[var(--qoreva-warning-soft)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Clear Signature
+                {disabled
+                  ? "Signature Locked"
+                  : "Clear Signature"}
               </button>
             ) : (
               <button
@@ -10583,10 +11439,15 @@ function SignatureRoleCard({
                 onClick={() =>
                   setSignatureOpen(true)
                 }
-                disabled={!signature.signerName.trim()}
+                disabled={
+                  disabled ||
+                  !signature.signerName.trim()
+                }
                 className="rounded-lg border border-[#BDE8D4] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-success)] transition hover:bg-[var(--qoreva-success-soft)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Draw Signature
+                {disabled
+                  ? "Read Only"
+                  : "Draw Signature"}
               </button>
             )}
 
@@ -10603,7 +11464,8 @@ function SignatureRoleCard({
         </div>
       </article>
 
-      {signatureOpen ? (
+      {signatureOpen &&
+      !disabled ? (
         <SignaturePadModal
           signerName={signature.signerName}
           signerRole={signature.role}

@@ -1050,6 +1050,12 @@ model RequirementPack {
   // Barton Malow, Ford, etc. into application logic.
   applicability Json?
 
+  // Configurable Planning approval/signature routing.
+  // Qoreva resolves applicable Owner, GC, Company,
+  // Project, and tenant requirements without
+  // hardcoding customer-specific approval workflows.
+  approvalRouting Json?
+
   createdBy  String?
   approvedBy String?
   approvedAt DateTime?

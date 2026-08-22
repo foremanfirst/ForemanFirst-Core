@@ -88,6 +88,79 @@ function isConfirmationObject(
   );
 }
 
+
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function getSnapshotQualityActionRequired(
+  snapshot: unknown,
+) {
+  if (!isRecord(snapshot)) {
+    return null;
+  }
+
+  const quality =
+    snapshot.quality;
+
+  if (!isRecord(quality)) {
+    return null;
+  }
+
+  const parsed =
+    Number(
+      quality.actionRequired,
+    );
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.max(
+    0,
+    Math.trunc(parsed),
+  );
+}
+
+function getSnapshotGeneration(
+  snapshot: unknown,
+) {
+  if (!isRecord(snapshot)) {
+    return null;
+  }
+
+  const generation =
+    snapshot.qorevaDraftGeneration;
+
+  return isRecord(generation)
+    ? generation
+    : null;
+}
+
+function getCriticalGenerationFlagCount(
+  generation: Record<string, unknown>,
+) {
+  const reviewFlags =
+    Array.isArray(
+      generation.reviewFlags,
+    )
+      ? generation.reviewFlags
+      : [];
+
+  return reviewFlags.filter(
+    (flag) =>
+      isRecord(flag) &&
+      flag.severity ===
+        "Critical",
+  ).length;
+}
+
 export async function PUT(
   request: Request,
   context: RouteContext,
@@ -170,6 +243,7 @@ export async function PUT(
         },
         select: {
           id: true,
+          snapshot: true,
         },
       });
 
@@ -178,6 +252,88 @@ export async function PUT(
         {
           message:
             "Generate and save the draft revision before completing qualified review.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+
+    const qualityActionRequired =
+      getSnapshotQualityActionRequired(
+        revision.snapshot,
+      );
+
+    if (
+      qualityActionRequired === null
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The saved planning revision does not contain a valid planning quality result. Regenerate and save the current draft before completing qualified review.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      qualityActionRequired > 0
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            `Resolve all Action Required planning quality items before completing qualified review. ${qualityActionRequired} item${
+              qualityActionRequired === 1
+                ? ""
+                : "s"
+            } remain.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const generation =
+      getSnapshotGeneration(
+        revision.snapshot,
+      );
+
+    if (!generation) {
+      return NextResponse.json(
+        {
+          message:
+            "The saved planning revision does not contain Qoreva draft-generation intelligence. Return to Build Plan, regenerate the draft, and save the current revision before completing qualified review.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const criticalGenerationFlagCount =
+      getCriticalGenerationFlagCount(
+        generation,
+      );
+
+    if (
+      criticalGenerationFlagCount > 0
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            `Resolve the critical Qoreva review item${
+              criticalGenerationFlagCount === 1
+                ? ""
+                : "s"
+            } before completing qualified review. ${criticalGenerationFlagCount} critical item${
+              criticalGenerationFlagCount === 1
+                ? ""
+                : "s"
+            } remain.`,
         },
         {
           status: 409,
@@ -518,6 +674,11 @@ export async function PUT(
                   review.id,
                 reviewCommentCount:
                   comments.length,
+                confirmationCount:
+                  requiredConfirmationKeys.length,
+                qualityActionRequired,
+                qorevaCriticalFlagCount:
+                  criticalGenerationFlagCount,
               },
             },
           });

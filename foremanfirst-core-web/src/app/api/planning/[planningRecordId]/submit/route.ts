@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  resolvePlanningApprovalRouting,
+} from "@/lib/planning/approval-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +93,43 @@ function isPngDataUrl(
   return value.startsWith(
     "data:image/png;base64,",
   );
+}
+
+
+function normalizeRoleLabel(
+  value: unknown,
+) {
+  const normalized =
+    toNullableString(value);
+
+  return normalized
+    ? normalized
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+    : null;
+}
+
+
+function isRequiredSignature(
+  signature: SignatureInput,
+  requiredRoleLabels?: Set<string>,
+) {
+  const normalizedRole =
+    normalizeRoleLabel(
+      signature.role,
+    );
+
+  if (
+    normalizedRole &&
+    requiredRoleLabels?.has(
+      normalizedRole,
+    )
+  ) {
+    return true;
+  }
+
+  return signature.isRequired !== false;
 }
 
 export async function POST(
@@ -208,6 +248,42 @@ export async function POST(
       );
     }
 
+    const approvalRouting =
+      await resolvePlanningApprovalRouting(
+        planningRecordId,
+      );
+
+    if (
+      approvalRouting.revisionNumber !==
+      revisionNumber
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Resolved approval routing does not match the active planning revision.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const requiredApprovalRoles =
+      approvalRouting.roles.filter(
+        (role) =>
+          role.required,
+      );
+
+    const requiredRoleLabels =
+      new Set(
+        requiredApprovalRoles.map(
+          (role) =>
+            normalizeRoleLabel(
+              role.label,
+            )!,
+        ),
+      );
+
     const [
       revision,
       completedReview,
@@ -305,6 +381,104 @@ export async function POST(
       );
     }
 
+    const normalizedSignatureRoles =
+      signatures.map(
+        (signature) =>
+          normalizeRoleLabel(
+            signature.role,
+          ),
+      );
+
+    const duplicateRole =
+      normalizedSignatureRoles.find(
+        (role, index) =>
+          Boolean(role) &&
+          normalizedSignatureRoles.indexOf(
+            role,
+          ) !== index,
+      );
+
+    if (duplicateRole) {
+      return NextResponse.json(
+        {
+          message:
+            "Duplicate signature roles are not allowed in the submission package.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const missingRequiredApprovalRole =
+      requiredApprovalRoles.find(
+        (requiredRole) => {
+          const requiredLabel =
+            normalizeRoleLabel(
+              requiredRole.label,
+            );
+
+          return !signatures.some(
+            (signature) =>
+              normalizeRoleLabel(
+                signature.role,
+              ) === requiredLabel,
+          );
+        },
+      );
+
+    if (missingRequiredApprovalRole) {
+      return NextResponse.json(
+        {
+          message:
+            `${missingRequiredApprovalRole.label} is required by the resolved approval routing and cannot be omitted from submission.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const unsignedRequiredApprovalRole =
+      requiredApprovalRoles.find(
+        (requiredRole) => {
+          const requiredLabel =
+            normalizeRoleLabel(
+              requiredRole.label,
+            );
+
+          const signature =
+            signatures.find(
+              (candidate) =>
+                normalizeRoleLabel(
+                  candidate.role,
+                ) ===
+                requiredLabel,
+            );
+
+          return (
+            !signature ||
+            (
+              toNullableString(
+                signature.status,
+              ) ?? "Pending"
+            ) !== "Signed"
+          );
+        },
+      );
+
+    if (unsignedRequiredApprovalRole) {
+      return NextResponse.json(
+        {
+          message:
+            `${unsignedRequiredApprovalRole.label} must be signed before submission.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     const invalidSignature =
       signatures.find(
         (signature) => {
@@ -380,8 +554,10 @@ export async function POST(
     const pendingRequired =
       signatures.filter(
         (signature) =>
-          signature.isRequired ===
-            true &&
+          isRequiredSignature(
+            signature,
+            requiredRoleLabels,
+          ) &&
           (
             toNullableString(
               signature.status,
@@ -454,8 +630,10 @@ export async function POST(
                       ),
 
                     isRequired:
-                      signature.isRequired !==
-                      false,
+                      isRequiredSignature(
+                        signature,
+                        requiredRoleLabels,
+                      ),
                     sortOrder:
                       toNonNegativeInt(
                         signature.sortOrder,
@@ -501,15 +679,33 @@ export async function POST(
               ),
           });
 
-          const record =
-            await tx.planningRecord.update({
+          const transition =
+            await tx.planningRecord.updateMany({
               where: {
                 id: planningRecordId,
+                tenantId:
+                  existingRecord.tenantId,
+                revisionNumber,
+                status: "Draft",
+                isArchived: false,
               },
               data: {
                 status:
                   "Submitted",
                 submittedAt,
+              },
+            });
+
+          if (transition.count !== 1) {
+            throw new Error(
+              "SUBMISSION_STATE_CONFLICT",
+            );
+          }
+
+          const record =
+            await tx.planningRecord.findUnique({
+              where: {
+                id: planningRecordId,
               },
               select: {
                 id: true,
@@ -518,6 +714,12 @@ export async function POST(
                 revisionNumber: true,
               },
             });
+
+          if (!record) {
+            throw new Error(
+              "SUBMISSION_RECORD_NOT_FOUND",
+            );
+          }
 
           await tx.planningEvent.create({
             data: {
@@ -551,11 +753,60 @@ export async function POST(
                 requiredSignatureCount:
                   signatures.filter(
                     (signature) =>
-                      signature.isRequired ===
-                      true,
+                      isRequiredSignature(
+                        signature,
+                        requiredRoleLabels,
+                      ),
                   ).length,
+                signedSignatureCount:
+                  signatures.filter(
+                    (signature) =>
+                      (
+                        toNullableString(
+                          signature.status,
+                        ) ?? "Pending"
+                      ) === "Signed",
+                  ).length,
+                optionalSignatureCount:
+                  signatures.filter(
+                    (signature) =>
+                      !isRequiredSignature(
+                        signature,
+                        requiredRoleLabels,
+                      ),
+                  ).length,
+                resolvedApprovalRoleCount:
+                  approvalRouting.roles.length,
+                resolvedRequiredRoleCount:
+                  requiredApprovalRoles.length,
+                applicableRequirementPackCount:
+                  approvalRouting.applicablePacks.length,
+                approvalRoutingResolverVersion:
+                  approvalRouting.metadata.resolverVersion,
+                resolvedApprovalRoles:
+                  approvalRouting.roles.map(
+                    (role) => ({
+                      code:
+                        role.code,
+                      label:
+                        role.label,
+                      required:
+                        role.required,
+                      sourceType:
+                        role.sourceType,
+                      sourcePackIds:
+                        role.sources
+                          .map(
+                            (source) =>
+                              source.requirementPackId,
+                          )
+                          .filter(Boolean),
+                    }),
+                  ),
                 acknowledgement:
                   true,
+                signatureStorageMode:
+                  "inline-data-url",
               },
             },
           });
