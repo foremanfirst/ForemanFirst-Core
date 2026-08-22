@@ -845,20 +845,156 @@ model DailyWorkerSafetyEngagementMoc {
 
   requiresPtpRevision Boolean @default(false)
 
+  // Draft, PendingApproval, Approved,
+  // Rejected, RevisionRequired, Cancelled
+  status String @default("Draft")
+
+  // Submission happens only when the foreman/user
+  // explicitly submits the MOC for approval.
+  // Notifications must not be triggered while Draft.
+  submittedById   String?
+  submittedByName String?
+  submittedByRole String?
+  submittedAt     DateTime?
+
+  // Snapshot of the approval routing that applied
+  // when this MOC was submitted.
+  //
+  // This preserves the exact approval requirements
+  // that applied at submission time even if the
+  // Requirement Pack changes later.
+  approvalRouting Json?
+
+  // Parent-level final/current disposition summary.
+  //
+  // Individual management approval decisions are
+  // stored in the approvals relation below.
   reviewedById   String?
   reviewedByName String?
+  reviewedByRole String?
   reviewedAt     DateTime?
+
+  reviewDecision String?
+  reviewComment  String?
+
+  approvedAt DateTime?
+  rejectedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
 
+  // One submitted MOC can require multiple
+  // independent management approvals.
+  approvals DailyWorkerSafetyEngagementMocApproval[]
+
   @@index([tenantId])
   @@index([dailyWseId])
   @@index([affectedTaskId])
   @@index([requiresPtpRevision])
+  @@index([status])
+  @@index([submittedAt])
+  @@index([reviewedAt])
   @@index([createdAt])
+}
+
+model DailyWorkerSafetyEngagementMocApproval {
+  id       String @id @default(cuid())
+  tenantId String
+
+  mocId String
+
+  // Snapshot of the approval role resolved from
+  // the applicable Requirement Pack at submission.
+  roleCode  String
+  roleLabel String
+
+  required  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  // Optional named approver assignment.
+  //
+  // These fields allow Qoreva to eventually route
+  // email/in-app notifications directly to the
+  // correct designated approver.
+  approverId    String?
+  approverName  String?
+  approverEmail String?
+
+  // Pending, Approved, Rejected, RevisionRequired
+  status String @default("Pending")
+
+  // Individual approver decision.
+  decision String?
+  comment  String?
+
+  // Person who actually made the decision.
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime?
+
+  // ==========================================================
+  // MOC APPROVAL SIGNATURE
+  // ==========================================================
+
+  // Approval requires an electronic signature.
+  //
+  // Request Revision and Reject do not require
+  // an approval signature.
+  signatureRequired Boolean @default(true)
+
+  // Drawn, Typed, VerifiedIdentity, etc.
+  signatureType String?
+
+  // Captured signature payload.
+  //
+  // MVP:
+  // Can store normalized signature-pad stroke/vector data.
+  //
+  // Future:
+  // A rendered signature artifact can be stored in
+  // S3/Azure Blob and referenced by signatureAssetKey.
+  signatureData Json?
+
+  // Optional cloud object-storage reference for a
+  // rendered signature artifact.
+  signatureAssetKey String?
+
+  // Snapshot of the exact acknowledgement accepted
+  // by the Designated Approver when signing.
+  signatureAttestation String?
+
+  // Time the approval signature was applied.
+  signedAt DateTime?
+
+  // Audit context captured when the signature is submitted.
+  signatureIpAddress String?
+  signatureUserAgent String?
+
+  // Notification delivery will be connected later.
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  moc DailyWorkerSafetyEngagementMoc @relation(fields: [mocId], references: [id], onDelete: Cascade)
+
+  // One MOC approval requirement per resolved role.
+  //
+  // MVP routing permits one required role:
+  // DESIGNATED_MOC_APPROVER.
+  @@unique([mocId, roleCode])
+  @@index([tenantId])
+  @@index([mocId])
+  @@index([roleCode])
+  @@index([status])
+  @@index([approverId])
+  @@index([approverEmail])
+  @@index([decidedAt])
+  @@index([signedAt])
+  @@index([notifiedAt])
 }
 
 // ============================================================

@@ -21,12 +21,12 @@ type TaskInput = {
 };
 
 type MocInput = {
-  id?: string | null;
   affectedTaskId?: string | null;
   changeDescription?: string;
   newHazards?: string | null;
   newMitigations?: string | null;
   requiresPtpRevision?: boolean;
+  reviewedByName?: string | null;
 };
 
 function toNullableString(value: unknown) {
@@ -124,19 +124,6 @@ async function loadWseWithClient(
       mocRecords: {
         orderBy: {
           createdAt: "asc",
-        },
-
-        include: {
-          approvals: {
-            orderBy: [
-              {
-                sortOrder: "asc",
-              },
-              {
-                roleLabel: "asc",
-              },
-            ],
-          },
         },
       },
     },
@@ -572,24 +559,9 @@ export async function PATCH(
       );
     }
 
-    /*
-     * Submitted/approved MOC records are official records and must never
-     * be silently replaced by an ordinary Daily WSE save. Incoming
-     * mocRecords represent the editable Draft portion of the MOC set.
-     */
-    const protectedMocRecords =
-      existingMocRecords.filter(
-        (moc) =>
-          moc.status !== "Draft",
-      );
-
     const effectiveMocRecords =
-      mocRecords !== null
-        ? [
-            ...protectedMocRecords,
-            ...mocRecords,
-          ]
-        : existingMocRecords;
+      mocRecords ??
+      existingMocRecords;
 
     const hasPtpRevisionMoc =
       effectiveMocRecords.some(
@@ -1066,139 +1038,67 @@ export async function PATCH(
           }
 
           if (mocRecords) {
-            const existingDraftMocs =
-              existingMocRecords.filter(
-                (moc) =>
-                  moc.status === "Draft",
-              );
-
-            const existingDraftMocMap =
-              new Map(
-                existingDraftMocs.map(
-                  (moc) => [
-                    moc.id,
-                    moc,
-                  ],
-                ),
-              );
-
-            const submittedDraftIds =
-              new Set<string>();
-
-            for (
-              const moc of
-              mocRecords
-            ) {
-              const mocId =
-                toNullableString(
-                  moc.id,
-                );
-
-              const data = {
-                affectedTaskId:
-                  toNullableString(
-                    moc.affectedTaskId,
-                  ),
-
-                changeDescription:
-                  toNullableString(
-                    moc.changeDescription,
-                  )!,
-
-                newHazards:
-                  toNullableString(
-                    moc.newHazards,
-                  ),
-
-                newMitigations:
-                  toNullableString(
-                    moc.newMitigations,
-                  ),
-
-                revisedRiskLevel:
-                  null,
-
-                requiresPtpRevision:
-                  moc.requiresPtpRevision ===
-                  true,
-              };
-
-              if (mocId) {
-                const existingDraft =
-                  existingDraftMocMap.get(
-                    mocId,
-                  );
-
-                if (!existingDraft) {
-                  throw new Error(
-                    "Only Draft MOC records belonging to this Daily WSE can be edited through the Daily WSE form.",
-                  );
-                }
-
-                submittedDraftIds.add(
-                  mocId,
-                );
-
-                await tx.dailyWorkerSafetyEngagementMoc.update({
-                  where: {
-                    id: mocId,
-                  },
-
-                  data,
-                });
-
-                continue;
-              }
-
-              await tx.dailyWorkerSafetyEngagementMoc.create({
-                data: {
-                  tenantId:
-                    existing.tenantId,
-
-                  dailyWseId:
-                    wseId,
-
-                  ...data,
-
-                  status:
-                    "Draft",
-                },
-              });
-            }
-
-            const draftIdsToDelete =
-              existingDraftMocs
-                .filter(
-                  (moc) =>
-                    !submittedDraftIds.has(
-                      moc.id,
-                    ),
-                )
-                .map(
-                  (moc) =>
-                    moc.id,
-                );
+            await tx.dailyWorkerSafetyEngagementMoc.deleteMany({
+              where: {
+                dailyWseId:
+                  wseId,
+                tenantId:
+                  existing.tenantId,
+              },
+            });
 
             if (
-              draftIdsToDelete.length >
+              mocRecords.length >
               0
             ) {
-              await tx.dailyWorkerSafetyEngagementMoc.deleteMany({
-                where: {
-                  id: {
-                    in:
-                      draftIdsToDelete,
-                  },
+              await tx.dailyWorkerSafetyEngagementMoc.createMany({
+                data:
+                  mocRecords.map(
+                    (moc) => ({
+                      tenantId:
+                        existing.tenantId,
 
-                  dailyWseId:
-                    wseId,
+                      dailyWseId:
+                        wseId,
 
-                  tenantId:
-                    existing.tenantId,
+                      affectedTaskId:
+                        toNullableString(
+                          moc.affectedTaskId,
+                        ),
 
-                  status:
-                    "Draft",
-                },
+                      changeDescription:
+                        toNullableString(
+                          moc.changeDescription,
+                        )!,
+
+                      newHazards:
+                        toNullableString(
+                          moc.newHazards,
+                        ),
+
+                      newMitigations:
+                        toNullableString(
+                          moc.newMitigations,
+                        ),
+
+                      revisedRiskLevel:
+                        null,
+
+                      requiresPtpRevision:
+                        moc.requiresPtpRevision ===
+                        true,
+
+                      reviewedByName:
+                        toNullableString(
+                          moc.reviewedByName,
+                        ),
+
+                      reviewedAt:
+                        moc.reviewedByName
+                          ? new Date()
+                          : null,
+                    }),
+                  ),
               });
             }
           }
@@ -1315,7 +1215,6 @@ export async function PATCH(
     const conflictMessages = [
       "Approved PTP work step is missing its Daily WSE task ID.",
       "Approved PTP work step could not be verified.",
-      "Only Draft MOC records belonging to this Daily WSE can be edited through the Daily WSE form.",
     ];
 
     return NextResponse.json(

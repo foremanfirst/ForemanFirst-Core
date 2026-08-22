@@ -143,8 +143,6 @@ export default function PlanningRecordPage() {
     useState("");
   const [wseWorkLocation, setWseWorkLocation] =
     useState("");
-  const [wseDailyRiskLevel, setWseDailyRiskLevel] =
-    useState("");
 
   async function loadRecord(
     options?: {
@@ -602,9 +600,6 @@ export default function PlanningRecordPage() {
                 wseWorkLocation.trim() ||
                 null,
 
-              dailyRiskLevel:
-                wseDailyRiskLevel ||
-                null,
             }),
           },
         );
@@ -981,26 +976,6 @@ export default function PlanningRecordPage() {
                 </select>
               </label>
 
-              <label className="block">
-                <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                  Overall Daily Risk
-                </span>
-                <select
-                  value={wseDailyRiskLevel}
-                  onChange={(event) => {
-                    setWseDailyRiskLevel(event.target.value);
-                    setWseError("");
-                    setWseSuccess("");
-                  }}
-                  className={lifecycleInputClassName}
-                >
-                  <option value="">Select during morning review</option>
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                </select>
-              </label>
-
               <label className="block md:col-span-2 xl:col-span-4">
                 <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
                   Task Location
@@ -1098,12 +1073,6 @@ export default function PlanningRecordPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {wse.dailyRiskLevel ? (
-                      <StatusBadge
-                        status={wse.dailyRiskLevel}
-                      />
-                    ) : null}
-
                     <StatusBadge
                       status={wse.status || "Open"}
                     />
@@ -1348,7 +1317,7 @@ export default function PlanningRecordPage() {
               {fieldEligibility(record) === "Effective"
                 ? `✓ Approved and effective for field use through ${formatDate(
                     record.effectiveEndDate,
-                  )}. Daily WSEs can be started below.`
+                  )}. Daily WSEs can now be started from this PTP.`
                 : fieldEligibility(record) === "Upcoming"
                   ? `Approved. Field use begins ${formatDate(
                       record.effectiveStartDate,
