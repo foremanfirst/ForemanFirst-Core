@@ -2047,7 +2047,20 @@ export default function CreatePlanningPage() {
 
     const timeoutId = window.setTimeout(() => {
       async function loadGuidedQuestions() {
-        if (!selectedProject) {
+        /*
+         * Guided Planning questions require a
+         * persisted Planning Record.
+         *
+         * The Planning Record is created during the
+         * Assignment step and is the trusted
+         * server-side source for tenant, company,
+         * project, contractor, plan type, and
+         * Requirement Pack applicability.
+         */
+        if (
+          !selectedProject ||
+          !planningRecordId
+        ) {
           return;
         }
 
@@ -2055,6 +2068,12 @@ export default function CreatePlanningPage() {
         setGuidedQuestionsError("");
 
         try {
+          /*
+           * Send the current Guided Planning answers
+           * so deterministic requirement rules and
+           * follow-up questions can react immediately
+           * before the final Guided Planning save.
+           */
           const answers = Object.fromEntries(
             (
               Object.entries(planningAnswers) as Array<
@@ -2066,6 +2085,16 @@ export default function CreatePlanningPage() {
             ]),
           );
 
+          /*
+           * Do not send tenantId from the browser.
+           *
+           * The API resolves tenant/project/company/
+           * contractor context from planningRecordId,
+           * then resolves applicable Requirement Packs
+           * and individual Requirement Rules on the
+           * server before evaluating question
+           * visibility.
+           */
           const response = await fetch(
             "/api/planning/question-evaluation",
             {
@@ -2074,7 +2103,7 @@ export default function CreatePlanningPage() {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                tenantId: selectedProject.tenantId,
+                planningRecordId,
                 activityCodes: confirmedActivityCodes,
                 answers,
               }),
@@ -2123,6 +2152,7 @@ export default function CreatePlanningPage() {
   }, [
     confirmedActivityCodes,
     planningAnswers,
+    planningRecordId,
     selectedProject,
   ]);
 

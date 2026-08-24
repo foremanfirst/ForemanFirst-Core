@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 
+import {
+  resolveApplicablePlanningRequirements,
+} from "@/lib/planning/requirement-resolver";
+
 import type {
   PlanningGenerationContext,
 } from "./planning-types";
@@ -200,64 +204,45 @@ export async function buildPlanningGenerationContext(
     }
   }
 
-  const applicableRequirementRules =
-    await prisma.requirementRule.findMany({
-      where: {
-        tenantId:
-          record.tenantId,
-
-        isActive: true,
-
-        status: {
-          in: [
-            "Active",
-            "Approved",
-          ],
-        },
-
-        requirementPack: {
-          isActive: true,
-          isArchived: false,
-          status: {
-            in: [
-              "Active",
-              "Approved",
-            ],
-          },
-        },
-      },
-
-      include: {
-        requirementPack: true,
-      },
-
-      orderBy: [
-        {
-          category: "asc",
-        },
-        {
-          ruleCode: "asc",
-        },
-      ],
-    });
+  /*
+   * Requirements Intelligence
+   *
+   * Do not load every active requirement in the
+   * tenant into the Planning generation context.
+   *
+   * The shared resolver determines:
+   *
+   * 1. Which Requirement Packs apply to this
+   *    company/project/contractor/plan context.
+   *
+   * 2. Which individual Requirement Rules apply
+   *    based on deterministic trigger conditions.
+   *
+   * Only resolved applicable rules are passed
+   * downstream to draft generation.
+   */
+  const requirementResolution =
+    await resolveApplicablePlanningRequirements(
+      record.id,
+    );
 
   const requirements =
-    applicableRequirementRules.map(
+    requirementResolution.rules.map(
       (rule) => ({
-        id: rule.id,
+        id:
+          rule.id,
 
         name:
           rule.title,
 
-        description: null,
+        description:
+          null,
 
         sourceType:
-          rule.requirementPack
-            .packType,
+          rule.packType,
 
         sourceOrganization:
-          rule.requirementPack
-            .organizationName,
+          rule.organizationName,
 
         severity:
           rule.severity,
