@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -188,6 +189,23 @@ type EditableMoc = {
   requiresPtpRevision: boolean;
 };
 
+type SignaturePoint = {
+  x: number;
+  y: number;
+};
+
+type SignatureStroke = {
+  points: SignaturePoint[];
+};
+
+type SignaturePayload = {
+  format: "qoreva-signature-strokes-v1";
+  width: number;
+  height: number;
+  strokes: SignatureStroke[];
+};
+
+
 function emptyMoc(): EditableMoc {
   return {
     id: null,
@@ -287,10 +305,20 @@ export default function DailyWsePage() {
     useState("");
 
   const [
-    approvalSignature,
-    setApprovalSignature,
+    approvalSignatureStrokes,
+    setApprovalSignatureStrokes,
   ] =
-    useState("");
+    useState<SignatureStroke[]>(
+      [],
+    );
+
+  const signaturePadRef =
+    useRef<SVGSVGElement | null>(
+      null,
+    );
+
+  const signatureDrawingRef =
+    useRef(false);
 
   const [
     approvalAttested,
@@ -1105,7 +1133,7 @@ export default function DailyWsePage() {
       ] || "",
     );
 
-    setApprovalSignature("");
+    setApprovalSignatureStrokes([]);
     setApprovalAttested(false);
     setError("");
   }
@@ -1120,8 +1148,189 @@ export default function DailyWsePage() {
     setApprovalModal(null);
     setApprovalSignerName("");
     setApprovalModalComment("");
-    setApprovalSignature("");
+    setApprovalSignatureStrokes([]);
     setApprovalAttested(false);
+  }
+
+  function signaturePointFromEvent(
+    event:
+      React.PointerEvent<SVGSVGElement>,
+  ): SignaturePoint | null {
+    const element =
+      signaturePadRef.current;
+
+    if (!element) {
+      return null;
+    }
+
+    const rect =
+      element.getBoundingClientRect();
+
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      x:
+        Math.max(
+          0,
+          Math.min(
+            1,
+            (event.clientX -
+              rect.left) /
+              rect.width,
+          ),
+        ),
+
+      y:
+        Math.max(
+          0,
+          Math.min(
+            1,
+            (event.clientY -
+              rect.top) /
+              rect.height,
+          ),
+        ),
+    };
+  }
+
+  function beginApprovalSignature(
+    event:
+      React.PointerEvent<SVGSVGElement>,
+  ) {
+    if (
+      reviewingApprovalId
+    ) {
+      return;
+    }
+
+    const point =
+      signaturePointFromEvent(
+        event,
+      );
+
+    if (!point) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(
+      event.pointerId,
+    );
+
+    signatureDrawingRef.current =
+      true;
+
+    setApprovalSignatureStrokes(
+      (current) => [
+        ...current,
+        {
+          points:
+            [point],
+        },
+      ],
+    );
+  }
+
+  function continueApprovalSignature(
+    event:
+      React.PointerEvent<SVGSVGElement>,
+  ) {
+    if (
+      !signatureDrawingRef.current ||
+      reviewingApprovalId
+    ) {
+      return;
+    }
+
+    const point =
+      signaturePointFromEvent(
+        event,
+      );
+
+    if (!point) {
+      return;
+    }
+
+    setApprovalSignatureStrokes(
+      (current) => {
+        if (
+          current.length ===
+          0
+        ) {
+          return current;
+        }
+
+        const next =
+          [...current];
+
+        const lastIndex =
+          next.length - 1;
+
+        next[lastIndex] = {
+          points: [
+            ...next[lastIndex]
+              .points,
+            point,
+          ],
+        };
+
+        return next;
+      },
+    );
+  }
+
+  function endApprovalSignature(
+    event:
+      React.PointerEvent<SVGSVGElement>,
+  ) {
+    signatureDrawingRef.current =
+      false;
+
+    if (
+      event.currentTarget.hasPointerCapture(
+        event.pointerId,
+      )
+    ) {
+      event.currentTarget.releasePointerCapture(
+        event.pointerId,
+      );
+    }
+  }
+
+  function clearApprovalSignature() {
+    if (
+      reviewingApprovalId
+    ) {
+      return;
+    }
+
+    signatureDrawingRef.current =
+      false;
+
+    setApprovalSignatureStrokes(
+      [],
+    );
+  }
+
+  function buildSignaturePayload():
+    SignaturePayload {
+    return {
+      format:
+        "qoreva-signature-strokes-v1",
+
+      width:
+        1000,
+
+      height:
+        300,
+
+      strokes:
+        approvalSignatureStrokes,
+    };
   }
 
   async function submitMocApprovalDecision() {
@@ -1175,10 +1384,11 @@ export default function DailyWsePage() {
       "Approved"
     ) {
       if (
-        !approvalSignature.trim()
+        approvalSignatureStrokes.length ===
+        0
       ) {
         setError(
-          "The named approver must sign before approving this MOC.",
+          "The named approver must draw a signature before approving this MOC.",
         );
         return;
       }
@@ -1229,18 +1439,13 @@ export default function DailyWsePage() {
                 signatureType:
                   decision ===
                   "Approved"
-                    ? "Typed"
+                    ? "Drawn"
                     : null,
 
                 signatureData:
                   decision ===
                   "Approved"
-                    ? {
-                        value:
-                          approvalSignature.trim(),
-                        capturedBy:
-                          "MOC approval modal",
-                      }
+                    ? buildSignaturePayload()
                     : null,
 
                 signatureAssetKey:
@@ -1285,7 +1490,7 @@ export default function DailyWsePage() {
       setApprovalModal(null);
       setApprovalSignerName("");
       setApprovalModalComment("");
-      setApprovalSignature("");
+      setApprovalSignatureStrokes([]);
       setApprovalAttested(false);
 
       await loadWse();
@@ -2267,6 +2472,41 @@ export default function DailyWsePage() {
                                     </p>
                                   ) : null}
 
+                                  {approval.status ===
+                                    "Approved" &&
+                                  approval.signedAt ? (
+                                    <div className="mt-3 rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] p-3">
+                                      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-success)]">
+                                        Approved & Signed
+                                      </p>
+
+                                      <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
+                                        {approval.decidedByName ||
+                                          approval.approverName ||
+                                          "Designated Approver"}{" "}
+                                        •{" "}
+                                        {approval.decidedByRole ||
+                                          approval.roleLabel}{" "}
+                                        •{" "}
+                                        {formatDateTime(
+                                          approval.signedAt,
+                                        )}
+                                      </p>
+
+                                      {isSignaturePayload(
+                                        approval.signatureData,
+                                      ) ? (
+                                        <div className="mt-3">
+                                          <SignaturePreview
+                                            signatureData={
+                                              approval.signatureData
+                                            }
+                                          />
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+
                                   {approval.comment ? (
                                     <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
                                       <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
@@ -2294,7 +2534,11 @@ export default function DailyWsePage() {
                                           : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-violet)]"
                                   }`}
                                 >
-                                  {approval.status}
+                                  {approval.status ===
+                                  "Approved" &&
+                                  approval.signedAt
+                                    ? "Approved & Signed"
+                                    : approval.status}
                                 </span>
                               </div>
 
@@ -3339,33 +3583,160 @@ export default function DailyWsePage() {
               "Approved" ? (
                 <>
                   <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-violet-faint)] p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                      Electronic Signature
-                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                          Electronic Signature
+                        </p>
 
-                    <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                      Sign as the named approver
-                    </p>
+                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                          Draw your signature below
+                        </p>
 
-                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
-                      MVP signature capture uses an electronic typed signature. A handwritten signature pad can replace this input later without changing the approval workflow or audit record.
-                    </p>
+                        <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                          Use a mouse, finger, or stylus. Your signature is stored with the official MOC approval record.
+                        </p>
+                      </div>
 
-                    <input
-                      value={
-                        approvalSignature
-                      }
-                      onChange={(event) =>
-                        setApprovalSignature(
-                          event.target.value,
-                        )
-                      }
-                      disabled={Boolean(
-                        reviewingApprovalId,
-                      )}
-                      placeholder="Type your full legal name as your signature"
-                      className="mt-4 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-4 py-4 text-lg font-semibold italic text-[var(--qoreva-obsidian)] outline-none transition focus:border-[var(--qoreva-violet)] disabled:bg-[var(--qoreva-surface-muted)]"
-                    />
+                      <button
+                        type="button"
+                        onClick={
+                          clearApprovalSignature
+                        }
+                        disabled={
+                          Boolean(
+                            reviewingApprovalId,
+                          ) ||
+                          approvalSignatureStrokes.length ===
+                            0
+                        }
+                        className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-obsidian)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Clear Signature
+                      </button>
+                    </div>
+
+                    <div className="mt-4 overflow-hidden rounded-xl border-2 border-dashed border-[var(--qoreva-border-strong)] bg-white">
+                      <svg
+                        ref={
+                          signaturePadRef
+                        }
+                        viewBox="0 0 1000 300"
+                        preserveAspectRatio="none"
+                        onPointerDown={
+                          beginApprovalSignature
+                        }
+                        onPointerMove={
+                          continueApprovalSignature
+                        }
+                        onPointerUp={
+                          endApprovalSignature
+                        }
+                        onPointerCancel={
+                          endApprovalSignature
+                        }
+                        onPointerLeave={(
+                          event,
+                        ) => {
+                          if (
+                            signatureDrawingRef.current
+                          ) {
+                            endApprovalSignature(
+                              event,
+                            );
+                          }
+                        }}
+                        className="block h-44 w-full touch-none select-none bg-white sm:h-48"
+                        aria-label="Draw approval signature"
+                      >
+                        <line
+                          x1="80"
+                          y1="240"
+                          x2="920"
+                          y2="240"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="text-[var(--qoreva-border-strong)]"
+                        />
+
+                        {approvalSignatureStrokes.map(
+                          (
+                            stroke,
+                            strokeIndex,
+                          ) => {
+                            if (
+                              stroke.points.length ===
+                              0
+                            ) {
+                              return null;
+                            }
+
+                            const path =
+                              stroke.points
+                                .map(
+                                  (
+                                    point,
+                                    pointIndex,
+                                  ) =>
+                                    `${
+                                      pointIndex ===
+                                      0
+                                        ? "M"
+                                        : "L"
+                                    } ${
+                                      point.x *
+                                      1000
+                                    } ${
+                                      point.y *
+                                      300
+                                    }`,
+                                )
+                                .join(
+                                  " ",
+                                );
+
+                            return (
+                              <path
+                                key={
+                                  strokeIndex
+                                }
+                                d={
+                                  path
+                                }
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="7"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="text-[var(--qoreva-obsidian)]"
+                              />
+                            );
+                          },
+                        )}
+                      </svg>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-[var(--qoreva-muted)]">
+                        Signer:{" "}
+                        {approvalSignerName ||
+                          "Named approver"}
+                      </p>
+
+                      <span
+                        className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-wide ${
+                          approvalSignatureStrokes.length >
+                          0
+                            ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                            : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
+                        }`}
+                      >
+                        {approvalSignatureStrokes.length >
+                        0
+                          ? "Signature Captured"
+                          : "Signature Required"}
+                      </span>
+                    </div>
                   </div>
 
                   <label className="flex items-start gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4">
@@ -3434,7 +3805,8 @@ export default function DailyWsePage() {
                       approvalModal.decision ===
                         "Approved" &&
                       (
-                        !approvalSignature.trim() ||
+                        approvalSignatureStrokes.length ===
+                          0 ||
                         !approvalAttested
                       )
                     ) ||
@@ -3640,6 +4012,113 @@ function YesNoQuestion({
           No
         </button>
       </div>
+    </div>
+  );
+}
+
+function isSignaturePayload(
+  value: unknown,
+): value is SignaturePayload {
+  if (
+    typeof value !==
+      "object" ||
+    value === null
+  ) {
+    return false;
+  }
+
+  const candidate =
+    value as {
+      format?: unknown;
+      width?: unknown;
+      height?: unknown;
+      strokes?: unknown;
+    };
+
+  return (
+    candidate.format ===
+      "qoreva-signature-strokes-v1" &&
+    typeof candidate.width ===
+      "number" &&
+    typeof candidate.height ===
+      "number" &&
+    Array.isArray(
+      candidate.strokes,
+    )
+  );
+}
+
+function SignaturePreview({
+  signatureData,
+}: {
+  signatureData: SignaturePayload;
+}) {
+  return (
+    <div className="w-full max-w-sm rounded-xl border border-[#BDE8D4] bg-white p-3">
+      <svg
+        viewBox={`0 0 ${signatureData.width} ${signatureData.height}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="h-20 w-full"
+        aria-label="Recorded MOC approval signature"
+      >
+        {signatureData.strokes.map(
+          (
+            stroke,
+            strokeIndex,
+          ) => {
+            if (
+              !Array.isArray(
+                stroke.points,
+              ) ||
+              stroke.points.length ===
+                0
+            ) {
+              return null;
+            }
+
+            const path =
+              stroke.points
+                .map(
+                  (
+                    point,
+                    pointIndex,
+                  ) =>
+                    `${
+                      pointIndex ===
+                      0
+                        ? "M"
+                        : "L"
+                    } ${
+                      point.x *
+                      signatureData.width
+                    } ${
+                      point.y *
+                      signatureData.height
+                    }`,
+                )
+                .join(
+                  " ",
+                );
+
+            return (
+              <path
+                key={
+                  strokeIndex
+                }
+                d={
+                  path
+                }
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-[var(--qoreva-obsidian)]"
+              />
+            );
+          },
+        )}
+      </svg>
     </div>
   );
 }
