@@ -48,52 +48,241 @@ type ParsedTriggerConditions = {
 
 export type RequirementResolutionOverrides = {
   activityCodes?: string[];
+
   answers?: Record<
     string,
     string | null | undefined
   >;
 };
 
+export type RequirementSourceLevel =
+  | "Qoreva"
+  | "Federal"
+  | "StatePlan"
+  | "Owner"
+  | "GC"
+  | "Company"
+  | "Project"
+  | "Other";
+
+export type RequirementRelationship =
+  | "Standalone"
+  | "Additive"
+  | "Overlapping";
+
+export type RequirementGroupResolutionStatus =
+  | "Standalone"
+  | "Additive"
+  | "ControllingResolved"
+  | "ReviewRequired";
+
+type RequirementResolutionMetadata = {
+  groupKey: string | null;
+
+  relationship:
+    | "Additive"
+    | "Overlapping"
+    | null;
+
+  stringencyRank:
+    number | null;
+};
+
 export type ResolvedRequirementRule = {
   id: string;
-  requirementPackId: string;
-  requirementPackName: string;
-  packType: string;
-  organizationName: string | null;
-  packVersion: number;
-  ruleCode: string;
-  title: string;
-  requirementText: string;
-  category: string | null;
-  severity: string | null;
-  requiredInformation: Prisma.JsonValue | null;
-  requiredControls: Prisma.JsonValue | null;
-  sourceDocumentName: string | null;
-  sourcePage: string | null;
-  sourceReference: Prisma.JsonValue | null;
-  triggerConditions: Prisma.JsonValue | null;
+
+  requirementPackId:
+    string;
+
+  requirementPackName:
+    string;
+
+  packType:
+    string;
+
+  organizationName:
+    string | null;
+
+  packVersion:
+    number;
+
+  /*
+   * Source hierarchy is used for ordering,
+   * provenance, and explanation.
+   *
+   * It is NOT automatically treated as a
+   * stringency hierarchy.
+   */
+  sourceLevel:
+    RequirementSourceLevel;
+
+  sourcePrecedenceRank:
+    number;
+
+  ruleCode:
+    string;
+
+  title:
+    string;
+
+  requirementText:
+    string;
+
+  category:
+    string | null;
+
+  severity:
+    string | null;
+
+  requiredInformation:
+    Prisma.JsonValue | null;
+
+  requiredControls:
+    Prisma.JsonValue | null;
+
+  sourceDocumentName:
+    string | null;
+
+  sourcePage:
+    string | null;
+
+  sourceReference:
+    Prisma.JsonValue | null;
+
+  triggerConditions:
+    Prisma.JsonValue | null;
+
+  /*
+   * Optional deterministic comparison metadata.
+   *
+   * Qoreva does not infer overlap/stringency merely
+   * because two requirements have similar titles
+   * or belong to the same category.
+   */
+  resolutionGroupKey:
+    string | null;
+
+  relationshipHint:
+    | "Additive"
+    | "Overlapping"
+    | null;
+
+  stringencyRank:
+    number | null;
+};
+
+export type ResolvedRequirementGroup = {
+  groupKey:
+    string;
+
+  category:
+    string | null;
+
+  relationship:
+    RequirementRelationship;
+
+  status:
+    RequirementGroupResolutionStatus;
+
+  ruleIds:
+    string[];
+
+  ruleCodes:
+    string[];
+
+  controllingRuleId:
+    string | null;
+
+  controllingRuleCode:
+    string | null;
+
+  requiresQualifiedReview:
+    boolean;
+
+  resolutionReason:
+    string;
 };
 
 export type PlanningRequirementResolutionResult = {
-  planningRecordId: string;
-  tenantId: string;
-  planType: string;
-  effectiveEvaluationDate: string;
-  rules: ResolvedRequirementRule[];
-  applicablePacks: Array<{
-    id: string;
-    name: string;
-    packType: string;
-    organizationName: string | null;
-    version: number;
-  }>;
+  planningRecordId:
+    string;
+
+  tenantId:
+    string;
+
+  planType:
+    string;
+
+  effectiveEvaluationDate:
+    string;
+
+  /*
+   * Preserve every applicable requirement.
+   *
+   * Even when Qoreva can deterministically identify
+   * a controlling requirement, all contributing
+   * sources remain available for auditability.
+   */
+  rules:
+    ResolvedRequirementRule[];
+
+  groups:
+    ResolvedRequirementGroup[];
+
+  applicablePacks:
+    Array<{
+      id: string;
+
+      name: string;
+
+      packType: string;
+
+      organizationName:
+        string | null;
+
+      version:
+        number;
+
+      sourceLevel:
+        RequirementSourceLevel;
+
+      sourcePrecedenceRank:
+        number;
+    }>;
+
   metadata: {
-    candidatePackCount: number;
-    applicablePackCount: number;
-    candidateRuleCount: number;
-    applicableRuleCount: number;
-    unresolvedRuleCount: number;
-    resolverVersion: string;
+    candidatePackCount:
+      number;
+
+    applicablePackCount:
+      number;
+
+    candidateRuleCount:
+      number;
+
+    applicableRuleCount:
+      number;
+
+    unresolvedRuleCount:
+      number;
+
+    requirementGroupCount:
+      number;
+
+    additiveGroupCount:
+      number;
+
+    overlappingGroupCount:
+      number;
+
+    controllingResolvedGroupCount:
+      number;
+
+    reviewRequiredGroupCount:
+      number;
+
+    resolverVersion:
+      string;
   };
 };
 
@@ -101,7 +290,8 @@ function isRecord(
   value: unknown,
 ): value is JsonRecord {
   return (
-    typeof value === "object" &&
+    typeof value ===
+      "object" &&
     value !== null &&
     !Array.isArray(value)
   );
@@ -111,7 +301,8 @@ function nullableString(
   value: unknown,
 ) {
   if (
-    typeof value !== "string"
+    typeof value !==
+    "string"
   ) {
     return null;
   }
@@ -132,11 +323,28 @@ function normalizeString(
     .toLowerCase();
 }
 
+function normalizeCodeLike(
+  value: string,
+) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(
+      /[^A-Z0-9]+/g,
+      "_",
+    )
+    .replace(
+      /^_+|_+$/g,
+      "",
+    );
+}
+
 function normalizeStringArray(
   value: unknown,
 ) {
   if (
-    typeof value === "string"
+    typeof value ===
+    "string"
   ) {
     const normalized =
       nullableString(value);
@@ -163,9 +371,52 @@ function normalizeStringArray(
 function normalizeMatch(
   value: unknown,
 ): RequirementTriggerMatch {
-  return value === "ANY"
+  return value ===
+    "ANY"
     ? "ANY"
     : "ALL";
+}
+
+function normalizeRelationship(
+  value: unknown,
+):
+  | "Additive"
+  | "Overlapping"
+  | null {
+  const normalized =
+    nullableString(value)
+      ?.toLowerCase();
+
+  if (
+    normalized ===
+    "additive"
+  ) {
+    return "Additive";
+  }
+
+  if (
+    normalized ===
+      "overlapping" ||
+    normalized ===
+      "overlap"
+  ) {
+    return "Overlapping";
+  }
+
+  return null;
+}
+
+function finiteNumber(
+  value: unknown,
+) {
+  const parsed =
+    Number(value);
+
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
+    : null;
 }
 
 function parseTriggerCondition(
@@ -176,7 +427,9 @@ function parseTriggerCondition(
   }
 
   const type =
-    nullableString(value.type);
+    nullableString(
+      value.type,
+    );
 
   if (!type) {
     return null;
@@ -185,7 +438,8 @@ function parseTriggerCondition(
   switch (type) {
     case "Always":
       return {
-        type: "Always",
+        type:
+          "Always",
       };
 
     case "ActivityDetected": {
@@ -203,7 +457,9 @@ function parseTriggerCondition(
       }
 
       return {
-        type: "ActivityDetected",
+        type:
+          "ActivityDetected",
+
         activityCodes,
       };
     }
@@ -227,9 +483,13 @@ function parseTriggerCondition(
       }
 
       return {
-        type: "AnswerEquals",
+        type:
+          "AnswerEquals",
+
         questionCode,
-        value: expectedValue,
+
+        value:
+          expectedValue,
       };
     }
 
@@ -254,8 +514,11 @@ function parseTriggerCondition(
       }
 
       return {
-        type: "AnswerContains",
+        type:
+          "AnswerContains",
+
         questionCode,
+
         values,
       };
     }
@@ -277,7 +540,9 @@ function parseTriggerCondition(
       }
 
       return {
-        type: "PlanType",
+        type:
+          "PlanType",
+
         values,
       };
     }
@@ -299,7 +564,9 @@ function parseTriggerCondition(
       }
 
       return {
-        type: "Trade",
+        type:
+          "Trade",
+
         values,
       };
     }
@@ -310,7 +577,8 @@ function parseTriggerCondition(
 }
 
 function parseTriggerConditions(
-  value: Prisma.JsonValue | null,
+  value:
+    Prisma.JsonValue | null,
 ): ParsedTriggerConditions | null {
   if (!isRecord(value)) {
     return null;
@@ -325,7 +593,9 @@ function parseTriggerConditions(
 
   const conditions =
     rawConditions
-      .map(parseTriggerCondition)
+      .map(
+        parseTriggerCondition,
+      )
       .filter(
         (
           condition,
@@ -345,50 +615,148 @@ function parseTriggerConditions(
       normalizeMatch(
         value.match,
       ),
+
     conditions,
   };
 }
 
+function parseResolutionMetadata(
+  sourceReference:
+    Prisma.JsonValue | null,
+): RequirementResolutionMetadata {
+  if (
+    !isRecord(
+      sourceReference,
+    )
+  ) {
+    return {
+      groupKey:
+        null,
+
+      relationship:
+        null,
+
+      stringencyRank:
+        null,
+    };
+  }
+
+  const resolution =
+    isRecord(
+      sourceReference.resolution,
+    )
+      ? sourceReference
+          .resolution
+      : null;
+
+  if (!resolution) {
+    return {
+      groupKey:
+        null,
+
+      relationship:
+        null,
+
+      stringencyRank:
+        null,
+    };
+  }
+
+  const rawGroupKey =
+    nullableString(
+      resolution.groupKey ??
+        resolution
+          .requirementGroup ??
+        resolution
+          .comparisonGroup,
+    );
+
+  const groupKey =
+    rawGroupKey
+      ? normalizeCodeLike(
+          rawGroupKey,
+        )
+      : null;
+
+  const relationship =
+    normalizeRelationship(
+      resolution.relationship ??
+        resolution
+          .relationshipType,
+    );
+
+  const stringencyRank =
+    finiteNumber(
+      resolution.stringencyRank ??
+        resolution
+          .stringencyScore,
+    );
+
+  return {
+    groupKey,
+
+    relationship,
+
+    stringencyRank,
+  };
+}
+
 function equalsAny(
-  actual: string | null,
-  expected: string[],
+  actual:
+    string | null,
+
+  expected:
+    string[],
 ) {
   if (!actual) {
     return false;
   }
 
   const normalizedActual =
-    normalizeString(actual);
+    normalizeString(
+      actual,
+    );
 
   return expected.some(
     (candidate) =>
-      normalizeString(candidate) ===
+      normalizeString(
+        candidate,
+      ) ===
       normalizedActual,
   );
 }
 
 function answerContainsAny(
-  actual: string | null,
-  expected: string[],
+  actual:
+    string | null,
+
+  expected:
+    string[],
 ) {
   if (!actual) {
     return false;
   }
 
   const normalizedActual =
-    normalizeString(actual);
+    normalizeString(
+      actual,
+    );
 
   return expected.some(
     (candidate) => {
       const normalizedExpected =
-        normalizeString(candidate);
+        normalizeString(
+          candidate,
+        );
 
-      return Boolean(
-        normalizedExpected,
-      ) &&
+      return (
+        Boolean(
+          normalizedExpected,
+        ) &&
         normalizedActual.includes(
           normalizedExpected,
-        );
+        )
+      );
     },
   );
 }
@@ -400,41 +768,63 @@ function triggerConditionMatches({
   planType,
   contractorTrade,
 }: {
-  condition: RequirementTriggerCondition;
-  activityCodes: Set<string>;
-  answers: Map<string, string | null>;
-  planType: string;
-  contractorTrade: string | null;
+  condition:
+    RequirementTriggerCondition;
+
+  activityCodes:
+    Set<string>;
+
+  answers:
+    Map<
+      string,
+      string | null
+    >;
+
+  planType:
+    string;
+
+  contractorTrade:
+    string | null;
 }) {
-  switch (condition.type) {
+  switch (
+    condition.type
+  ) {
     case "Always":
       return true;
 
     case "ActivityDetected":
-      return condition.activityCodes.some(
-        (activityCode) =>
-          activityCodes.has(
+      return condition
+        .activityCodes
+        .some(
+          (
             activityCode,
-          ),
-      );
+          ) =>
+            activityCodes.has(
+              activityCode,
+            ),
+        );
 
     case "AnswerEquals": {
       const actual =
         answers.get(
-          condition.questionCode,
+          condition
+            .questionCode,
         ) ??
         null;
 
       return equalsAny(
         actual,
-        [condition.value],
+        [
+          condition.value,
+        ],
       );
     }
 
     case "AnswerContains": {
       const actual =
         answers.get(
-          condition.questionCode,
+          condition
+            .questionCode,
         ) ??
         null;
 
@@ -468,21 +858,44 @@ function requirementRuleApplies({
   planType,
   contractorTrade,
 }: {
-  triggerConditions: Prisma.JsonValue | null;
-  activityCodes: Set<string>;
-  answers: Map<string, string | null>;
-  planType: string;
-  contractorTrade: string | null;
+  triggerConditions:
+    Prisma.JsonValue | null;
+
+  activityCodes:
+    Set<string>;
+
+  answers:
+    Map<
+      string,
+      string | null
+    >;
+
+  planType:
+    string;
+
+  contractorTrade:
+    string | null;
 }) {
   const parsed =
     parseTriggerConditions(
       triggerConditions,
     );
 
+  /*
+   * Missing or invalid trigger configuration
+   * does not silently make a requirement
+   * applicable.
+   *
+   * Universal rules must explicitly use an
+   * Always trigger.
+   */
   if (!parsed) {
     return {
-      applies: false,
-      resolved: false,
+      applies:
+        false,
+
+      resolved:
+        false,
     };
   }
 
@@ -491,19 +904,30 @@ function requirementRuleApplies({
       (condition) =>
         triggerConditionMatches({
           condition,
+
           activityCodes,
+
           answers,
+
           planType,
+
           contractorTrade,
         }),
     );
 
   return {
     applies:
-      parsed.match === "ANY"
-        ? results.some(Boolean)
-        : results.every(Boolean),
-    resolved: true,
+      parsed.match ===
+      "ANY"
+        ? results.some(
+            Boolean,
+          )
+        : results.every(
+            Boolean,
+          ),
+
+    resolved:
+      true,
   };
 }
 
@@ -512,9 +936,14 @@ function dateIsActive({
   expirationDate,
   evaluationDate,
 }: {
-  effectiveDate: Date | null;
-  expirationDate: Date | null;
-  evaluationDate: Date;
+  effectiveDate:
+    Date | null;
+
+  expirationDate:
+    Date | null;
+
+  evaluationDate:
+    Date;
 }) {
   if (
     effectiveDate &&
@@ -535,62 +964,471 @@ function dateIsActive({
   return true;
 }
 
-function packPriority(
+function sourceLevelForPackType(
   packType: string,
-) {
+): RequirementSourceLevel {
   switch (
     packType
       .trim()
       .toLowerCase()
   ) {
     case "qoreva":
-      return 5;
+      return "Qoreva";
 
     case "federal":
     case "osha":
-      return 10;
+      return "Federal";
 
     case "state":
     case "stateplan":
     case "state_plan":
-      return 20;
+    case "state plan":
+      return "StatePlan";
 
     case "owner":
-      return 30;
+      return "Owner";
 
     case "gc":
-      return 40;
+    case "generalcontractor":
+    case "general_contractor":
+    case "general contractor":
+      return "GC";
 
     case "company":
-      return 50;
+      return "Company";
 
     case "project":
+      return "Project";
+
+    default:
+      return "Other";
+  }
+}
+
+function sourcePrecedenceRank(
+  packType: string,
+) {
+  /*
+   * Source hierarchy:
+   *
+   * Federal OSHA
+   * State Plan
+   * Owner
+   * GC
+   * Company
+   * Project
+   *
+   * This rank controls deterministic ordering
+   * and provenance only.
+   *
+   * It must NOT be treated as a proxy for
+   * requirement stringency.
+   */
+  switch (
+    sourceLevelForPackType(
+      packType,
+    )
+  ) {
+    case "Qoreva":
+      return 0;
+
+    case "Federal":
+      return 10;
+
+    case "StatePlan":
+      return 20;
+
+    case "Owner":
+      return 30;
+
+    case "GC":
+      return 40;
+
+    case "Company":
+      return 50;
+
+    case "Project":
       return 60;
 
+    case "Other":
     default:
       return 25;
   }
 }
 
+function resolveRequirementGroups(
+  rules:
+    ResolvedRequirementRule[],
+) {
+  const grouped =
+    new Map<
+      string,
+      ResolvedRequirementRule[]
+    >();
+
+  for (
+    const rule of
+    rules
+  ) {
+    /*
+     * Do not infer overlap from category/title.
+     *
+     * Rules without an explicit resolution group
+     * remain standalone.
+     */
+    const groupKey =
+      rule.resolutionGroupKey ??
+      `RULE:${rule.id}`;
+
+    const existing =
+      grouped.get(
+        groupKey,
+      ) ??
+      [];
+
+    existing.push(
+      rule,
+    );
+
+    grouped.set(
+      groupKey,
+      existing,
+    );
+  }
+
+  const groups:
+    ResolvedRequirementGroup[] =
+    [];
+
+  for (
+    const [
+      groupKey,
+      groupRules,
+    ] of grouped.entries()
+  ) {
+    const orderedRules =
+      [...groupRules].sort(
+        (a, b) => {
+          if (
+            a.sourcePrecedenceRank !==
+            b.sourcePrecedenceRank
+          ) {
+            return (
+              a.sourcePrecedenceRank -
+              b.sourcePrecedenceRank
+            );
+          }
+
+          if (
+            a.packVersion !==
+            b.packVersion
+          ) {
+            return (
+              a.packVersion -
+              b.packVersion
+            );
+          }
+
+          return a.ruleCode.localeCompare(
+            b.ruleCode,
+          );
+        },
+      );
+
+    const category =
+      orderedRules.find(
+        (rule) =>
+          Boolean(
+            rule.category,
+          ),
+      )?.category ??
+      null;
+
+    /*
+     * No explicit grouping means this requirement
+     * stands independently.
+     */
+    if (
+      orderedRules.length ===
+        1 &&
+      !orderedRules[0]
+        .resolutionGroupKey
+    ) {
+      const onlyRule =
+        orderedRules[0];
+
+      groups.push({
+        groupKey,
+
+        category,
+
+        relationship:
+          "Standalone",
+
+        status:
+          "Standalone",
+
+        ruleIds: [
+          onlyRule.id,
+        ],
+
+        ruleCodes: [
+          onlyRule.ruleCode,
+        ],
+
+        controllingRuleId:
+          onlyRule.id,
+
+        controllingRuleCode:
+          onlyRule.ruleCode,
+
+        requiresQualifiedReview:
+          false,
+
+        resolutionReason:
+          "No explicit overlap group is configured. This applicable requirement remains independently controlling for its own subject.",
+      });
+
+      continue;
+    }
+
+    const relationshipHints =
+      orderedRules
+        .map(
+          (rule) =>
+            rule.relationshipHint,
+        )
+        .filter(
+          (
+            relationship,
+          ): relationship is
+            | "Additive"
+            | "Overlapping" =>
+            Boolean(
+              relationship,
+            ),
+        );
+
+    const allExplicitlyAdditive =
+      relationshipHints.length ===
+        orderedRules.length &&
+      relationshipHints.every(
+        (relationship) =>
+          relationship ===
+          "Additive",
+      );
+
+    /*
+     * Additive rules all remain applicable.
+     *
+     * Example:
+     * OSHA may require one control while an
+     * Owner adds another non-conflicting control.
+     */
+    if (
+      allExplicitlyAdditive
+    ) {
+      groups.push({
+        groupKey,
+
+        category,
+
+        relationship:
+          "Additive",
+
+        status:
+          "Additive",
+
+        ruleIds:
+          orderedRules.map(
+            (rule) =>
+              rule.id,
+          ),
+
+        ruleCodes:
+          orderedRules.map(
+            (rule) =>
+              rule.ruleCode,
+          ),
+
+        controllingRuleId:
+          null,
+
+        controllingRuleCode:
+          null,
+
+        requiresQualifiedReview:
+          false,
+
+        resolutionReason:
+          "All rules in this group are explicitly configured as additive. Qoreva preserves and applies each requirement rather than selecting one controlling rule.",
+      });
+
+      continue;
+    }
+
+    /*
+     * For overlapping requirements, Qoreva only
+     * determines the controlling/more-stringent
+     * requirement when every rule includes explicit
+     * comparable stringency metadata.
+     *
+     * Source precedence is never used as a
+     * stringency tie-breaker.
+     */
+    const allHaveStringencyRank =
+      orderedRules.every(
+        (rule) =>
+          rule.stringencyRank !==
+          null,
+      );
+
+    if (
+      allHaveStringencyRank
+    ) {
+      const highestRank =
+        Math.max(
+          ...orderedRules.map(
+            (rule) =>
+              rule.stringencyRank as number,
+          ),
+        );
+
+      const highestRules =
+        orderedRules.filter(
+          (rule) =>
+            rule.stringencyRank ===
+            highestRank,
+        );
+
+      if (
+        highestRules.length ===
+        1
+      ) {
+        const controllingRule =
+          highestRules[0];
+
+        groups.push({
+          groupKey,
+
+          category,
+
+          relationship:
+            "Overlapping",
+
+          status:
+            "ControllingResolved",
+
+          ruleIds:
+            orderedRules.map(
+              (rule) =>
+                rule.id,
+            ),
+
+          ruleCodes:
+            orderedRules.map(
+              (rule) =>
+                rule.ruleCode,
+            ),
+
+          controllingRuleId:
+            controllingRule.id,
+
+          controllingRuleCode:
+            controllingRule.ruleCode,
+
+          requiresQualifiedReview:
+            false,
+
+          resolutionReason:
+            "All overlapping requirements contain explicit comparable stringency metadata, and one requirement has the unique highest stringency rank.",
+        });
+
+        continue;
+      }
+    }
+
+    /*
+     * If stringency cannot be determined
+     * deterministically, Qoreva surfaces the
+     * overlap instead of inventing a winner.
+     */
+    groups.push({
+      groupKey,
+
+      category,
+
+      relationship:
+        "Overlapping",
+
+      status:
+        "ReviewRequired",
+
+      ruleIds:
+        orderedRules.map(
+          (rule) =>
+            rule.id,
+        ),
+
+      ruleCodes:
+        orderedRules.map(
+          (rule) =>
+            rule.ruleCode,
+        ),
+
+      controllingRuleId:
+        null,
+
+      controllingRuleCode:
+        null,
+
+      requiresQualifiedReview:
+        true,
+
+      resolutionReason:
+        "Multiple applicable requirements overlap, but Qoreva does not have sufficient deterministic stringency metadata to select a controlling requirement. Qualified review is required.",
+    });
+  }
+
+  return groups.sort(
+    (a, b) =>
+      a.groupKey.localeCompare(
+        b.groupKey,
+      ),
+  );
+}
+
 export async function resolveApplicablePlanningRequirements(
   planningRecordId: string,
-  overrides: RequirementResolutionOverrides = {},
+
+  overrides:
+    RequirementResolutionOverrides = {},
 ): Promise<PlanningRequirementResolutionResult> {
   const record =
     await prisma.planningRecord.findFirst({
       where: {
-        id: planningRecordId,
-        isArchived: false,
+        id:
+          planningRecordId,
+
+        isArchived:
+          false,
       },
 
       include: {
-        company: true,
-        project: true,
-        contractor: true,
+        company:
+          true,
+
+        project:
+          true,
+
+        contractor:
+          true,
 
         activities: {
           where: {
-            isActive: true,
+            isActive:
+              true,
+
             confirmationStatus:
               "Confirmed",
           },
@@ -649,11 +1487,23 @@ export async function resolveApplicablePlanningRequirements(
       null,
   };
 
+  /*
+   * Requirement Packs may be tenant-specific
+   * or part of Qoreva's shared baseline library.
+   *
+   * QOREVA is the system-level namespace,
+   * consistent with the shared Guided Planning
+   * Question library.
+   */
   const candidatePacks =
     await prisma.requirementPack.findMany({
       where: {
-        tenantId:
-          record.tenantId,
+        tenantId: {
+          in: [
+            "QOREVA",
+            record.tenantId,
+          ],
+        },
 
         isActive:
           true,
@@ -730,19 +1580,19 @@ export async function resolveApplicablePlanningRequirements(
       )
       .sort(
         (a, b) => {
-          const priorityDifference =
-            packPriority(
+          const precedenceDifference =
+            sourcePrecedenceRank(
               a.packType,
             ) -
-            packPriority(
+            sourcePrecedenceRank(
               b.packType,
             );
 
           if (
-            priorityDifference !==
+            precedenceDifference !==
             0
           ) {
-            return priorityDifference;
+            return precedenceDifference;
           }
 
           if (
@@ -900,6 +1750,7 @@ export async function resolveApplicablePlanningRequirements(
 
     answers.set(
       normalizedCode,
+
       typeof responseValue ===
         "string"
         ? responseValue
@@ -948,6 +1799,7 @@ export async function resolveApplicablePlanningRequirements(
             rule.triggerConditions,
 
           activityCodes,
+
           answers,
 
           planType:
@@ -967,9 +1819,16 @@ export async function resolveApplicablePlanningRequirements(
         continue;
       }
 
-      if (!resolution.applies) {
+      if (
+        !resolution.applies
+      ) {
         continue;
       }
+
+      const resolutionMetadata =
+        parseResolutionMetadata(
+          rule.sourceReference,
+        );
 
       resolvedRules.push({
         id:
@@ -989,6 +1848,16 @@ export async function resolveApplicablePlanningRequirements(
 
         packVersion:
           pack.version,
+
+        sourceLevel:
+          sourceLevelForPackType(
+            pack.packType,
+          ),
+
+        sourcePrecedenceRank:
+          sourcePrecedenceRank(
+            pack.packType,
+          ),
 
         ruleCode:
           rule.ruleCode,
@@ -1022,9 +1891,86 @@ export async function resolveApplicablePlanningRequirements(
 
         triggerConditions:
           rule.triggerConditions,
+
+        resolutionGroupKey:
+          resolutionMetadata.groupKey,
+
+        relationshipHint:
+          resolutionMetadata.relationship,
+
+        stringencyRank:
+          resolutionMetadata.stringencyRank,
       });
     }
   }
+
+  const orderedRules =
+    [...resolvedRules].sort(
+      (a, b) => {
+        if (
+          a.sourcePrecedenceRank !==
+          b.sourcePrecedenceRank
+        ) {
+          return (
+            a.sourcePrecedenceRank -
+            b.sourcePrecedenceRank
+          );
+        }
+
+        const categoryComparison =
+          (
+            a.category ??
+            ""
+          ).localeCompare(
+            b.category ??
+            "",
+          );
+
+        if (
+          categoryComparison !==
+          0
+        ) {
+          return categoryComparison;
+        }
+
+        return a.ruleCode.localeCompare(
+          b.ruleCode,
+        );
+      },
+    );
+
+  const groups =
+    resolveRequirementGroups(
+      orderedRules,
+    );
+
+  const additiveGroupCount =
+    groups.filter(
+      (group) =>
+        group.status ===
+        "Additive",
+    ).length;
+
+  const overlappingGroupCount =
+    groups.filter(
+      (group) =>
+        group.relationship ===
+        "Overlapping",
+    ).length;
+
+  const controllingResolvedGroupCount =
+    groups.filter(
+      (group) =>
+        group.status ===
+        "ControllingResolved",
+    ).length;
+
+  const reviewRequiredGroupCount =
+    groups.filter(
+      (group) =>
+        group.status ===
+        "ReviewRequired",
+    ).length;
 
   return {
     planningRecordId:
@@ -1040,7 +1986,9 @@ export async function resolveApplicablePlanningRequirements(
       evaluationDate.toISOString(),
 
     rules:
-      resolvedRules,
+      orderedRules,
+
+    groups,
 
     applicablePacks:
       applicablePacks.map(
@@ -1059,6 +2007,16 @@ export async function resolveApplicablePlanningRequirements(
 
           version:
             pack.version,
+
+          sourceLevel:
+            sourceLevelForPackType(
+              pack.packType,
+            ),
+
+          sourcePrecedenceRank:
+            sourcePrecedenceRank(
+              pack.packType,
+            ),
         }),
       ),
 
@@ -1072,12 +2030,23 @@ export async function resolveApplicablePlanningRequirements(
       candidateRuleCount,
 
       applicableRuleCount:
-        resolvedRules.length,
+        orderedRules.length,
 
       unresolvedRuleCount,
 
+      requirementGroupCount:
+        groups.length,
+
+      additiveGroupCount,
+
+      overlappingGroupCount,
+
+      controllingResolvedGroupCount,
+
+      reviewRequiredGroupCount,
+
       resolverVersion:
-        "qoreva-requirements-v2-live-intake",
+        "qoreva-requirements-v3-precedence-resolution",
     },
   };
 }
