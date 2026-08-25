@@ -339,10 +339,16 @@ export default function PlanningPage() {
 
                       <td className="px-6 py-5 text-right">
                         <Link
-                          href={`/planning/${plan.id}`}
+                          href={
+                            plan.status === "Draft"
+                              ? `/planning/create?planningRecordId=${plan.id}`
+                              : `/planning/${plan.id}`
+                          }
                           className="inline-flex rounded-lg bg-[var(--qoreva-violet)] px-4 py-2 text-xs font-black text-white transition hover:bg-[var(--qoreva-violet-hover)]"
                         >
-                          Open Plan
+                          {plan.status === "Draft"
+                            ? "Continue Draft"
+                            : "Open Plan"}
                         </Link>
                       </td>
                     </tr>
@@ -389,10 +395,16 @@ export default function PlanningPage() {
                   </div>
 
                   <Link
-                    href={`/planning/${plan.id}`}
+                    href={
+                      plan.status === "Draft"
+                        ? `/planning/create?planningRecordId=${plan.id}`
+                        : `/planning/${plan.id}`
+                    }
                     className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-sm font-black text-white"
                   >
-                    Open Plan
+                    {plan.status === "Draft"
+                      ? "Continue Draft"
+                      : "Open Plan"}
                   </Link>
                 </article>
               ))}

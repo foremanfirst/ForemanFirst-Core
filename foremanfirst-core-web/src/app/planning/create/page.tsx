@@ -197,6 +197,24 @@ type DetectedPlanningActivity = {
   sourceType: string;
 };
 
+type RequirementQuestionSource = {
+  requirementRuleId: string;
+  ruleCode: string;
+  title: string;
+  requirementText: string;
+  purpose: string;
+  severity: string | null;
+
+  requirementPackId: string;
+  requirementPackName: string;
+  packType: string;
+  organizationName: string | null;
+  version: number;
+
+  sourceDocumentName: string | null;
+  sourcePage: string | null;
+};
+
 type DynamicPlanningQuestion = {
   id: string;
   questionCode: string;
@@ -211,6 +229,8 @@ type DynamicPlanningQuestion = {
   isCritical: boolean;
   sortOrder: number;
   sourceType: string;
+
+  requirementSources: RequirementQuestionSource[];
 };
 
 type WorkStepPlanning = {
@@ -2974,11 +2994,12 @@ export default function CreatePlanningPage() {
       return;
     }
 
-    const completedSequence = workSequence.filter(
-      (step) =>
-        step.title.trim() ||
-        step.description.trim(),
-    );
+    const completedSequence =
+      workSequence.filter(
+        (step) =>
+          step.title.trim() ||
+          step.description.trim(),
+      );
 
     if (completedSequence.length === 0) {
       setStepError(
@@ -2989,7 +3010,8 @@ export default function CreatePlanningPage() {
 
     if (
       completedSequence.some(
-        (step) => !step.title.trim(),
+        (step) =>
+          !step.title.trim(),
       )
     ) {
       setStepError(
@@ -3003,7 +3025,9 @@ export default function CreatePlanningPage() {
 
     if (normalizedCrewSize) {
       const parsedCrewSize =
-        Number(normalizedCrewSize);
+        Number(
+          normalizedCrewSize,
+        );
 
       if (
         !Number.isInteger(
@@ -3038,6 +3062,9 @@ export default function CreatePlanningPage() {
     setActivityDetectionError("");
 
     try {
+      /*
+       * Save the Step 4 record-level scope first.
+       */
       const response =
         await fetch(
           `/api/planning/${planningRecordId}`,
@@ -3094,6 +3121,157 @@ export default function CreatePlanningPage() {
         );
       }
 
+      /*
+       * Persist the preliminary Step 4 work sequence before
+       * Guided Planning begins.
+       *
+       * Step 4 owns:
+       * - sequence
+       * - title
+       * - description
+       *
+       * Step 5 later enriches the same work steps with hazards,
+       * controls, safety-critical designation, and risk level.
+       */
+      const workSequenceResponse =
+        await fetch(
+          `/api/planning/${planningRecordId}/work-sequence`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              workSteps:
+                completedSequence.map(
+                  (
+                    step,
+                    index,
+                  ) => ({
+                    sequence:
+                      index + 1,
+                    title:
+                      step.title.trim(),
+                    description:
+                      step.description.trim() ||
+                      null,
+                  }),
+                ),
+            }),
+          },
+        );
+
+      const workSequenceData =
+        (await workSequenceResponse.json()) as {
+          workSteps?: Array<{
+            id: string;
+            sequence: number;
+            title: string;
+            description: string | null;
+          }>;
+          saved?: {
+            workSteps: number;
+          };
+          message?: string;
+        };
+
+      if (!workSequenceResponse.ok) {
+        throw new Error(
+          workSequenceData.message ||
+            "Unable to save the work sequence.",
+        );
+      }
+
+      if (
+        !workSequenceData.saved ||
+        workSequenceData.saved.workSteps !==
+          completedSequence.length
+      ) {
+        throw new Error(
+          "The work sequence was not confirmed as fully saved.",
+        );
+      }
+
+      /*
+       * Replace temporary browser IDs with persisted database IDs
+       * so Step 5 planning state and future draft hydration use the
+       * same PlanningWorkStep records.
+       */
+      const persistedWorkSequence =
+        (
+          workSequenceData.workSteps ??
+          []
+        )
+          .slice()
+          .sort(
+            (a, b) =>
+              a.sequence -
+              b.sequence,
+          )
+          .map((step) => ({
+            id: step.id,
+            title: step.title,
+            description:
+              step.description ?? "",
+          }));
+
+      if (
+        persistedWorkSequence.length !==
+        completedSequence.length
+      ) {
+        throw new Error(
+          "The persisted work sequence could not be loaded after save.",
+        );
+      }
+
+      setWorkSequence(
+        persistedWorkSequence,
+      );
+
+      /*
+       * Preserve any Step 5 planning state that already exists
+       * when a user returns to Step 4 and edits the sequence.
+       *
+       * Existing planning is matched by sequence position because
+       * Step 4 persistence replaces the preliminary work-step rows
+       * and therefore generates new database IDs.
+       */
+      const nextWorkStepPlanning: Record<
+        string,
+        WorkStepPlanning
+      > = {};
+
+      persistedWorkSequence.forEach(
+        (step, index) => {
+          const priorClientStep =
+            completedSequence[index];
+
+          const priorPlanning =
+            priorClientStep
+              ? workStepPlanning[
+                  priorClientStep.id
+                ]
+              : undefined;
+
+          nextWorkStepPlanning[
+            step.id
+          ] = priorPlanning ?? {
+            hazards: "",
+            controls: "",
+            safetyCritical: false,
+            riskLevel: "",
+          };
+        },
+      );
+
+      setWorkStepPlanning(
+        nextWorkStepPlanning,
+      );
+
+      /*
+       * Analyze the persisted work scope for applicable activities.
+       */
       const activityScopeText = [
         scopeTitle.trim(),
         scopeDescription.trim(),
@@ -3101,31 +3279,38 @@ export default function CreatePlanningPage() {
         materialsChemicals.trim(),
         adjacentWork.trim(),
         specialConditions.trim(),
-        ...completedSequence.flatMap((step) => [
-          step.title.trim(),
-          step.description.trim(),
-        ]),
+        ...completedSequence.flatMap(
+          (step) => [
+            step.title.trim(),
+            step.description.trim(),
+          ],
+        ),
       ]
         .filter(Boolean)
         .join(". ");
 
-      const activityResponse = await fetch(
-        "/api/planning/activity-detection",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      const activityResponse =
+        await fetch(
+          "/api/planning/activity-detection",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              tenantId:
+                selectedProject.tenantId,
+              scopeText:
+                activityScopeText,
+            }),
           },
-          body: JSON.stringify({
-            tenantId: selectedProject.tenantId,
-            scopeText: activityScopeText,
-          }),
-        },
-      );
+        );
 
       const activityData =
         (await activityResponse.json()) as {
-          activities?: DetectedPlanningActivity[];
+          activities?:
+            DetectedPlanningActivity[];
           message?: string;
         };
 
@@ -3142,64 +3327,69 @@ export default function CreatePlanningPage() {
       setDetectedActivities(
         nextDetectedActivities,
       );
+
       setConfirmedActivityCodes(
         nextDetectedActivities.map(
-          (activity) => activity.activityCode,
+          (activity) =>
+            activity.activityCode,
         ),
       );
 
-      setPlanningAnswers((current) => ({
-        ...current,
-        CORE_SCOPE_DESCRIPTION: {
-          value: scopeDescription.trim(),
-          notes:
-            current.CORE_SCOPE_DESCRIPTION?.notes ?? "",
-        },
-        CORE_WORK_LOCATION: {
-          value: workLocation.trim(),
-          notes:
-            current.CORE_WORK_LOCATION?.notes ?? "",
-        },
-        CORE_CREW_SIZE: {
-          value: crewSize.trim(),
-          notes:
-            current.CORE_CREW_SIZE?.notes ?? "",
-        },
-        CORE_EQUIPMENT_TOOLS: {
-          value: equipmentTools.trim(),
-          notes:
-            current.CORE_EQUIPMENT_TOOLS?.notes ?? "",
-        },
-        CORE_MATERIALS: {
-          value: materialsChemicals.trim(),
-          notes:
-            current.CORE_MATERIALS?.notes ?? "",
-        },
-      }));
+      /*
+       * Prefill the core guided-planning answers from the
+       * Step 4 scope fields.
+       */
+      setPlanningAnswers(
+        (current) => ({
+          ...current,
 
-      const initialStepPlanning: Record<
-        string,
-        WorkStepPlanning
-      > = {};
+          CORE_SCOPE_DESCRIPTION: {
+            value:
+              scopeDescription.trim(),
+            notes:
+              current
+                .CORE_SCOPE_DESCRIPTION
+                ?.notes ?? "",
+          },
 
-      workSequence.forEach((step) => {
-        if (
-          step.title.trim() ||
-          step.description.trim()
-        ) {
-          initialStepPlanning[step.id] =
-            workStepPlanning[step.id] ?? {
-              hazards: "",
-              controls: "",
-              safetyCritical: false,
-              riskLevel: "",
-            };
-        }
-      });
+          CORE_WORK_LOCATION: {
+            value:
+              workLocation.trim(),
+            notes:
+              current
+                .CORE_WORK_LOCATION
+                ?.notes ?? "",
+          },
 
-      setWorkStepPlanning(
-        initialStepPlanning,
+          CORE_CREW_SIZE: {
+            value:
+              crewSize.trim(),
+            notes:
+              current
+                .CORE_CREW_SIZE
+                ?.notes ?? "",
+          },
+
+          CORE_EQUIPMENT_TOOLS: {
+            value:
+              equipmentTools.trim(),
+            notes:
+              current
+                .CORE_EQUIPMENT_TOOLS
+                ?.notes ?? "",
+          },
+
+          CORE_MATERIALS: {
+            value:
+              materialsChemicals.trim(),
+            notes:
+              current
+                .CORE_MATERIALS
+                ?.notes ?? "",
+          },
+        }),
       );
+
       setCurrentStep(5);
     } catch (error) {
       const message =
@@ -3207,11 +3397,19 @@ export default function CreatePlanningPage() {
           ? error.message
           : "Unable to save and analyze the work scope.";
 
-      setActivityDetectionError(message);
-      setStepError(message);
+      setActivityDetectionError(
+        message,
+      );
+      setStepError(
+        message,
+      );
     } finally {
-      setPlanningDraftSaving(false);
-      setActivityDetectionLoading(false);
+      setPlanningDraftSaving(
+        false,
+      );
+      setActivityDetectionLoading(
+        false,
+      );
     }
   }
 
@@ -7111,7 +7309,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Answer the questions that apply. Add notes whenever a response needs explanation, a specific method, or a project requirement.
+                      Answer the questions that apply. Requirement-driven questions identify why Qoreva is asking and let you review the applicable source without cluttering the field workflow.
                     </p>
                   </div>
 
@@ -7129,109 +7327,228 @@ export default function CreatePlanningPage() {
                 {guidedQuestionsLoading ? (
                   <div className="mt-4 flex items-center gap-2 text-xs font-bold text-[var(--qoreva-muted)]">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--qoreva-violet)]" />
-                    Checking for additional applicable questions...
+                    Checking activities, answers, and applicable requirements...
                   </div>
                 ) : null}
 
                 <div className="mt-5 grid gap-4">
-                    {guidedPlanningQuestions
-                      .filter(
-                        (question) =>
-                          question.category !== "Core",
-                      )
-                      .map((question, index) => {
-                        const answer =
-                          planningAnswers[
-                            question.questionCode
-                          ] ?? {
-                            value: "",
-                            notes: "",
-                          };
-
-                        return (
-                          <article
-                            key={question.id}
-                            className={`rounded-2xl border p-4 ${
-                              question.isCritical
-                                ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
-                                : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-[var(--qoreva-violet-dark)]">
-                                {index + 1}
-                              </span>
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
-                                    {question.category}
-                                    {question.section
-                                      ? ` • ${question.section}`
-                                      : ""}
-                                  </p>
-
-                                  {question.isCritical ? (
-                                    <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
-                                      Safety Critical
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                <h4 className="mt-1 font-black leading-6 text-[var(--qoreva-obsidian)]">
-                                  {question.questionText}
-                                </h4>
-
-                                {question.helpText ? (
-                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    {question.helpText}
-                                  </p>
-                                ) : null}
-
-                                <DynamicPlanningQuestionInput
-                                  question={question}
-                                  value={answer.value}
-                                  onChange={(value) =>
-                                    updatePlanningAnswer(
-                                      question.questionCode,
-                                      "value",
-                                      value,
-                                    )
-                                  }
-                                />
-
-                                <textarea
-                                  value={answer.notes}
-                                  rows={2}
-                                  placeholder="Add task-specific details, method, verification, or explanation..."
-                                  onChange={(event) =>
-                                    updatePlanningAnswer(
-                                      question.questionCode,
-                                      "notes",
-                                      event.target.value,
-                                    )
-                                  }
-                                  className={`mt-3 ${textareaClassName}`}
-                                />
-                              </div>
-                            </div>
-                          </article>
-                        );
-                      })}
-
-                    {guidedPlanningQuestions.filter(
+                  {guidedPlanningQuestions
+                    .filter(
                       (question) =>
                         question.category !== "Core",
-                    ).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-5">
-                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                          No additional activity questions apply yet.
-                        </p>
-                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                          Qoreva has the core scope information from Step 4. Confirm the detected activities above or return to Work Scope if more detail is needed.
-                        </p>
-                      </div>
-                    ) : null}
+                    )
+                    .map((question, index) => {
+                      const answer =
+                        planningAnswers[
+                          question.questionCode
+                        ] ?? {
+                          value: "",
+                          notes: "",
+                        };
+
+                      const requirementSources =
+                        question.requirementSources ?? [];
+
+                      const hasRequirementSources =
+                        requirementSources.length > 0;
+
+                      const requirementSourceLabels =
+                        Array.from(
+                          new Set(
+                            requirementSources.map(
+                              (source) =>
+                                formatRequirementSourceLabel(
+                                  source,
+                                ),
+                            ),
+                          ),
+                        );
+
+                      return (
+                        <article
+                          key={question.id}
+                          className={`rounded-2xl border p-4 ${
+                            question.isCritical
+                              ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
+                              : hasRequirementSources
+                                ? "border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)]"
+                                : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                              {index + 1}
+                            </span>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                                  {question.category}
+                                  {question.section
+                                    ? ` • ${question.section}`
+                                    : ""}
+                                </p>
+
+                                {question.isCritical ? (
+                                  <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                    Safety Critical
+                                  </span>
+                                ) : null}
+
+                                {requirementSourceLabels.map(
+                                  (label) => (
+                                    <span
+                                      key={`${question.id}-${label}`}
+                                      className="rounded-full border border-[rgba(102,87,232,0.20)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]"
+                                    >
+                                      {label}
+                                    </span>
+                                  ),
+                                )}
+                              </div>
+
+                              <h4 className="mt-1 font-black leading-6 text-[var(--qoreva-obsidian)]">
+                                {question.questionText}
+                              </h4>
+
+                              {question.helpText ? (
+                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                  {question.helpText}
+                                </p>
+                              ) : null}
+
+                              {hasRequirementSources ? (
+                                <details className="group mt-3 rounded-xl border border-[rgba(102,87,232,0.18)] bg-white">
+                                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs font-black text-[var(--qoreva-violet-dark)] [&::-webkit-details-marker]:hidden">
+                                    <span>
+                                      Why Qoreva is asking
+                                    </span>
+
+                                    <span className="flex items-center gap-2 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                      {requirementSources.length} source
+                                      {requirementSources.length === 1
+                                        ? ""
+                                        : "s"}
+                                      <span className="text-sm transition-transform group-open:rotate-180">
+                                        ▾
+                                      </span>
+                                    </span>
+                                  </summary>
+
+                                  <div className="border-t border-[rgba(102,87,232,0.14)] p-3">
+                                    <div className="grid gap-3">
+                                      {requirementSources.map(
+                                        (source) => {
+                                          const sourceHeading =
+                                            source.organizationName ||
+                                            source.requirementPackName;
+
+                                          const sourceLocation =
+                                            [
+                                              source.sourceDocumentName,
+                                              source.sourcePage
+                                                ? `Page ${source.sourcePage}`
+                                                : null,
+                                            ]
+                                              .filter(Boolean)
+                                              .join(" • ");
+
+                                          return (
+                                            <div
+                                              key={source.requirementRuleId}
+                                              className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3"
+                                            >
+                                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="min-w-0">
+                                                  <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                                    {formatRequirementSourceLabel(
+                                                      source,
+                                                    )}
+                                                  </p>
+
+                                                  <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                                    {sourceHeading}
+                                                  </p>
+                                                </div>
+
+                                                <span className="shrink-0 rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-0.5 text-[9px] font-black text-[var(--qoreva-muted)]">
+                                                  Version {source.version}
+                                                </span>
+                                              </div>
+
+                                              <p className="mt-2 text-xs font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                                {source.title}
+                                              </p>
+
+                                              {source.requirementText ? (
+                                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                  {source.requirementText}
+                                                </p>
+                                              ) : null}
+
+                                              {sourceLocation ? (
+                                                <p className="mt-2 text-[10px] font-bold leading-4 text-[var(--qoreva-subtle)]">
+                                                  Source: {sourceLocation}
+                                                </p>
+                                              ) : null}
+                                            </div>
+                                          );
+                                        },
+                                      )}
+                                    </div>
+
+                                    <p className="mt-3 text-[10px] font-bold leading-4 text-[var(--qoreva-muted)]">
+                                      Qoreva surfaces applicable requirement context for review. Qualified users remain responsible for the final planning decision.
+                                    </p>
+                                  </div>
+                                </details>
+                              ) : null}
+
+                              <DynamicPlanningQuestionInput
+                                question={question}
+                                value={answer.value}
+                                onChange={(value) =>
+                                  updatePlanningAnswer(
+                                    question.questionCode,
+                                    "value",
+                                    value,
+                                  )
+                                }
+                              />
+
+                              <textarea
+                                value={answer.notes}
+                                rows={2}
+                                placeholder="Add task-specific details, method, verification, or explanation..."
+                                onChange={(event) =>
+                                  updatePlanningAnswer(
+                                    question.questionCode,
+                                    "notes",
+                                    event.target.value,
+                                  )
+                                }
+                                className={`mt-3 ${textareaClassName}`}
+                              />
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+
+                  {guidedPlanningQuestions.filter(
+                    (question) =>
+                      question.category !== "Core",
+                  ).length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-5">
+                      <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                        No additional activity or requirement questions apply yet.
+                      </p>
+
+                      <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                        Qoreva has the core scope information from Step 4. Confirm the detected activities above or return to Work Scope if more detail is needed.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -10284,6 +10601,58 @@ export default function CreatePlanningPage() {
       </section>
     </div>
   );
+}
+
+function formatRequirementSourceLabel(
+  source: RequirementQuestionSource,
+) {
+  const normalizedPackType =
+    source.packType
+      .trim()
+      .toLowerCase();
+
+  if (
+    normalizedPackType === "federal" ||
+    normalizedPackType === "osha"
+  ) {
+    return "Federal / OSHA";
+  }
+
+  if (
+    normalizedPackType === "state" ||
+    normalizedPackType === "stateplan" ||
+    normalizedPackType === "state_plan" ||
+    normalizedPackType === "state plan"
+  ) {
+    return "State Plan";
+  }
+
+  if (normalizedPackType === "owner") {
+    return "Owner Requirement";
+  }
+
+  if (
+    normalizedPackType === "gc" ||
+    normalizedPackType === "generalcontractor" ||
+    normalizedPackType === "general_contractor" ||
+    normalizedPackType === "general contractor"
+  ) {
+    return "GC Requirement";
+  }
+
+  if (normalizedPackType === "company") {
+    return "Company Requirement";
+  }
+
+  if (normalizedPackType === "project") {
+    return "Project Requirement";
+  }
+
+  if (normalizedPackType === "qoreva") {
+    return "Qoreva Requirement";
+  }
+
+  return "Requirement";
 }
 
 function DynamicPlanningQuestionInput({
