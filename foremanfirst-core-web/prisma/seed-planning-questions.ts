@@ -47,7 +47,8 @@ type QuestionSeed = {
       | "Always"
       | "ActivityDetected"
       | "AnswerEquals"
-      | "AnswerContains";
+      | "AnswerContains"
+      | "RequirementApplies";
     conditions: Prisma.InputJsonValue;
     action?: "Show";
     priority?: number;
@@ -327,6 +328,67 @@ const questions: QuestionSeed[] = [
           questionCode:
             "UTILITY_POSITIVE_EXPOSURE",
           value: "true",
+        },
+      },
+    ],
+  },
+
+  {
+    questionCode:
+      "EXCAVATION_PLAN_REVIEWED",
+    category:
+      "Excavation",
+    section:
+      "Planning",
+    questionText:
+      "Has the required excavation plan been prepared and reviewed before ground disturbance begins?",
+    helpText:
+      "Confirm that any excavation plan required by the applicable owner, GC, company, or project requirements has been prepared and completed through the required review process.",
+    questionType:
+      "Boolean",
+    isRequired:
+      true,
+    isCritical:
+      true,
+    sortOrder:
+      250,
+    rules: [
+      {
+        ruleType:
+          "RequirementApplies",
+        conditions: {
+          requirementRuleCode:
+            "BMC_EXCAVATION_PLAN_REVIEW",
+        },
+      },
+    ],
+  },
+  {
+    questionCode:
+      "UTILITY_WITHIN_4FT",
+    category:
+      "Underground Utilities",
+    section:
+      "Proximity",
+    questionText:
+      "Will excavation activities occur within 4 feet of an underground service?",
+    helpText:
+      "Consider the verified horizontal and vertical relationship between the planned excavation and known underground services.",
+    questionType:
+      "Boolean",
+    isRequired:
+      true,
+    isCritical:
+      true,
+    sortOrder:
+      260,
+    rules: [
+      {
+        ruleType:
+          "RequirementApplies",
+        conditions: {
+          requirementRuleCode:
+            "BMC_UTILITY_WITHIN_4FT_MONITORING",
         },
       },
     ],

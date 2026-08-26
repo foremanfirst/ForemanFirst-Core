@@ -487,8 +487,36 @@ export async function resolvePlanningApprovalRouting(
         company:
           true,
 
-        project:
-          true,
+        project: {
+          include: {
+            organizations: {
+              where: {
+                isActive:
+                  true,
+
+                isArchived:
+                  false,
+              },
+
+              orderBy: [
+                {
+                  isPrimary:
+                    "desc",
+                },
+
+                {
+                  role:
+                    "asc",
+                },
+
+                {
+                  organizationName:
+                    "asc",
+                },
+              ],
+            },
+          },
+        },
 
         contractor:
           true,
@@ -559,6 +587,27 @@ export async function resolvePlanningApprovalRouting(
     contractorTrade:
       record.contractor?.trade ??
       null,
+
+    projectOrganizations:
+      record.project.organizations
+        .map(
+          (organization) => ({
+            organizationName:
+              organization
+                .organizationName,
+
+            organizationType:
+              organization
+                .organizationType,
+
+            role:
+              organization.role,
+
+            isPrimary:
+              organization
+                .isPrimary,
+          }),
+        ),
   };
 
   const candidatePacks =
@@ -880,8 +929,36 @@ export async function resolveMocApprovalRouting(
         company:
           true,
 
-        project:
-          true,
+        project: {
+          include: {
+            organizations: {
+              where: {
+                isActive:
+                  true,
+
+                isArchived:
+                  false,
+              },
+
+              orderBy: [
+                {
+                  isPrimary:
+                    "desc",
+                },
+
+                {
+                  role:
+                    "asc",
+                },
+
+                {
+                  organizationName:
+                    "asc",
+                },
+              ],
+            },
+          },
+        },
 
         contractor:
           true,
@@ -930,6 +1007,27 @@ export async function resolveMocApprovalRouting(
     contractorTrade:
       record.contractor?.trade ??
       null,
+
+    projectOrganizations:
+      record.project.organizations
+        .map(
+          (organization) => ({
+            organizationName:
+              organization
+                .organizationName,
+
+            organizationType:
+              organization
+                .organizationType,
+
+            role:
+              organization.role,
+
+            isPrimary:
+              organization
+                .isPrimary,
+          }),
+        ),
   };
 
   const candidatePacks =

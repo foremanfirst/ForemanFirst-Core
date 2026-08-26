@@ -1418,8 +1418,36 @@ export async function resolveApplicablePlanningRequirements(
         company:
           true,
 
-        project:
-          true,
+        project: {
+          include: {
+            organizations: {
+              where: {
+                isActive:
+                  true,
+
+                isArchived:
+                  false,
+              },
+
+              orderBy: [
+                {
+                  isPrimary:
+                    "desc",
+                },
+
+                {
+                  role:
+                    "asc",
+                },
+
+                {
+                  organizationName:
+                    "asc",
+                },
+              ],
+            },
+          },
+        },
 
         contractor:
           true,
@@ -1485,6 +1513,48 @@ export async function resolveApplicablePlanningRequirements(
     contractorTrade:
       record.contractor?.trade ??
       null,
+
+    projectOrganizations:
+      record.project.organizations
+        .filter(
+          (organization) =>
+            (
+              !organization
+                .effectiveStartDate ||
+              organization
+                .effectiveStartDate
+                .getTime() <=
+                evaluationDate
+                  .getTime()
+            ) &&
+            (
+              !organization
+                .effectiveEndDate ||
+              organization
+                .effectiveEndDate
+                .getTime() >=
+                evaluationDate
+                  .getTime()
+            ),
+        )
+        .map(
+          (organization) => ({
+            organizationName:
+              organization
+                .organizationName,
+
+            organizationType:
+              organization
+                .organizationType,
+
+            role:
+              organization.role,
+
+            isPrimary:
+              organization
+                .isPrimary,
+          }),
+        ),
   };
 
   /*

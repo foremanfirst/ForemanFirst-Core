@@ -1,6 +1,13 @@
 type JsonRecord =
   Record<string, unknown>;
 
+export type ProjectOrganizationContext = {
+  organizationName: string;
+  organizationType: string;
+  role: string;
+  isPrimary: boolean;
+};
+
 export type ApplicabilityContext = {
   tenantId: string;
 
@@ -18,6 +25,9 @@ export type ApplicabilityContext = {
 
   contractorName: string | null;
   contractorTrade: string | null;
+
+  projectOrganizations:
+    ProjectOrganizationContext[];
 };
 
 function isRecord(
@@ -109,6 +119,108 @@ function matchesAny(
         candidate,
       ) ===
       normalizedActual,
+  );
+}
+
+type OrganizationRoleRequirement = {
+  role: string | null;
+  organizationNames: string[];
+  organizationTypes: string[];
+};
+
+function normalizeOrganizationRoleRequirements(
+  value: unknown,
+): OrganizationRoleRequirement[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(isRecord)
+    .map((item) => ({
+      role:
+        nullableString(
+          item.role,
+        ),
+
+      organizationNames:
+        normalizeStringArray(
+          item.organizationNames ??
+            item.organizationName ??
+            item.names ??
+            item.name,
+        ),
+
+      organizationTypes:
+        normalizeStringArray(
+          item.organizationTypes ??
+            item.organizationType ??
+            item.types ??
+            item.type,
+        ),
+    }))
+    .filter(
+      (item) =>
+        Boolean(item.role) ||
+        item.organizationNames.length > 0 ||
+        item.organizationTypes.length > 0,
+    );
+}
+
+function projectOrganizationMatches(
+  organizations:
+    ProjectOrganizationContext[],
+  requirements:
+    OrganizationRoleRequirement[],
+) {
+  if (requirements.length === 0) {
+    return true;
+  }
+
+  /*
+   * A pack may provide multiple acceptable
+   * organization-role combinations.
+   *
+   * The pack applies when any configured combination
+   * matches an active/effective project organization.
+   */
+  return requirements.some(
+    (requirement) =>
+      organizations.some(
+        (organization) => {
+          if (
+            requirement.role &&
+            normalizeForComparison(
+              organization.role,
+            ) !==
+              normalizeForComparison(
+                requirement.role,
+              )
+          ) {
+            return false;
+          }
+
+          if (
+            !matchesAny(
+              organization.organizationName,
+              requirement.organizationNames,
+            )
+          ) {
+            return false;
+          }
+
+          if (
+            !matchesAny(
+              organization.organizationType,
+              requirement.organizationTypes,
+            )
+          ) {
+            return false;
+          }
+
+          return true;
+        },
+      ),
   );
 }
 
@@ -219,6 +331,13 @@ export function requirementPackApplies(
         applicability.trade,
     );
 
+  const organizationRoles =
+    normalizeOrganizationRoleRequirements(
+      applicability.organizationRoles ??
+        applicability.projectOrganizations ??
+        applicability.organizations,
+    );
+
   if (
     !matchesId(
       context.tenantId,
@@ -313,6 +432,15 @@ export function requirementPackApplies(
     !matchesAny(
       context.contractorTrade,
       trades,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    !projectOrganizationMatches(
+      context.projectOrganizations,
+      organizationRoles,
     )
   ) {
     return false;
