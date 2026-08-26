@@ -1306,6 +1306,19 @@ model PlanningQuestionRequirement {
   // Information, Validation, ControlConfirmation
   purpose String @default("Information")
 
+  // Optional deterministic validation describing
+  // what response satisfies this specific
+  // requirement-to-question relationship.
+  //
+  // Example:
+  // {
+  //   "type": "AnswerEquals",
+  //   "value": "true",
+  //   "blockingLevel": "Submission",
+  //   "message": "Required condition has not been satisfied."
+  // }
+  validation Json?
+
   createdAt DateTime @default(now())
 
   questionDefinition PlanningQuestionDefinition @relation(fields: [questionDefinitionId], references: [id], onDelete: Cascade)

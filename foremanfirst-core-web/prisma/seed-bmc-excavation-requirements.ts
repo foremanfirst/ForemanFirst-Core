@@ -48,6 +48,9 @@ type QuestionLink = {
     | "Information"
     | "Validation"
     | "ControlConfirmation";
+
+  validation?:
+    Prisma.InputJsonValue;
 };
 
 type RequirementSeed = {
@@ -205,6 +208,21 @@ const requirements:
 
         purpose:
           "ControlConfirmation",
+
+        validation:
+          json({
+            type:
+              "AnswerEquals",
+
+            value:
+              "true",
+
+            blockingLevel:
+              "Submission",
+
+            message:
+              "The required excavation plan must be reviewed and concurred with before ground disturbance begins.",
+          }),
       },
     ],
   },
@@ -680,6 +698,10 @@ async function upsertRequirement(
 
         purpose:
           link.purpose,
+
+        validation:
+          link.validation ??
+          undefined,
       },
     });
   }
