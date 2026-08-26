@@ -388,6 +388,14 @@ const requirements:
         purpose:
           "Information",
       },
+
+      {
+        questionCode:
+          "UTILITY_PROXIMITY_MONITOR",
+
+        purpose:
+          "ControlConfirmation",
+      },
     ],
   },
 ];

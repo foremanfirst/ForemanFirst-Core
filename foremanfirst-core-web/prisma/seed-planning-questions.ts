@@ -48,7 +48,8 @@ type QuestionSeed = {
       | "ActivityDetected"
       | "AnswerEquals"
       | "AnswerContains"
-      | "RequirementApplies";
+      | "RequirementApplies"
+      | "Compound";
     conditions: Prisma.InputJsonValue;
     action?: "Show";
     priority?: number;
@@ -389,6 +390,72 @@ const questions: QuestionSeed[] = [
         conditions: {
           requirementRuleCode:
             "BMC_UTILITY_WITHIN_4FT_MONITORING",
+        },
+      },
+    ],
+  },
+
+  {
+    questionCode:
+      "UTILITY_PROXIMITY_MONITOR",
+
+    category:
+      "Underground Utilities",
+
+    section:
+      "Monitoring",
+
+    questionText:
+      "Who will provide the required onsite monitoring while excavation is within the defined underground-service proximity?",
+
+    helpText:
+      "Identify the qualified or designated representative required by the applicable owner, GC, company, or project requirement to monitor excavation near underground services.",
+
+    questionType:
+      "Person",
+
+    isRequired:
+      true,
+
+    isCritical:
+      true,
+
+    sortOrder:
+      270,
+
+    rules: [
+      {
+        ruleType:
+          "Compound",
+
+        conditions: {
+          match:
+            "ALL",
+
+          rules: [
+            {
+              ruleType:
+                "RequirementApplies",
+
+              conditions: {
+                requirementRuleCode:
+                  "BMC_UTILITY_WITHIN_4FT_MONITORING",
+              },
+            },
+
+            {
+              ruleType:
+                "AnswerEquals",
+
+              conditions: {
+                questionCode:
+                  "UTILITY_WITHIN_4FT",
+
+                value:
+                  "true",
+              },
+            },
+          ],
         },
       },
     ],

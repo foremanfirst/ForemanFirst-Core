@@ -47,6 +47,11 @@ type EvaluatedQuestion = {
     RequirementQuestionSource[];
 };
 
+type CompoundRuleCondition = {
+  ruleType: string;
+  conditions: Prisma.JsonValue;
+};
+
 type RuleConditions = {
   activityCode?: string;
   questionCode?: string;
@@ -54,6 +59,9 @@ type RuleConditions = {
   values?: string[];
   requirementRuleCode?: string;
   requirementRuleCodes?: string[];
+
+  match?: "ALL" | "ANY";
+  rules?: CompoundRuleCondition[];
 };
 
 function normalizeAnswer(
@@ -180,6 +188,69 @@ function parseConditions(
       );
   }
 
+  if (
+    "match" in value &&
+    typeof value.match ===
+      "string"
+  ) {
+    result.match =
+      value.match === "ANY"
+        ? "ANY"
+        : "ALL";
+  }
+
+  if (
+    "rules" in value &&
+    Array.isArray(value.rules)
+  ) {
+    result.rules =
+      value.rules
+        .map(
+          (
+            item,
+          ): CompoundRuleCondition | null => {
+            if (
+              !item ||
+              typeof item !==
+                "object" ||
+              Array.isArray(item)
+            ) {
+              return null;
+            }
+
+            if (
+              !(
+                "ruleType" in
+                item
+              ) ||
+              typeof item.ruleType !==
+                "string"
+            ) {
+              return null;
+            }
+
+            const nestedConditions =
+              "conditions" in item
+                ? item.conditions
+                : {};
+
+            return {
+              ruleType:
+                item.ruleType,
+
+              conditions:
+                nestedConditions as Prisma.JsonValue,
+            };
+          },
+        )
+        .filter(
+          (
+            item,
+          ): item is CompoundRuleCondition =>
+            Boolean(item),
+        );
+  }
+
   return result;
 }
 
@@ -200,7 +271,7 @@ function ruleMatches({
     string,
     string | null | undefined
   >;
-}) {
+}): boolean {
   switch (ruleType) {
     case "Always":
       return true;
@@ -256,6 +327,46 @@ function ruleMatches({
             ruleCode,
           ),
       );
+    }
+
+    case "Compound": {
+      const nestedRules =
+        conditions.rules ??
+        [];
+
+      if (
+        nestedRules.length ===
+        0
+      ) {
+        return false;
+      }
+
+      const results: boolean[] =
+        nestedRules.map(
+          (nestedRule) =>
+            ruleMatches({
+              ruleType:
+                nestedRule.ruleType,
+
+              conditions:
+                parseConditions(
+                  nestedRule.conditions,
+                ),
+
+              activityCodes,
+
+              requirementRuleCodes,
+
+              linkedRequirementRuleCodes,
+
+              answers,
+            }),
+        );
+
+      return conditions.match ===
+        "ANY"
+        ? results.some(Boolean)
+        : results.every(Boolean);
     }
 
     case "AnswerEquals": {
