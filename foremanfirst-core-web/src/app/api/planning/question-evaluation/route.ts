@@ -4,6 +4,9 @@ import {
   evaluatePlanningQuestions,
 } from "@/lib/planning/question-evaluator";
 import {
+  evaluatePlanningCompliance,
+} from "@/lib/planning/compliance-evaluator";
+import {
   resolveApplicablePlanningRequirements,
 } from "@/lib/planning/requirement-resolver";
 
@@ -156,6 +159,16 @@ export async function POST(
         answers,
       });
 
+    const compliance =
+      await evaluatePlanningCompliance({
+        tenantId:
+          planningRecord.tenantId,
+
+        requirementRuleCodes,
+
+        answers,
+      });
+
     return NextResponse.json({
       planningRecordId,
 
@@ -179,6 +192,8 @@ export async function POST(
       },
 
       questions,
+
+      compliance,
 
       count:
         questions.length,

@@ -233,6 +233,48 @@ type DynamicPlanningQuestion = {
   requirementSources: RequirementQuestionSource[];
 };
 
+type PlanningComplianceResult = {
+  requirementRuleId: string;
+  requirementRuleCode: string;
+  requirementTitle: string;
+
+  requirementPackId: string;
+  requirementPackName: string;
+  packType: string;
+  organizationName: string | null;
+
+  questionDefinitionId: string;
+  questionCode: string;
+  questionText: string;
+
+  purpose: string;
+
+  status:
+    | "Satisfied"
+    | "Unresolved"
+    | "NotEvaluated";
+
+  blockingLevel: string | null;
+  message: string | null;
+
+  validationType: string | null;
+  expectedValue: string | null;
+  actualValue: string | null;
+};
+
+type PlanningComplianceEvaluation = {
+  results: PlanningComplianceResult[];
+
+  summary: {
+    total: number;
+    satisfied: number;
+    unresolved: number;
+    notEvaluated: number;
+    submissionBlocking: number;
+    approvalBlocking: number;
+  };
+};
+
 type WorkStepPlanning = {
   hazards: string;
   controls: string;
@@ -1219,6 +1261,11 @@ export default function CreatePlanningPage() {
   ] = useState<DynamicPlanningQuestion[]>([]);
 
   const [
+    planningCompliance,
+    setPlanningCompliance,
+  ] = useState<PlanningComplianceEvaluation | null>(null);
+
+  const [
     guidedQuestionsLoading,
     setGuidedQuestionsLoading,
   ] = useState(false);
@@ -2132,6 +2179,7 @@ export default function CreatePlanningPage() {
 
           const data = (await response.json()) as {
             questions?: DynamicPlanningQuestion[];
+            compliance?: PlanningComplianceEvaluation;
             message?: string;
           };
 
@@ -2145,6 +2193,10 @@ export default function CreatePlanningPage() {
           if (!cancelled) {
             setGuidedPlanningQuestions(
               data.questions ?? [],
+            );
+
+            setPlanningCompliance(
+              data.compliance ?? null,
             );
           }
         } catch (error) {
@@ -7352,6 +7404,20 @@ export default function CreatePlanningPage() {
                       const hasRequirementSources =
                         requirementSources.length > 0;
 
+                      const complianceResults =
+                        planningCompliance?.results.filter(
+                          (result) =>
+                            result.questionCode ===
+                            question.questionCode,
+                        ) ?? [];
+
+                      const unresolvedCompliance =
+                        complianceResults.filter(
+                          (result) =>
+                            result.status ===
+                            "Unresolved",
+                        );
+
                       const requirementSourceLabels =
                         Array.from(
                           new Set(
@@ -7515,6 +7581,50 @@ export default function CreatePlanningPage() {
                                   )
                                 }
                               />
+
+                              {unresolvedCompliance.length > 0 ? (
+                                <div className="mt-3 grid gap-2">
+                                  {unresolvedCompliance.map(
+                                    (result) => (
+                                      <div
+                                        key={`${question.id}-${result.requirementRuleId}`}
+                                        className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-3"
+                                      >
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                          <div>
+                                            <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-danger)]">
+                                              Requirement needs attention
+                                            </p>
+
+                                            <p className="mt-1 text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                              {result.requirementTitle}
+                                            </p>
+
+                                            {result.message ? (
+                                              <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                {result.message}
+                                              </p>
+                                            ) : null}
+
+                                            <p className="mt-2 text-[10px] font-bold leading-4 text-[var(--qoreva-muted)]">
+                                              {result.organizationName ||
+                                                result.requirementPackName}
+                                              {" • "}
+                                              {result.packType} Requirement
+                                            </p>
+                                          </div>
+
+                                          {result.blockingLevel ? (
+                                            <span className="shrink-0 rounded-full border border-[#F0BDC4] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                              {result.blockingLevel}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    ),
+                                  )}
+                                </div>
+                              ) : null}
 
                               <textarea
                                 value={answer.notes}
