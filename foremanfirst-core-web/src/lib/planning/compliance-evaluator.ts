@@ -63,8 +63,13 @@ export type PlanningComplianceEvaluation = {
 
 type ParsedValidation = {
   type: string | null;
+
   value: string | null;
   values: string[];
+
+  min: number | null;
+  max: number | null;
+
   blockingLevel: string | null;
   message: string | null;
 };
@@ -95,6 +100,41 @@ function nullableString(
 
   return trimmed
     ? trimmed
+    : null;
+}
+
+function nullableNumber(
+  value: unknown,
+) {
+  if (
+    typeof value ===
+      "number" &&
+    Number.isFinite(value)
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value !==
+    "string"
+  ) {
+    return null;
+  }
+
+  const trimmed =
+    value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed =
+    Number(trimmed);
+
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
     : null;
 }
 
@@ -160,6 +200,16 @@ function parseValidation(
         value.values,
       ),
 
+    min:
+      nullableNumber(
+        value.min,
+      ),
+
+    max:
+      nullableNumber(
+        value.max,
+      ),
+
     blockingLevel:
       nullableString(
         value.blockingLevel,
@@ -172,12 +222,41 @@ function parseValidation(
   };
 }
 
+function parseActualNumber(
+  value:
+    string | null | undefined,
+) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const trimmed =
+    value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed =
+    Number(trimmed);
+
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
+    : null;
+}
+
 function evaluateValidation({
   validation,
   actualValue,
 }: {
   validation:
     ParsedValidation;
+
   actualValue:
     string | null | undefined;
 }): PlanningComplianceStatus {
@@ -185,6 +264,23 @@ function evaluateValidation({
     normalizeString(
       actualValue,
     );
+
+  /*
+   * AnswerProvided intentionally handles
+   * missing values itself.
+   *
+   * All other validation types require an
+   * actual answer before a deterministic
+   * compliance decision can be made.
+   */
+  if (
+    validation.type ===
+    "AnswerProvided"
+  ) {
+    return normalizedActual
+      ? "Satisfied"
+      : "Unresolved";
+  }
 
   if (!normalizedActual) {
     return "NotEvaluated";
@@ -205,6 +301,24 @@ function evaluateValidation({
 
       return (
         normalizedActual ===
+        expected
+      )
+        ? "Satisfied"
+        : "Unresolved";
+    }
+
+    case "AnswerNotEquals": {
+      const expected =
+        normalizeString(
+          validation.value,
+        );
+
+      if (!expected) {
+        return "NotEvaluated";
+      }
+
+      return (
+        normalizedActual !==
         expected
       )
         ? "Satisfied"
@@ -243,6 +357,117 @@ function evaluateValidation({
           normalizedActual.includes(
             candidate,
           ),
+      )
+        ? "Satisfied"
+        : "Unresolved";
+    }
+
+    case "AnswerOneOf": {
+      const candidates = [
+        ...(validation.value
+          ? [
+              validation.value,
+            ]
+          : []),
+
+        ...validation.values,
+      ]
+        .map(
+          normalizeString,
+        )
+        .filter(
+          (
+            item,
+          ): item is string =>
+            Boolean(item),
+        );
+
+      if (
+        candidates.length ===
+        0
+      ) {
+        return "NotEvaluated";
+      }
+
+      return candidates.includes(
+        normalizedActual,
+      )
+        ? "Satisfied"
+        : "Unresolved";
+    }
+
+    case "NumberAtLeast": {
+      const actualNumber =
+        parseActualNumber(
+          actualValue,
+        );
+
+      if (
+        actualNumber === null ||
+        validation.min ===
+          null
+      ) {
+        return "NotEvaluated";
+      }
+
+      return (
+        actualNumber >=
+        validation.min
+      )
+        ? "Satisfied"
+        : "Unresolved";
+    }
+
+    case "NumberAtMost": {
+      const actualNumber =
+        parseActualNumber(
+          actualValue,
+        );
+
+      if (
+        actualNumber === null ||
+        validation.max ===
+          null
+      ) {
+        return "NotEvaluated";
+      }
+
+      return (
+        actualNumber <=
+        validation.max
+      )
+        ? "Satisfied"
+        : "Unresolved";
+    }
+
+    case "NumberBetween": {
+      const actualNumber =
+        parseActualNumber(
+          actualValue,
+        );
+
+      if (
+        actualNumber === null ||
+        validation.min ===
+          null ||
+        validation.max ===
+          null
+      ) {
+        return "NotEvaluated";
+      }
+
+      if (
+        validation.min >
+        validation.max
+      ) {
+        return "NotEvaluated";
+      }
+
+      return (
+        actualNumber >=
+          validation.min &&
+        actualNumber <=
+          validation.max
       )
         ? "Satisfied"
         : "Unresolved";
