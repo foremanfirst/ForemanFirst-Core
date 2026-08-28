@@ -4,11 +4,8 @@ import {
   resolvePlanningApprovalRouting,
 } from "@/lib/planning/approval-routing";
 import {
-  resolveApplicablePlanningRequirements,
-} from "@/lib/planning/requirement-resolver";
-import {
-  evaluatePlanningCompliance,
-} from "@/lib/planning/compliance-evaluator";
+  evaluatePlanningSubmissionReadiness,
+} from "@/lib/planning/submission-readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -173,13 +170,6 @@ export async function POST(
           status: true,
           revisionNumber: true,
           submittedAt: true,
-
-          questionResponses: {
-            select: {
-              questionId: true,
-              responseValue: true,
-            },
-          },
         },
       });
 
@@ -262,190 +252,18 @@ export async function POST(
     }
 
     /*
-     * Submission compliance is recalculated from
+     * Recalculate submission readiness from
      * persisted server-side Planning data.
      *
-     * The browser may display live compliance
-     * feedback while the user edits a Draft, but
-     * client-provided compliance state is never
-     * trusted for the official submission gate.
+     * Browser-provided compliance state is never
+     * trusted for the official workflow gate.
      */
-    const requirementResolution =
-      await resolveApplicablePlanningRequirements(
+    const submissionReadiness =
+      await evaluatePlanningSubmissionReadiness(
         planningRecordId,
       );
 
-    /*
-     * PlanningQuestionResponse.questionId may
-     * contain either the stable questionCode or
-     * the PlanningQuestionDefinition database ID.
-     *
-     * Normalize persisted responses to
-     * questionCode before deterministic
-     * compliance evaluation.
-     */
-    const responseIdentifiers =
-      Array.from(
-        new Set(
-          existingRecord
-            .questionResponses
-            .map(
-              (response) =>
-                response.questionId
-                  .trim(),
-            )
-            .filter(Boolean),
-        ),
-      );
-
-    const questionDefinitions =
-      responseIdentifiers.length > 0
-        ? await prisma
-            .planningQuestionDefinition
-            .findMany({
-              where: {
-                tenantId: {
-                  in: [
-                    "QOREVA",
-                    existingRecord
-                      .tenantId,
-                  ],
-                },
-
-                isActive:
-                  true,
-
-                isArchived:
-                  false,
-
-                OR: [
-                  {
-                    id: {
-                      in:
-                        responseIdentifiers,
-                    },
-                  },
-
-                  {
-                    questionCode: {
-                      in:
-                        responseIdentifiers,
-                    },
-                  },
-                ],
-              },
-
-              select: {
-                id: true,
-                questionCode: true,
-                version: true,
-              },
-
-              orderBy: {
-                version:
-                  "desc",
-              },
-            })
-        : [];
-
-    const definitionById =
-      new Map(
-        questionDefinitions.map(
-          (definition) => [
-            definition.id,
-            definition,
-          ],
-        ),
-      );
-
-    const definitionByCode =
-      new Map<
-        string,
-        (typeof questionDefinitions)[number]
-      >();
-
-    for (
-      const definition of
-      questionDefinitions
-    ) {
-      if (
-        !definitionByCode.has(
-          definition.questionCode,
-        )
-      ) {
-        definitionByCode.set(
-          definition.questionCode,
-          definition,
-        );
-      }
-    }
-
-    const persistedAnswers:
-      Record<
-        string,
-        string | null
-      > = {};
-
-    for (
-      const response of
-      existingRecord.questionResponses
-    ) {
-      const definition =
-        definitionById.get(
-          response.questionId,
-        ) ??
-        definitionByCode.get(
-          response.questionId,
-        );
-
-      const questionCode =
-        definition?.questionCode ??
-        response.questionId;
-
-      persistedAnswers[
-        questionCode
-      ] =
-        response.responseValue;
-    }
-
-    const compliance =
-      await evaluatePlanningCompliance({
-        tenantId:
-          existingRecord.tenantId,
-
-        requirementRuleCodes:
-          requirementResolution.rules.map(
-            (rule) =>
-              rule.ruleCode,
-          ),
-
-        answers:
-          persistedAnswers,
-      });
-
-    /*
-     * Submission validations fail closed.
-     *
-     * The server must be able to prove that every
-     * explicit Submission-level requirement is
-     * Satisfied. Both Unresolved and NotEvaluated
-     * therefore remain blocking conditions.
-     */
-    const submissionBlockers =
-      compliance.results.filter(
-        (result) =>
-          result.status !==
-            "Satisfied" &&
-          result.blockingLevel
-            ?.trim()
-            .toLowerCase() ===
-            "submission",
-      );
-
-    if (
-      submissionBlockers.length >
-      0
-    ) {
+    if (!submissionReadiness.ready) {
       return NextResponse.json(
         {
           message:
@@ -456,10 +274,11 @@ export async function POST(
 
           compliance: {
             summary:
-              compliance.summary,
+              submissionReadiness
+                .compliance.summary,
 
             blockers:
-              submissionBlockers.map(
+              submissionReadiness.blockers.map(
                 (result) => ({
                   requirementRuleCode:
                     result.requirementRuleCode,
