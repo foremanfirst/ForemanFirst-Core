@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma";
 import {
   resolvePlanningApprovalRouting,
 } from "@/lib/planning/approval-routing";
+import {
+  resolveApplicablePlanningRequirements,
+} from "@/lib/planning/requirement-resolver";
+import {
+  evaluatePlanningCompliance,
+} from "@/lib/planning/compliance-evaluator";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +173,13 @@ export async function POST(
           status: true,
           revisionNumber: true,
           submittedAt: true,
+
+          questionResponses: {
+            select: {
+              questionId: true,
+              responseValue: true,
+            },
+          },
         },
       });
 
@@ -241,6 +254,245 @@ export async function POST(
         {
           message:
             "Submission revision does not match the planning record's active revision.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    /*
+     * Submission compliance is recalculated from
+     * persisted server-side Planning data.
+     *
+     * The browser may display live compliance
+     * feedback while the user edits a Draft, but
+     * client-provided compliance state is never
+     * trusted for the official submission gate.
+     */
+    const requirementResolution =
+      await resolveApplicablePlanningRequirements(
+        planningRecordId,
+      );
+
+    /*
+     * PlanningQuestionResponse.questionId may
+     * contain either the stable questionCode or
+     * the PlanningQuestionDefinition database ID.
+     *
+     * Normalize persisted responses to
+     * questionCode before deterministic
+     * compliance evaluation.
+     */
+    const responseIdentifiers =
+      Array.from(
+        new Set(
+          existingRecord
+            .questionResponses
+            .map(
+              (response) =>
+                response.questionId
+                  .trim(),
+            )
+            .filter(Boolean),
+        ),
+      );
+
+    const questionDefinitions =
+      responseIdentifiers.length > 0
+        ? await prisma
+            .planningQuestionDefinition
+            .findMany({
+              where: {
+                tenantId: {
+                  in: [
+                    "QOREVA",
+                    existingRecord
+                      .tenantId,
+                  ],
+                },
+
+                isActive:
+                  true,
+
+                isArchived:
+                  false,
+
+                OR: [
+                  {
+                    id: {
+                      in:
+                        responseIdentifiers,
+                    },
+                  },
+
+                  {
+                    questionCode: {
+                      in:
+                        responseIdentifiers,
+                    },
+                  },
+                ],
+              },
+
+              select: {
+                id: true,
+                questionCode: true,
+                version: true,
+              },
+
+              orderBy: {
+                version:
+                  "desc",
+              },
+            })
+        : [];
+
+    const definitionById =
+      new Map(
+        questionDefinitions.map(
+          (definition) => [
+            definition.id,
+            definition,
+          ],
+        ),
+      );
+
+    const definitionByCode =
+      new Map<
+        string,
+        (typeof questionDefinitions)[number]
+      >();
+
+    for (
+      const definition of
+      questionDefinitions
+    ) {
+      if (
+        !definitionByCode.has(
+          definition.questionCode,
+        )
+      ) {
+        definitionByCode.set(
+          definition.questionCode,
+          definition,
+        );
+      }
+    }
+
+    const persistedAnswers:
+      Record<
+        string,
+        string | null
+      > = {};
+
+    for (
+      const response of
+      existingRecord.questionResponses
+    ) {
+      const definition =
+        definitionById.get(
+          response.questionId,
+        ) ??
+        definitionByCode.get(
+          response.questionId,
+        );
+
+      const questionCode =
+        definition?.questionCode ??
+        response.questionId;
+
+      persistedAnswers[
+        questionCode
+      ] =
+        response.responseValue;
+    }
+
+    const compliance =
+      await evaluatePlanningCompliance({
+        tenantId:
+          existingRecord.tenantId,
+
+        requirementRuleCodes:
+          requirementResolution.rules.map(
+            (rule) =>
+              rule.ruleCode,
+          ),
+
+        answers:
+          persistedAnswers,
+      });
+
+    /*
+     * Submission validations fail closed.
+     *
+     * The server must be able to prove that every
+     * explicit Submission-level requirement is
+     * Satisfied. Both Unresolved and NotEvaluated
+     * therefore remain blocking conditions.
+     */
+    const submissionBlockers =
+      compliance.results.filter(
+        (result) =>
+          result.status !==
+            "Satisfied" &&
+          result.blockingLevel
+            ?.trim()
+            .toLowerCase() ===
+            "submission",
+      );
+
+    if (
+      submissionBlockers.length >
+      0
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Resolve all submission-blocking requirements before submitting this planning record.",
+
+          code:
+            "PLANNING_COMPLIANCE_BLOCKED",
+
+          compliance: {
+            summary:
+              compliance.summary,
+
+            blockers:
+              submissionBlockers.map(
+                (result) => ({
+                  requirementRuleCode:
+                    result.requirementRuleCode,
+
+                  requirementTitle:
+                    result.requirementTitle,
+
+                  requirementPackName:
+                    result.requirementPackName,
+
+                  packType:
+                    result.packType,
+
+                  organizationName:
+                    result.organizationName,
+
+                  questionCode:
+                    result.questionCode,
+
+                  questionText:
+                    result.questionText,
+
+                  status:
+                    result.status,
+
+                  blockingLevel:
+                    result.blockingLevel,
+
+                  message:
+                    result.message,
+                }),
+              ),
+          },
         },
         {
           status: 409,

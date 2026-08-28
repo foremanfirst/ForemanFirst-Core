@@ -724,22 +724,44 @@ export async function evaluatePlanningCompliance({
             "NotEvaluated",
         ).length,
 
+      /*
+       * Explicit workflow gates fail closed.
+       *
+       * A Submission or Approval validation must
+       * be deterministically Satisfied before the
+       * record may cross that workflow boundary.
+       *
+       * Unresolved means the answer was evaluated
+       * and failed.
+       *
+       * NotEvaluated means Qoreva could not prove
+       * satisfaction, for example because an
+       * answer is missing or validation metadata
+       * cannot be evaluated deterministically.
+       *
+       * Neither condition is sufficient to pass
+       * an explicit safety/compliance gate.
+       */
       submissionBlocking:
-        unresolved.filter(
+        results.filter(
           (result) =>
+            result.status !==
+              "Satisfied" &&
             normalizeString(
               result.blockingLevel,
             ) ===
-            "submission",
+              "submission",
         ).length,
 
       approvalBlocking:
-        unresolved.filter(
+        results.filter(
           (result) =>
+            result.status !==
+              "Satisfied" &&
             normalizeString(
               result.blockingLevel,
             ) ===
-            "approval",
+              "approval",
         ).length,
     },
   };
