@@ -1,13 +1,29 @@
 import type {
   DraftControlSuggestion,
   DraftWorkStepSuggestion,
+  GeneratedHazardControlGroup,
   PlanningDraftGenerationResult,
   PlanningGenerationContext,
 } from "./planning-types";
 
+type ActivityHazardControlGuidance = {
+  hazard: string;
+  controls: string[];
+};
+
 type ActivityGuidance = {
   hazards: string[];
   controls: string[];
+
+  /**
+   * Explicit hazard-to-control relationships used by
+   * Qoreva Work-Step Intelligence.
+   *
+   * Legacy hazards / controls remain temporarily for
+   * backward compatibility and category-level behavior.
+   */
+  hazardControlGroups?: ActivityHazardControlGuidance[];
+
   ppe: string[];
   permits: string[];
   emergency: string[];
@@ -36,6 +52,29 @@ const activityGuidanceLibrary: Record<
       "Stop and reassess when the scope or field conditions change.",
     ],
 
+
+    hazardControlGroups: [
+      {
+        hazard: "Changing work conditions",
+        controls: [
+          "Review the planned work sequence with the crew before starting.",
+          "Stop and reassess when the scope or field conditions change.",
+        ],
+      },
+      {
+        hazard: "Hand and power tool exposure",
+        controls: [
+          "Inspect tools and equipment before use.",
+        ],
+      },
+      {
+        hazard: "Poor housekeeping or access",
+        controls: [
+          "Maintain housekeeping and clear access around the work area.",
+        ],
+      },
+    ],
+
     ppe: [],
 
     permits: [],
@@ -58,6 +97,7 @@ const activityGuidanceLibrary: Record<
       "Blind spots and limited operator visibility",
       "Equipment rollover or unstable operating surface",
       "Pedestrian and equipment interaction",
+      "Unauthorized entry into equipment operating area",
     ],
 
     controls: [
@@ -68,6 +108,49 @@ const activityGuidanceLibrary: Record<
       "Use a spotter when visibility, backing, congestion, or site conditions require one.",
       "Maintain effective communication between operators and spotters.",
       "Keep personnel outside equipment swing radius and line-of-fire areas.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Struck-by or caught-between exposure from moving equipment",
+        controls: [
+          "Separate workers from moving equipment whenever practical.",
+          "Keep personnel outside equipment swing radius and line-of-fire areas.",
+        ],
+      },
+      {
+        hazard: "Blind spots and limited operator visibility",
+        controls: [
+          "Use a spotter when visibility, backing, congestion, or site conditions require one.",
+          "Maintain effective communication between operators and spotters.",
+        ],
+      },
+      {
+        hazard: "Equipment rollover or unstable operating surface",
+        controls: [
+          "Use trained and authorized equipment operators.",
+          "Complete the required pre-use equipment inspection.",
+          "Establish controlled travel paths and equipment operating areas.",
+        ],
+      },
+      {
+        hazard: "Pedestrian and equipment interaction",
+        controls: [
+          "Establish controlled travel paths and equipment operating areas.",
+          "Separate workers from moving equipment whenever practical.",
+          "Use a spotter when visibility, backing, congestion, or site conditions require one.",
+          "Maintain effective communication between operators and spotters.",
+        ],
+      },
+      {
+        hazard: "Unauthorized entry into equipment operating area",
+        controls: [
+          "Establish controlled travel paths and equipment operating areas.",
+          "Separate workers from moving equipment whenever practical.",
+          "Maintain effective communication between operators and spotters.",
+        ],
+      },
     ],
 
     ppe: [
@@ -96,6 +179,7 @@ const activityGuidanceLibrary: Record<
       "Spoil or material falling into excavation",
       "Mobile equipment operating near excavation edges",
       "Water accumulation or changing soil conditions",
+      "Unsafe access or egress",
     ],
 
     controls: [
@@ -105,6 +189,56 @@ const activityGuidanceLibrary: Record<
       "Maintain required spoil, material, and equipment setback from the excavation edge.",
       "Protect workers from equipment operating near excavation edges.",
       "Reinspect after weather, vibration, water intrusion, or other conditions that could affect excavation stability.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Cave-in or soil collapse",
+        controls: [
+          "A competent person must inspect the excavation and surrounding conditions as required.",
+          "Determine the required protective system based on excavation depth, soil, loading, water, and actual site conditions.",
+          "Reinspect after weather, vibration, water intrusion, or other conditions that could affect excavation stability.",
+        ],
+      },
+      {
+        hazard: "Underground utility contact",
+        controls: [
+        ],
+      },
+      {
+        hazard: "Falls into excavation",
+        controls: [
+          "Provide safe access and egress where required.",
+        ],
+      },
+      {
+        hazard: "Spoil or material falling into excavation",
+        controls: [
+          "Maintain required spoil, material, and equipment setback from the excavation edge.",
+        ],
+      },
+      {
+        hazard: "Mobile equipment operating near excavation edges",
+        controls: [
+          "Maintain required spoil, material, and equipment setback from the excavation edge.",
+          "Protect workers from equipment operating near excavation edges.",
+        ],
+      },
+      {
+        hazard: "Water accumulation or changing soil conditions",
+        controls: [
+          "A competent person must inspect the excavation and surrounding conditions as required.",
+          "Determine the required protective system based on excavation depth, soil, loading, water, and actual site conditions.",
+          "Reinspect after weather, vibration, water intrusion, or other conditions that could affect excavation stability.",
+        ],
+      },
+      {
+        hazard: "Unsafe access or egress",
+        controls: [
+          "Provide safe access and egress where required.",
+        ],
+      },
     ],
 
     ppe: [],
@@ -132,6 +266,7 @@ const activityGuidanceLibrary: Record<
       "Contact with underground electrical, gas, communication, water, sewer, or other utilities",
       "Unexpected utility location or elevation",
       "Stored energy or hazardous release from damaged utilities",
+      "Conflicting drawings, records, locates, or field markings",
     ],
 
     controls: [
@@ -142,6 +277,47 @@ const activityGuidanceLibrary: Record<
       "Maintain required clearances from known utilities.",
       "Use approved non-destructive excavation methods where required.",
       "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Contact with underground electrical, gas, communication, water, sewer, or other utilities",
+        controls: [
+          "Obtain applicable utility locate information before disturbing the ground.",
+          "Review available drawings, records, and field markings.",
+          "Use private locating or additional locating methods when required by project conditions.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
+        ],
+      },
+      {
+        hazard: "Unexpected utility location or elevation",
+        controls: [
+          "Review available drawings, records, and field markings.",
+          "Use private locating or additional locating methods when required by project conditions.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
+      {
+        hazard: "Stored energy or hazardous release from damaged utilities",
+        controls: [
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
+      {
+        hazard: "Conflicting drawings, records, locates, or field markings",
+        controls: [
+          "Review available drawings, records, and field markings.",
+          "Use private locating or additional locating methods when required by project conditions.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
     ],
 
     ppe: [],
@@ -183,6 +359,52 @@ const activityGuidanceLibrary: Record<
       "Address group lockout, lockbox, transfer, and shift-change requirements when applicable.",
     ],
 
+
+    hazardControlGroups: [
+      {
+        hazard: "Electric shock",
+        controls: [
+          "De-energized work should be the default whenever feasible.",
+          "Only qualified or authorized persons may perform tasks requiring those qualifications.",
+          "Verify the required safe condition before work begins.",
+        ],
+      },
+      {
+        hazard: "Arc-flash or arc-blast exposure",
+        controls: [
+          "De-energized work should be the default whenever feasible.",
+          "Only qualified or authorized persons may perform tasks requiring those qualifications.",
+          "Verify the required safe condition before work begins.",
+        ],
+      },
+      {
+        hazard: "Unexpected energization",
+        controls: [
+          "Identify all hazardous energy sources that could affect the work.",
+          "Apply the required energy-isolation and lockout/tagout process before work begins.",
+          "Verify the required safe condition before work begins.",
+          "Maintain control of personal locks and energy-isolation devices in accordance with the applicable procedure.",
+          "Address group lockout, lockbox, transfer, and shift-change requirements when applicable.",
+        ],
+      },
+      {
+        hazard: "Stored or hazardous energy",
+        controls: [
+          "Identify all hazardous energy sources that could affect the work.",
+          "Apply the required energy-isolation and lockout/tagout process before work begins.",
+          "Verify the required safe condition before work begins.",
+        ],
+      },
+      {
+        hazard: "Incorrect circuit or equipment identification",
+        controls: [
+          "Identify all hazardous energy sources that could affect the work.",
+          "Only qualified or authorized persons may perform tasks requiring those qualifications.",
+          "Verify the required safe condition before work begins.",
+        ],
+      },
+    ],
+
     ppe: [
       "Determine task-specific electrical PPE from the actual electrical exposure and applicable electrical-safety requirements.",
     ],
@@ -220,6 +442,37 @@ const activityGuidanceLibrary: Record<
       "Maintain required fall clearance.",
       "Protect personnel below from falling-object exposure.",
       "Establish a rescue method when personal fall arrest is used and rescue planning is required.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Fall from elevation",
+        controls: [
+          "Use the appropriate fall-prevention or fall-arrest system for the actual exposure.",
+          "Inspect fall-protection equipment before use.",
+          "Establish a rescue method when personal fall arrest is used and rescue planning is required.",
+        ],
+      },
+      {
+        hazard: "Falling objects",
+        controls: [
+          "Protect personnel below from falling-object exposure.",
+        ],
+      },
+      {
+        hazard: "Improper anchorage or fall-protection setup",
+        controls: [
+          "Inspect fall-protection equipment before use.",
+          "Verify anchors, connectors, and system configuration are appropriate.",
+        ],
+      },
+      {
+        hazard: "Insufficient fall clearance",
+        controls: [
+          "Maintain required fall clearance.",
+        ],
+      },
     ],
 
     ppe: [
@@ -260,6 +513,47 @@ const activityGuidanceLibrary: Record<
       "Follow manufacturer operating limitations.",
     ],
 
+
+    hazardControlGroups: [
+      {
+        hazard: "Fall from the platform",
+        controls: [
+          "Only trained and authorized operators may operate the MEWP.",
+          "Complete the required pre-use inspection.",
+          "Use the required fall-protection system for the equipment and task.",
+          "Follow manufacturer operating limitations.",
+        ],
+      },
+      {
+        hazard: "Tip-over",
+        controls: [
+          "Complete the required pre-use inspection.",
+          "Evaluate floor or ground conditions and platform setup before elevation.",
+          "Follow manufacturer operating limitations.",
+        ],
+      },
+      {
+        hazard: "Crushing or entrapment",
+        controls: [
+          "Only trained and authorized operators may operate the MEWP.",
+          "Control the area around the lift to prevent collision and struck-by exposure.",
+          "Follow manufacturer operating limitations.",
+        ],
+      },
+      {
+        hazard: "Collision with structures, vehicles, or equipment",
+        controls: [
+          "Control the area around the lift to prevent collision and struck-by exposure.",
+        ],
+      },
+      {
+        hazard: "Overhead electrical exposure",
+        controls: [
+          "Maintain required clearance from overhead electrical hazards.",
+        ],
+      },
+    ],
+
     ppe: [
       "Required fall-protection equipment for the specific MEWP and task.",
     ],
@@ -294,6 +588,47 @@ const activityGuidanceLibrary: Record<
       "Control sparks, slag, and hot material.",
       "Inspect adjacent levels, openings, and concealed spaces that may be affected.",
       "Maintain required post-work fire monitoring.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Fire",
+        controls: [
+          "Remove or protect combustible materials from the hot-work area.",
+          "Provide appropriate fire-extinguishing equipment.",
+          "Establish fire-watch requirements when applicable.",
+          "Maintain required post-work fire monitoring.",
+        ],
+      },
+      {
+        hazard: "Burns",
+        controls: [
+          "Control sparks, slag, and hot material.",
+        ],
+      },
+      {
+        hazard: "Sparks or molten material contacting combustible materials",
+        controls: [
+          "Remove or protect combustible materials from the hot-work area.",
+          "Control sparks, slag, and hot material.",
+          "Inspect adjacent levels, openings, and concealed spaces that may be affected.",
+        ],
+      },
+      {
+        hazard: "Hot-work fumes",
+        controls: [
+        ],
+      },
+      {
+        hazard: "Ignition of concealed or adjacent combustible materials",
+        controls: [
+          "Remove or protect combustible materials from the hot-work area.",
+          "Establish fire-watch requirements when applicable.",
+          "Inspect adjacent levels, openings, and concealed spaces that may be affected.",
+          "Maintain required post-work fire monitoring.",
+        ],
+      },
     ],
 
     ppe: [
@@ -333,6 +668,46 @@ const activityGuidanceLibrary: Record<
       "Control ignition sources where applicable.",
       "Store and handle chemicals to prevent incompatible-material contact.",
       "Provide appropriate spill-control materials.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Skin or eye contact",
+        controls: [
+          "Review the applicable SDS before use.",
+          "Use materials in accordance with manufacturer instructions.",
+        ],
+      },
+      {
+        hazard: "Inhalation exposure",
+        controls: [
+          "Review the applicable SDS before use.",
+          "Use materials in accordance with manufacturer instructions.",
+          "Provide required ventilation.",
+        ],
+      },
+      {
+        hazard: "Chemical incompatibility",
+        controls: [
+          "Review the applicable SDS before use.",
+          "Store and handle chemicals to prevent incompatible-material contact.",
+        ],
+      },
+      {
+        hazard: "Flammable or combustible material exposure",
+        controls: [
+          "Review the applicable SDS before use.",
+          "Control ignition sources where applicable.",
+        ],
+      },
+      {
+        hazard: "Spill or release",
+        controls: [
+          "Use materials in accordance with manufacturer instructions.",
+          "Provide appropriate spill-control materials.",
+        ],
+      },
     ],
 
     ppe: [
@@ -376,6 +751,50 @@ const activityGuidanceLibrary: Record<
       "Maintain clear communication throughout the lift or material movement.",
     ],
 
+
+    hazardControlGroups: [
+      {
+        hazard: "Dropped or suspended load",
+        controls: [
+          "Verify load weight and lifting points where required.",
+          "Use rigging suitable for the load and lifting method.",
+          "Inspect rigging before use.",
+          "Use qualified personnel for rigging and signaling where required.",
+          "Establish and maintain the suspended-load exclusion area.",
+        ],
+      },
+      {
+        hazard: "Rigging failure",
+        controls: [
+          "Verify load weight and lifting points where required.",
+          "Use rigging suitable for the load and lifting method.",
+          "Inspect rigging before use.",
+          "Use qualified personnel for rigging and signaling where required.",
+        ],
+      },
+      {
+        hazard: "Crushing or pinch-point exposure",
+        controls: [
+          "Keep personnel out of pinch points and the load travel path.",
+        ],
+      },
+      {
+        hazard: "Personnel entering the fall zone",
+        controls: [
+          "Establish and maintain the suspended-load exclusion area.",
+          "Maintain clear communication throughout the lift or material movement.",
+        ],
+      },
+      {
+        hazard: "Unexpected load movement",
+        controls: [
+          "Use qualified personnel for rigging and signaling where required.",
+          "Keep personnel out of pinch points and the load travel path.",
+          "Maintain clear communication throughout the lift or material movement.",
+        ],
+      },
+    ],
+
     ppe: [],
 
     permits: [
@@ -411,6 +830,49 @@ const activityGuidanceLibrary: Record<
       "Maintain effective operator/spotter communication.",
       "Keep workers out of vehicle blind spots and line-of-fire areas.",
       "Provide adequate lighting and visibility for traffic-control activities.",
+    ],
+
+
+    hazardControlGroups: [
+      {
+        hazard: "Worker struck by vehicle or equipment",
+        controls: [
+          "Establish traffic and pedestrian routes before work begins.",
+          "Use barricades, signs, cones, flaggers, or spotters as required.",
+          "Keep workers out of vehicle blind spots and line-of-fire areas.",
+        ],
+      },
+      {
+        hazard: "Backing vehicle exposure",
+        controls: [
+          "Minimize backing whenever practical.",
+          "Maintain effective operator/spotter communication.",
+          "Keep workers out of vehicle blind spots and line-of-fire areas.",
+        ],
+      },
+      {
+        hazard: "Public traffic entering the work zone",
+        controls: [
+          "Establish traffic and pedestrian routes before work begins.",
+          "Use barricades, signs, cones, flaggers, or spotters as required.",
+          "Provide adequate lighting and visibility for traffic-control activities.",
+        ],
+      },
+      {
+        hazard: "Driver blind spots",
+        controls: [
+          "Maintain effective operator/spotter communication.",
+          "Keep workers out of vehicle blind spots and line-of-fire areas.",
+        ],
+      },
+      {
+        hazard: "Conflicting pedestrian and vehicle routes",
+        controls: [
+          "Establish traffic and pedestrian routes before work begins.",
+          "Use barricades, signs, cones, flaggers, or spotters as required.",
+          "Keep workers out of vehicle blind spots and line-of-fire areas.",
+        ],
+      },
     ],
 
     ppe: [
@@ -636,6 +1098,974 @@ function findRelevantActivityCodes(
   return [];
 }
 
+function stableDraftItemId(
+  ...parts: Array<string | number>
+) {
+  const normalized = parts
+    .map((part) => String(part).trim().toLowerCase())
+    .join("|");
+
+  let hash = 2166136261;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `draft-${(hash >>> 0).toString(36)}`;
+}
+
+function inferHazardControlGroups(
+  activityCode: string,
+  guidance: ActivityGuidance,
+): ActivityHazardControlGuidance[] {
+  if (
+    guidance.hazardControlGroups &&
+    guidance.hazardControlGroups.length > 0
+  ) {
+    return guidance.hazardControlGroups;
+  }
+
+  /*
+   * Transitional compatibility behavior:
+   *
+   * The legacy library stores hazards and controls as
+   * independent arrays, so Qoreva must not pair them by
+   * array position. Until each activity is migrated to
+   * explicit hazardControlGroups, preserve the hazards
+   * and place the activity's shared controls in a clearly
+   * labeled activity-level planning group.
+   */
+  const groups: ActivityHazardControlGuidance[] =
+    guidance.hazards.map((hazard) => ({
+      hazard,
+      controls: [],
+    }));
+
+  if (guidance.controls.length > 0) {
+    groups.push({
+      hazard: `${activityCode.replaceAll("_", " ")} — General Controls`,
+      controls: guidance.controls,
+    });
+  }
+
+  return groups;
+}
+
+function buildGeneratedHazardControlGroup(
+  stepSequence: number,
+  activityCode: string,
+  group: ActivityHazardControlGuidance,
+): GeneratedHazardControlGroup {
+  const hazardId = stableDraftItemId(
+    "hazard",
+    stepSequence,
+    activityCode,
+    group.hazard,
+  );
+
+  return {
+    id: stableDraftItemId(
+      "hazard-control-group",
+      stepSequence,
+      activityCode,
+      group.hazard,
+    ),
+
+    hazard: {
+      id: hazardId,
+      text: group.hazard,
+      source: "Rule",
+      sourceActivityCodes: [activityCode],
+      sourceQuestionCodes: [],
+      sourceRequirementIds: [],
+      required: false,
+    },
+
+    controls: uniqueStrings(group.controls).map(
+      (control) => ({
+        id: stableDraftItemId(
+          "control",
+          stepSequence,
+          activityCode,
+          group.hazard,
+          control,
+        ),
+        text: control,
+        source: "Rule" as const,
+        sourceActivityCodes: [activityCode],
+        sourceQuestionCodes: [],
+        sourceRequirementIds: [],
+        required: false,
+      }),
+    ),
+  };
+}
+
+
+function splitLegacyPlanningEntries(
+  value: string | null | undefined,
+) {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  return uniqueStrings(
+    value
+      .split(/\r?\n|;|\u2022/g)
+      .map((item) =>
+        item
+          .replace(/^\s*(?:[-*]|\d+[.)])\s*/, "")
+          .trim(),
+      ),
+  );
+}
+
+function buildUserHazardControlGroups(
+  step: PlanningGenerationContext["workSteps"][number],
+): GeneratedHazardControlGroup[] {
+  const hazards =
+    splitLegacyPlanningEntries(
+      step.hazards,
+    );
+
+  const controls =
+    splitLegacyPlanningEntries(
+      step.controls,
+    );
+
+  if (
+    hazards.length === 0 &&
+    controls.length === 0
+  ) {
+    return [];
+  }
+
+  /*
+   * Legacy user-entered fields can contain multiple
+   * hazards or controls in a single text value.
+   *
+   * Split the entries into discrete planning items,
+   * but never infer a hazard-to-control relationship
+   * unless the legacy data provides one unambiguous
+   * hazard and one or more controls.
+   */
+  if (hazards.length === 1) {
+    const hazard = hazards[0];
+
+    return [
+      {
+        id: stableDraftItemId(
+          "user-hazard-control-group",
+          step.sequence,
+          hazard,
+        ),
+
+        hazard: {
+          id: stableDraftItemId(
+            "user-hazard",
+            step.sequence,
+            hazard,
+          ),
+          text: hazard,
+          source: "User",
+          sourceActivityCodes: [],
+          sourceQuestionCodes: [],
+          sourceRequirementIds: [],
+          required: false,
+        },
+
+        controls: controls.map(
+          (control) => ({
+            id: stableDraftItemId(
+              "user-control",
+              step.sequence,
+              hazard,
+              control,
+            ),
+            text: control,
+            source: "User" as const,
+            sourceActivityCodes: [],
+            sourceQuestionCodes: [],
+            sourceRequirementIds: [],
+            required: false,
+          }),
+        ),
+      },
+    ];
+  }
+
+  if (hazards.length > 1) {
+    const groups =
+      hazards.map(
+        (
+          hazard,
+          hazardIndex,
+        ): GeneratedHazardControlGroup => ({
+          id: stableDraftItemId(
+            "user-hazard-group",
+            step.sequence,
+            hazardIndex,
+            hazard,
+          ),
+
+          hazard: {
+            id: stableDraftItemId(
+              "user-hazard",
+              step.sequence,
+              hazardIndex,
+              hazard,
+            ),
+            text: hazard,
+            source: "User",
+            sourceActivityCodes: [],
+            sourceQuestionCodes: [],
+            sourceRequirementIds: [],
+            required: false,
+          },
+
+          /*
+           * Do not distribute shared legacy controls
+           * across several hazards. Doing so would
+           * manufacture relationships the user did
+           * not explicitly provide.
+           */
+          controls: [],
+        }),
+      );
+
+    if (controls.length > 0) {
+      groups.push({
+        id: stableDraftItemId(
+          "user-unmapped-controls-group",
+          step.sequence,
+          ...controls,
+        ),
+
+        hazard: {
+          id: stableDraftItemId(
+            "user-unmapped-controls-hazard",
+            step.sequence,
+            ...controls,
+          ),
+          text:
+            "User-entered controls requiring hazard assignment",
+          source: "User",
+          sourceActivityCodes: [],
+          sourceQuestionCodes: [],
+          sourceRequirementIds: [],
+          required: false,
+        },
+
+        controls: controls.map(
+          (control) => ({
+            id: stableDraftItemId(
+              "user-unmapped-control",
+              step.sequence,
+              control,
+            ),
+            text: control,
+            source: "User" as const,
+            sourceActivityCodes: [],
+            sourceQuestionCodes: [],
+            sourceRequirementIds: [],
+            required: false,
+          }),
+        ),
+      });
+    }
+
+    return groups;
+  }
+
+  return [
+    {
+      id: stableDraftItemId(
+        "user-general-control-group",
+        step.sequence,
+        ...controls,
+      ),
+
+      hazard: {
+        id: stableDraftItemId(
+          "user-general-control-hazard",
+          step.sequence,
+          ...controls,
+        ),
+        text:
+          "User-entered controls requiring hazard assignment",
+        source: "User",
+        sourceActivityCodes: [],
+        sourceQuestionCodes: [],
+        sourceRequirementIds: [],
+        required: false,
+      },
+
+      controls: controls.map(
+        (control) => ({
+          id: stableDraftItemId(
+            "user-control",
+            step.sequence,
+            control,
+          ),
+          text: control,
+          source: "User" as const,
+          sourceActivityCodes: [],
+          sourceQuestionCodes: [],
+          sourceRequirementIds: [],
+          required: false,
+        }),
+      ),
+    },
+  ];
+}
+
+function mergeGeneratedHazardControlGroups(
+  groups: GeneratedHazardControlGroup[],
+): GeneratedHazardControlGroup[] {
+  const merged =
+    new Map<
+      string,
+      GeneratedHazardControlGroup
+    >();
+
+  for (const group of groups) {
+    const key =
+      group.hazard.text
+        .trim()
+        .toLowerCase();
+
+    const existing =
+      merged.get(key);
+
+    if (!existing) {
+      merged.set(key, {
+        ...group,
+
+        hazard: {
+          ...group.hazard,
+
+          sourceActivityCodes:
+            uniqueStrings(
+              group.hazard
+                .sourceActivityCodes,
+            ),
+
+          sourceQuestionCodes:
+            uniqueStrings(
+              group.hazard
+                .sourceQuestionCodes,
+            ),
+
+          sourceRequirementIds:
+            uniqueStrings(
+              group.hazard
+                .sourceRequirementIds,
+            ),
+        },
+
+        controls:
+          group.controls.map(
+            (control) => ({
+              ...control,
+
+              sourceActivityCodes:
+                uniqueStrings(
+                  control
+                    .sourceActivityCodes,
+                ),
+
+              sourceQuestionCodes:
+                uniqueStrings(
+                  control
+                    .sourceQuestionCodes,
+                ),
+
+              sourceRequirementIds:
+                uniqueStrings(
+                  control
+                    .sourceRequirementIds,
+                ),
+            }),
+          ),
+      });
+
+      continue;
+    }
+
+    existing.hazard.sourceActivityCodes =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceActivityCodes,
+        ...group.hazard
+          .sourceActivityCodes,
+      ]);
+
+    existing.hazard.sourceQuestionCodes =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceQuestionCodes,
+        ...group.hazard
+          .sourceQuestionCodes,
+      ]);
+
+    existing.hazard.sourceRequirementIds =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceRequirementIds,
+        ...group.hazard
+          .sourceRequirementIds,
+      ]);
+
+    existing.hazard.required =
+      existing.hazard.required ||
+      group.hazard.required;
+
+    const controlsByText =
+      new Map(
+        existing.controls.map(
+          (control) => [
+            control.text
+              .trim()
+              .toLowerCase(),
+            control,
+          ],
+        ),
+      );
+
+    for (
+      const control of
+      group.controls
+    ) {
+      const controlKey =
+        control.text
+          .trim()
+          .toLowerCase();
+
+      const existingControl =
+        controlsByText.get(
+          controlKey,
+        );
+
+      if (!existingControl) {
+        const copiedControl = {
+          ...control,
+
+          sourceActivityCodes:
+            uniqueStrings(
+              control
+                .sourceActivityCodes,
+            ),
+
+          sourceQuestionCodes:
+            uniqueStrings(
+              control
+                .sourceQuestionCodes,
+            ),
+
+          sourceRequirementIds:
+            uniqueStrings(
+              control
+                .sourceRequirementIds,
+            ),
+        };
+
+        existing.controls.push(
+          copiedControl,
+        );
+
+        controlsByText.set(
+          controlKey,
+          copiedControl,
+        );
+
+        continue;
+      }
+
+      existingControl.sourceActivityCodes =
+        uniqueStrings([
+          ...existingControl
+            .sourceActivityCodes,
+          ...control
+            .sourceActivityCodes,
+        ]);
+
+      existingControl.sourceQuestionCodes =
+        uniqueStrings([
+          ...existingControl
+            .sourceQuestionCodes,
+          ...control
+            .sourceQuestionCodes,
+        ]);
+
+      existingControl.sourceRequirementIds =
+        uniqueStrings([
+          ...existingControl
+            .sourceRequirementIds,
+          ...control
+            .sourceRequirementIds,
+        ]);
+
+      existingControl.required =
+        existingControl.required ||
+        control.required;
+    }
+  }
+
+  return Array.from(
+    merged.values(),
+  );
+}
+
+
+const hazardMatchStopWords =
+  new Set([
+    "a",
+    "an",
+    "and",
+    "area",
+    "at",
+    "by",
+    "during",
+    "exposure",
+    "for",
+    "from",
+    "in",
+    "into",
+    "near",
+    "of",
+    "or",
+    "other",
+    "the",
+    "to",
+    "with",
+  ]);
+
+function canonicalHazardToken(
+  token: string,
+) {
+  const normalized =
+    token
+      .toLowerCase()
+      .replace(
+        /[^a-z0-9]+/g,
+        "",
+      );
+
+  const aliases:
+    Record<string, string> = {
+      backing:
+        "back",
+      caught:
+        "caught",
+      collapse:
+        "collapse",
+      conduit:
+        "utility",
+      digging:
+        "excavate",
+      drawing:
+        "drawing",
+      drawings:
+        "drawing",
+      electrical:
+        "electric",
+      equipment:
+        "equipment",
+      excavating:
+        "excavate",
+      excavation:
+        "excavate",
+      excavator:
+        "equipment",
+      falling:
+        "fall",
+      falls:
+        "fall",
+      locating:
+        "locate",
+      location:
+        "locate",
+      locations:
+        "locate",
+      locates:
+        "locate",
+      markings:
+        "marking",
+      mismarked:
+        "marking",
+      mobile:
+        "mobile",
+      moving:
+        "mobile",
+      personnel:
+        "worker",
+      rollover:
+        "rollover",
+      site:
+        "site",
+      struck:
+        "strike",
+      striking:
+        "strike",
+      unstable:
+        "unstable",
+      utilities:
+        "utility",
+      utility:
+        "utility",
+      vehicle:
+        "vehicle",
+      vehicles:
+        "vehicle",
+      worker:
+        "worker",
+      workers:
+        "worker",
+    };
+
+  if (aliases[normalized]) {
+    return aliases[normalized];
+  }
+
+  if (
+    normalized.endsWith("ies") &&
+    normalized.length > 4
+  ) {
+    return `${normalized.slice(
+      0,
+      -3,
+    )}y`;
+  }
+
+  if (
+    normalized.endsWith("s") &&
+    normalized.length > 4
+  ) {
+    return normalized.slice(
+      0,
+      -1,
+    );
+  }
+
+  return normalized;
+}
+
+function buildHazardTokenSet(
+  value: string,
+) {
+  const rawTokens =
+    value
+      .toLowerCase()
+      .replaceAll("-", " ")
+      .split(
+        /[^a-z0-9]+/g,
+      )
+      .map(
+        canonicalHazardToken,
+      )
+      .filter(Boolean)
+      .filter(
+        (token) =>
+          !hazardMatchStopWords.has(
+            token,
+          ),
+      );
+
+  return new Set(rawTokens);
+}
+
+function getHazardConceptBoost(
+  userHazardText: string,
+  candidateHazardText: string,
+  activityCode: string,
+) {
+  const user =
+    userHazardText
+      .toLowerCase();
+
+  const candidate =
+    candidateHazardText
+      .toLowerCase();
+
+  let boost = 0;
+
+  if (
+    activityCode ===
+      "UNDERGROUND_UTILITIES" &&
+    /\b(utility|utilities|underground|conduit|locate|locates|drawing|drawings|marking|markings|mismarked)\b/i.test(
+      user,
+    ) &&
+    /\b(utility|utilities|underground|locat|drawing|record|marking)\b/i.test(
+      candidate,
+    )
+  ) {
+    boost += 0.2;
+  }
+
+  if (
+    activityCode ===
+      "MOBILE_EQUIPMENT" &&
+    /\b(equipment|mobile|vehicle|operator|spotter|blind|struck|unstable|unauthorized|entry)\b/i.test(
+      user,
+    ) &&
+    /\b(equipment|moving|mobile|operator|visibility|pedestrian|struck|unstable|unauthorized|entry)\b/i.test(
+      candidate,
+    )
+  ) {
+    boost += 0.15;
+  }
+
+  if (
+    activityCode ===
+      "EXCAVATION" &&
+    /\b(excavat|trench|cave|soil|spoil|edge|access|egress|water|condition|fall)\b/i.test(
+      user,
+    ) &&
+    /\b(excavat|trench|cave|soil|spoil|edge|access|egress|water|condition|fall)\b/i.test(
+      candidate,
+    )
+  ) {
+    boost += 0.15;
+  }
+
+  return boost;
+}
+
+function getHazardMatchScore(
+  userHazardText: string,
+  candidateHazardText: string,
+  activityCode: string,
+) {
+  const userNormalized =
+    userHazardText
+      .trim()
+      .toLowerCase();
+
+  const candidateNormalized =
+    candidateHazardText
+      .trim()
+      .toLowerCase();
+
+  if (
+    userNormalized ===
+    candidateNormalized
+  ) {
+    return 1;
+  }
+
+  if (
+    userNormalized.includes(
+      candidateNormalized,
+    ) ||
+    candidateNormalized.includes(
+      userNormalized,
+    )
+  ) {
+    return 0.9;
+  }
+
+  const userTokens =
+    buildHazardTokenSet(
+      userHazardText,
+    );
+
+  const candidateTokens =
+    buildHazardTokenSet(
+      candidateHazardText,
+    );
+
+  if (
+    userTokens.size === 0 ||
+    candidateTokens.size === 0
+  ) {
+    return 0;
+  }
+
+  const sharedTokens =
+    Array.from(
+      userTokens,
+    ).filter(
+      (token) =>
+        candidateTokens.has(
+          token,
+        ),
+    );
+
+  if (
+    sharedTokens.length === 0
+  ) {
+    return 0;
+  }
+
+  const diceScore =
+    (
+      2 *
+      sharedTokens.length
+    ) /
+    (
+      userTokens.size +
+      candidateTokens.size
+    );
+
+  return Math.min(
+    1,
+    diceScore +
+      getHazardConceptBoost(
+        userHazardText,
+        candidateHazardText,
+        activityCode,
+      ),
+  );
+}
+
+function resolveUserHazardControls(
+  groups: GeneratedHazardControlGroup[],
+) {
+  const consumedRuleGroupIds =
+    new Set<string>();
+
+  const userGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.source ===
+          "User" &&
+        group.controls.length === 0 &&
+        group.hazard.text !==
+          "User-entered controls requiring hazard assignment",
+    );
+
+  const ruleGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.source ===
+          "Rule" &&
+        group.controls.length > 0,
+    );
+
+  for (
+    const userGroup of
+    userGroups
+  ) {
+    const candidates =
+      ruleGroups
+        .map(
+          (ruleGroup) => {
+            const activityCode =
+              ruleGroup.hazard
+                .sourceActivityCodes[0] ??
+              "";
+
+            return {
+              ruleGroup,
+              score:
+                getHazardMatchScore(
+                  userGroup.hazard
+                    .text,
+                  ruleGroup.hazard
+                    .text,
+                  activityCode,
+                ),
+            };
+          },
+        )
+        .filter(
+          (candidate) =>
+            candidate.score >=
+            0.45,
+        )
+        .sort(
+          (left, right) =>
+            right.score -
+            left.score,
+        );
+
+    const best =
+      candidates[0];
+
+    if (!best) {
+      continue;
+    }
+
+    const secondBest =
+      candidates[1];
+
+    /*
+     * Require a clear best match. If two different
+     * hazards score almost the same, Qoreva leaves
+     * the relationship unresolved for qualified
+     * review instead of guessing.
+     */
+    if (
+      secondBest &&
+      best.score -
+        secondBest.score <
+        0.08
+    ) {
+      continue;
+    }
+
+    userGroup.hazard.sourceActivityCodes =
+      uniqueStrings([
+        ...userGroup.hazard
+          .sourceActivityCodes,
+        ...best.ruleGroup.hazard
+          .sourceActivityCodes,
+      ]);
+
+    userGroup.hazard.sourceQuestionCodes =
+      uniqueStrings([
+        ...userGroup.hazard
+          .sourceQuestionCodes,
+        ...best.ruleGroup.hazard
+          .sourceQuestionCodes,
+      ]);
+
+    userGroup.hazard.sourceRequirementIds =
+      uniqueStrings([
+        ...userGroup.hazard
+          .sourceRequirementIds,
+        ...best.ruleGroup.hazard
+          .sourceRequirementIds,
+      ]);
+
+    userGroup.controls =
+      best.ruleGroup.controls.map(
+        (control) => ({
+          ...control,
+
+          id: stableDraftItemId(
+            "resolved-control",
+            userGroup.hazard.id,
+            control.text,
+          ),
+
+          sourceActivityCodes:
+            uniqueStrings([
+              ...control
+                .sourceActivityCodes,
+              ...best.ruleGroup
+                .hazard
+                .sourceActivityCodes,
+            ]),
+        }),
+      );
+
+    consumedRuleGroupIds.add(
+      best.ruleGroup.id,
+    );
+  }
+
+  return groups.filter(
+    (group) =>
+      !consumedRuleGroupIds.has(
+        group.id,
+      ),
+  );
+}
+
+
+
 function buildWorkStepSuggestions(
   context: PlanningGenerationContext,
 ): DraftWorkStepSuggestion[] {
@@ -656,6 +2086,10 @@ function buildWorkStepSuggestions(
 
       const hazards: string[] = [];
       const controls: string[] = [];
+
+      const hazardControlGroupCandidates:
+        GeneratedHazardControlGroup[] =
+        buildUserHazardControlGroups(step);
 
       let riskAttention:
         | "Normal"
@@ -683,6 +2117,22 @@ function buildWorkStepSuggestions(
         controls.push(
           ...guidance.controls,
         );
+
+        for (
+          const group of
+          inferHazardControlGroups(
+            activityCode,
+            guidance,
+          )
+        ) {
+          hazardControlGroupCandidates.push(
+            buildGeneratedHazardControlGroup(
+              step.sequence || index + 1,
+              activityCode,
+              group,
+            ),
+          );
+        }
 
         riskAttention =
           mergeRiskAttention(
@@ -716,6 +2166,16 @@ function buildWorkStepSuggestions(
           "HighAttention";
       }
 
+      const resolvedHazardControlGroups =
+        resolveUserHazardControls(
+          hazardControlGroupCandidates,
+        );
+
+      const hazardControlGroups =
+        mergeGeneratedHazardControlGroups(
+          resolvedHazardControlGroups,
+        );
+
       const source =
         step.hazards ||
         step.controls
@@ -742,6 +2202,8 @@ function buildWorkStepSuggestions(
           uniqueStrings(
             controls,
           ),
+
+        hazardControlGroups,
 
         safetyCriticalSuggested:
           Boolean(
@@ -1031,6 +2493,78 @@ function buildReviewFlags(
     });
   }
 
+  const unresolvedUserHazards =
+    workSteps.flatMap(
+      (step) =>
+        step.hazardControlGroups.filter(
+          (group) =>
+            group.hazard.source ===
+              "User" &&
+            group.controls.length ===
+              0 &&
+            group.hazard.text !==
+              "User-entered controls requiring hazard assignment",
+        ),
+    );
+
+  if (
+    unresolvedUserHazards.length >
+    0
+  ) {
+    flags.push({
+      code:
+        "USER_HAZARDS_NEED_CONTROL_REVIEW",
+
+      title:
+        "Some hazards still need control review",
+
+      detail:
+        `${unresolvedUserHazards.length} user-entered hazard${
+          unresolvedUserHazards.length ===
+          1
+            ? ""
+            : "s"
+        } could not be matched confidently to an existing Qoreva hazard/control relationship. Review those hazards and assign appropriate controls before the plan becomes official.`,
+
+      severity:
+        "Warning",
+    });
+  }
+
+  const unmappedUserControlGroups =
+    workSteps.flatMap(
+      (step) =>
+        step.hazardControlGroups.filter(
+          (group) =>
+            group.hazard.text ===
+            "User-entered controls requiring hazard assignment",
+        ),
+    );
+
+  if (
+    unmappedUserControlGroups.length >
+    0
+  ) {
+    flags.push({
+      code:
+        "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT",
+
+      title:
+        "Some controls need hazard assignment",
+
+      detail:
+        `${unmappedUserControlGroups.length} user-entered control group${
+          unmappedUserControlGroups.length ===
+          1
+            ? ""
+            : "s"
+        } could not be safely assigned to a specific hazard. Review and assign those controls before the plan becomes official.`,
+
+      severity:
+        "Warning",
+    });
+  }
+
   const highAttentionSteps =
     workSteps.filter(
       (step) =>
@@ -1187,7 +2721,7 @@ export function generatePlanningDraft(
         context.sourceDocuments.length,
 
       generatorVersion:
-        "qoreva-planning-draft-v1",
+        "qoreva-planning-draft-v5-hazard-control-resolution",
     },
   };
 }

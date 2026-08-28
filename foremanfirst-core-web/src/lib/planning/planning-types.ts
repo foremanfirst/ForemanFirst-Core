@@ -121,13 +121,74 @@ export type DraftGenerationSource =
   | "Requirement"
   | "AI";
 
+/**
+ * A single hazard or control generated for a work step.
+ *
+ * The ID is an internal identifier used to preserve the
+ * relationship between hazards and controls. The interface
+ * should not depend on display numbering such as H1/H1.a.
+ */
+export type GeneratedHazardControlItem = {
+  id: string;
+
+  text: string;
+
+  source: DraftGenerationSource;
+
+  sourceActivityCodes: string[];
+  sourceQuestionCodes: string[];
+  sourceRequirementIds: string[];
+
+  /**
+   * True when this item originates from an applicable
+   * mandatory requirement rather than general planning
+   * assistance.
+   *
+   * Requirement-backed items should not be silently removed
+   * from the official planning workflow.
+   */
+  required: boolean;
+};
+
+/**
+ * Represents an explicit hazard-to-control relationship.
+ *
+ * A hazard contains the controls intended to mitigate that
+ * specific hazard rather than relying on separate unrelated
+ * hazard and control lists.
+ */
+export type GeneratedHazardControlGroup = {
+  id: string;
+
+  hazard: GeneratedHazardControlItem;
+
+  controls: GeneratedHazardControlItem[];
+};
+
 export type DraftWorkStepSuggestion = {
   sequence: number;
   title: string;
   description: string | null;
 
+  /**
+   * Legacy generated arrays.
+   *
+   * These remain temporarily for compatibility with existing
+   * generated planning drafts and saved revisions while
+   * Work-Step Intelligence migrates to structured
+   * hazard-control relationships.
+   */
   suggestedHazards: string[];
+
   suggestedControls: string[];
+
+  /**
+   * Structured Work-Step Intelligence.
+   *
+   * Each hazard explicitly owns the controls associated with
+   * that hazard.
+   */
+  hazardControlGroups: GeneratedHazardControlGroup[];
 
   safetyCriticalSuggested: boolean;
 
@@ -144,7 +205,9 @@ export type DraftWorkStepSuggestion = {
   source: DraftGenerationSource;
 
   sourceActivityCodes: string[];
+
   sourceQuestionCodes: string[];
+
   sourceRequirementIds: string[];
 };
 
@@ -154,7 +217,9 @@ export type DraftControlSuggestion = {
   source: DraftGenerationSource;
 
   sourceActivityCodes: string[];
+
   sourceQuestionCodes: string[];
+
   sourceRequirementIds: string[];
 };
 

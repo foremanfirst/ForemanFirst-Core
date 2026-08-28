@@ -296,6 +296,552 @@ type GeneratedDraftControlSuggestion = {
   sourceRequirementIds: string[];
 };
 
+type GeneratedHazardControlItem = {
+  id: string;
+  text: string;
+
+  source:
+    | "User"
+    | "Rule"
+    | "Requirement"
+    | "AI";
+
+  sourceActivityCodes: string[];
+  sourceQuestionCodes: string[];
+  sourceRequirementIds: string[];
+
+  required: boolean;
+};
+
+type GeneratedHazardControlGroup = {
+  id: string;
+  hazard: GeneratedHazardControlItem;
+  controls: GeneratedHazardControlItem[];
+};
+
+type HazardCategory =
+  | "Electrical"
+  | "LOTO / Stored Energy"
+  | "Work at Height"
+  | "Excavation / Trenching"
+  | "Confined Space"
+  | "Lifting / Rigging"
+  | "Mobile Equipment / Traffic"
+  | "Hot Work / Fire"
+  | "Chemical Exposure"
+  | "Dust / Airborne Exposure"
+  | "Noise"
+  | "Struck-By / Line of Fire"
+  | "Caught-In / Between"
+  | "Material Handling / Ergonomics"
+  | "Slip / Trip / Walking Surface"
+  | "General Hazard";
+
+type HazardPresentation = {
+  category: HazardCategory;
+};
+
+type HazardIconProps = {
+  category: HazardCategory;
+  className?: string;
+};
+
+function HazardIcon({
+  category,
+  className = "h-5 w-5",
+}: HazardIconProps) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    className,
+    "aria-hidden": true,
+  };
+
+  switch (category) {
+    case "Electrical":
+      return (
+        <svg {...commonProps}>
+          <path d="M13 2 5.5 13h6L11 22l7.5-12H13L13 2Z" />
+        </svg>
+      );
+
+    case "LOTO / Stored Energy":
+      return (
+        <svg {...commonProps}>
+          <rect
+            x="5"
+            y="10"
+            width="14"
+            height="11"
+            rx="2"
+          />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          <path d="M12 14v3" />
+        </svg>
+      );
+
+    case "Work at Height":
+      return (
+        <svg {...commonProps}>
+          <path d="M7 21V5" />
+          <path d="M17 21V5" />
+          <path d="M7 8h10" />
+          <path d="M7 12h10" />
+          <path d="M7 16h10" />
+          <path d="m3 4 2-2 2 2" />
+        </svg>
+      );
+
+    case "Excavation / Trenching":
+      return (
+        <svg {...commonProps}>
+          <path d="M3 18h18" />
+          <path d="m4 18 4-7 4 7" />
+          <path d="m12 18 4-10 4 10" />
+          <path d="M15 5 18 2" />
+        </svg>
+      );
+
+    case "Confined Space":
+      return (
+        <svg {...commonProps}>
+          <rect
+            x="4"
+            y="3"
+            width="16"
+            height="18"
+            rx="2"
+          />
+          <circle
+            cx="12"
+            cy="9"
+            r="2"
+          />
+          <path d="M8.5 17c.8-2.6 2-4 3.5-4s2.7 1.4 3.5 4" />
+        </svg>
+      );
+
+    case "Lifting / Rigging":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 3v7" />
+          <path d="M8 7l4-4 4 4" />
+          <path d="M6 11h12" />
+          <path d="M8 11v4" />
+          <path d="M16 11v4" />
+          <rect
+            x="7"
+            y="15"
+            width="10"
+            height="6"
+            rx="1"
+          />
+        </svg>
+      );
+
+    case "Mobile Equipment / Traffic":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 16V9h11l3 4v3" />
+          <path d="M15 9V6h3" />
+          <circle
+            cx="7"
+            cy="18"
+            r="2"
+          />
+          <circle
+            cx="17"
+            cy="18"
+            r="2"
+          />
+          <path d="M9 18h6" />
+        </svg>
+      );
+
+    case "Hot Work / Fire":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 22c4 0 7-3 7-7 0-3-1.8-5.4-5-8 .2 2-1 3.5-2 4.5C11 9 9 6.5 7 5c0 4-2 5.5-2 9.5C5 19 8 22 12 22Z" />
+          <path d="M12 18c1.5 0 2.5-1 2.5-2.4 0-1.1-.6-2-1.7-3-.1 1-.6 1.4-1.1 1.9-.4-1-1.2-2-2-2.6 0 1.6-.7 2.3-.7 3.6C9 17 10.2 18 12 18Z" />
+        </svg>
+      );
+
+    case "Chemical Exposure":
+      return (
+        <svg {...commonProps}>
+          <path d="M9 3h6" />
+          <path d="M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3" />
+          <path d="M8 15h8" />
+          <circle
+            cx="9"
+            cy="18"
+            r=".7"
+            fill="currentColor"
+            stroke="none"
+          />
+          <circle
+            cx="14"
+            cy="17"
+            r=".7"
+            fill="currentColor"
+            stroke="none"
+          />
+        </svg>
+      );
+
+    case "Dust / Airborne Exposure":
+      return (
+        <svg {...commonProps}>
+          <path d="M3 8c3-2 5 2 8 0s5 2 8 0" />
+          <path d="M5 13c2-1.5 4 1.5 6 0s4 1.5 6 0" />
+          <path d="M8 18c1.5-1 3 1 4.5 0s3 1 4.5 0" />
+        </svg>
+      );
+
+    case "Noise":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 10v4" />
+          <path d="M8 8v8" />
+          <path d="M11 6v12" />
+          <path d="M15 8c2 1 2 7 0 8" />
+          <path d="M18 5c4 3 4 11 0 14" />
+        </svg>
+      );
+
+    case "Struck-By / Line of Fire":
+      return (
+        <svg {...commonProps}>
+          <path d="M3 12h14" />
+          <path d="m13 7 5 5-5 5" />
+          <circle
+            cx="20"
+            cy="12"
+            r="1.5"
+          />
+        </svg>
+      );
+
+    case "Caught-In / Between":
+      return (
+        <svg {...commonProps}>
+          <path d="M3 6h6v12H3" />
+          <path d="M21 6h-6v12h6" />
+          <path d="m10 9 2 3-2 3" />
+          <path d="m14 9-2 3 2 3" />
+        </svg>
+      );
+
+    case "Material Handling / Ergonomics":
+      return (
+        <svg {...commonProps}>
+          <rect
+            x="8"
+            y="4"
+            width="8"
+            height="7"
+            rx="1"
+          />
+          <path d="M5 20v-4c0-2 1-3 3-3h8c2 0 3 1 3 3v4" />
+          <path d="M9 13v4" />
+          <path d="M15 13v4" />
+        </svg>
+      );
+
+    case "Slip / Trip / Walking Surface":
+      return (
+        <svg {...commonProps}>
+          <circle
+            cx="9"
+            cy="5"
+            r="2"
+          />
+          <path d="m8 8 3 3 3-1" />
+          <path d="m11 11-2 4" />
+          <path d="m11 11 4 4" />
+          <path d="M3 20h18" />
+          <path d="m15 18 3 2" />
+        </svg>
+      );
+
+    case "General Hazard":
+    default:
+      return (
+        <svg {...commonProps}>
+          <path d="M10.3 3.6 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
+        </svg>
+      );
+  }
+}
+
+function includesAnyHazardTerm(
+  value: string,
+  terms: readonly string[],
+) {
+  return terms.some((term) =>
+    value.includes(term),
+  );
+}
+
+function getHazardPresentation(
+  hazardText: string,
+  activityCodes: string[] = [],
+): HazardPresentation {
+  const normalized = [
+    hazardText,
+    ...activityCodes,
+  ]
+    .join(" ")
+    .replaceAll("_", " ")
+    .toLowerCase();
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "confined space",
+      "permit space",
+      "atmospheric",
+      "oxygen deficient",
+    ])
+  ) {
+    return {
+      category: "Confined Space",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "excavat",
+      "trench",
+      "cave-in",
+      "underground utility",
+      "soil",
+    ])
+  ) {
+    return {
+      category: "Excavation / Trenching",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "rigging",
+      "suspended load",
+      "crane",
+      "hoist",
+      "lifting",
+      "load swing",
+    ])
+  ) {
+    return {
+      category: "Lifting / Rigging",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "fall from",
+      "work at height",
+      "elevated work",
+      "ladder",
+      "scaffold",
+      "roof edge",
+      "fall protection",
+      "aerial lift",
+      "mewp",
+    ])
+  ) {
+    return {
+      category: "Work at Height",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "mobile equipment",
+      "traffic",
+      "vehicle",
+      "forklift",
+      "skid steer",
+      "dozer",
+      "excavator",
+      "loader",
+      "backing",
+      "blind spot",
+    ])
+  ) {
+    return {
+      category: "Mobile Equipment / Traffic",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "lockout",
+      "tagout",
+      "loto",
+      "stored energy",
+      "zero energy",
+      "energy isolation",
+      "pressure release",
+      "hydraulic energy",
+      "pneumatic energy",
+    ])
+  ) {
+    return {
+      category: "LOTO / Stored Energy",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "electrical",
+      "electric shock",
+      "arc flash",
+      "arc-flash",
+      "voltage",
+      "energized conductor",
+      "electrocution",
+    ])
+  ) {
+    return {
+      category: "Electrical",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "hot work",
+      "welding",
+      "cutting",
+      "grinding spark",
+      "open flame",
+      "fire",
+      "ignition",
+    ])
+  ) {
+    return {
+      category: "Hot Work / Fire",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "chemical",
+      "corrosive",
+      "solvent",
+      "acid",
+      "caustic",
+      "sds",
+      "vapors",
+      "fumes",
+      "skin exposure",
+    ])
+  ) {
+    return {
+      category: "Chemical Exposure",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "silica",
+      "dust",
+      "airborne",
+      "respiratory",
+      "particulate",
+    ])
+  ) {
+    return {
+      category: "Dust / Airborne Exposure",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "noise",
+      "hearing",
+      "sound level",
+      "decibel",
+    ])
+  ) {
+    return {
+      category: "Noise",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "caught between",
+      "caught-between",
+      "caught in",
+      "caught-in",
+      "pinch point",
+      "crush point",
+      "entanglement",
+    ])
+  ) {
+    return {
+      category: "Caught-In / Between",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "struck by",
+      "struck-by",
+      "line of fire",
+      "flying object",
+      "falling object",
+      "swing radius",
+      "projectile",
+    ])
+  ) {
+    return {
+      category: "Struck-By / Line of Fire",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "manual handling",
+      "material handling",
+      "ergonomic",
+      "overexertion",
+      "lifting material",
+      "awkward posture",
+    ])
+  ) {
+    return {
+      category: "Material Handling / Ergonomics",
+    };
+  }
+
+  if (
+    includesAnyHazardTerm(normalized, [
+      "slip",
+      "trip",
+      "walking surface",
+      "uneven surface",
+      "housekeeping",
+    ])
+  ) {
+    return {
+      category: "Slip / Trip / Walking Surface",
+    };
+  }
+
+  return {
+    category: "General Hazard",
+  };
+}
+
+
 type GeneratedDraftWorkStep = {
   sequence: number;
   title: string;
@@ -303,6 +849,15 @@ type GeneratedDraftWorkStep = {
 
   suggestedHazards: string[];
   suggestedControls: string[];
+
+  /**
+   * Qoreva Work-Step Intelligence.
+   *
+   * New draft generations provide explicit hazard-to-control
+   * relationships. This remains optional in the browser type so
+   * older persisted revision snapshots can still be opened safely.
+   */
+  hazardControlGroups?: GeneratedHazardControlGroup[];
 
   safetyCriticalSuggested: boolean;
 
@@ -462,6 +1017,38 @@ type PlanningApprovalRoutingResponse = {
       resolverVersion: string;
     };
   };
+  message?: string;
+};
+
+type PlanningSubmissionReadinessResponse = {
+  readiness?: {
+    ready: boolean;
+
+    compliance: {
+      summary: {
+        total: number;
+        satisfied: number;
+        unresolved: number;
+        notEvaluated: number;
+        submissionBlocking: number;
+        approvalBlocking: number;
+      };
+
+      blockers: Array<{
+        requirementRuleCode: string;
+        requirementTitle: string;
+        requirementPackName: string;
+        packType: string;
+        organizationName: string | null;
+        questionCode: string;
+        questionText: string;
+        status: string;
+        blockingLevel: string | null;
+        message: string | null;
+      }>;
+    };
+  };
+
   message?: string;
 };
 
@@ -1089,8 +1676,30 @@ export default function CreatePlanningPage() {
   ] = useState("");
 
   const [
+    submissionReadiness,
+    setSubmissionReadiness,
+  ] = useState<
+    PlanningSubmissionReadinessResponse["readiness"] | null
+  >(null);
+
+  const [
+    submissionReadinessLoading,
+    setSubmissionReadinessLoading,
+  ] = useState(false);
+
+  const [
+    submissionReadinessError,
+    setSubmissionReadinessError,
+  ] = useState("");
+
+  const [
     planningRevisionNumber,
     setPlanningRevisionNumber,
+  ] = useState(1);
+
+  const [
+    highestReachedStep,
+    setHighestReachedStep,
   ] = useState(1);
 
   const [
@@ -1869,7 +2478,7 @@ export default function CreatePlanningPage() {
          * A generated current draft resumes at Step 6.
          * Otherwise edit mode begins at Work Scope.
          */
-        setCurrentStep(
+        const resumeStep =
           submittedRecord ||
           restoredSubmissionSignatures.length > 0
             ? 8
@@ -1877,7 +2486,13 @@ export default function CreatePlanningPage() {
               ? 7
               : restoredGeneratedDraft
                 ? 6
-                : 4,
+                : 4;
+
+        setHighestReachedStep(
+          resumeStep,
+        );
+        setCurrentStep(
+          resumeStep,
         );
 
         if (
@@ -1890,7 +2505,20 @@ export default function CreatePlanningPage() {
               record.id,
             );
 
+            try {
+              await loadSubmissionReadiness(
+                record.id,
+              );
+            } catch {
+              /*
+               * Keep Step 8 accessible when the readiness
+               * preview is temporarily unavailable.
+               * Submission remains server-enforced.
+               */
+            }
+
             if (!cancelled) {
+              setHighestReachedStep(8);
               setCurrentStep(8);
             }
           } catch {
@@ -4362,11 +4990,32 @@ export default function CreatePlanningPage() {
     setStepError("");
   }
 
+  useEffect(() => {
+    setHighestReachedStep((current) =>
+      Math.max(
+        current,
+        currentStep,
+      ),
+    );
+  }, [currentStep]);
+
   function returnToStep(
     step: number,
   ) {
+    if (
+      step < 1 ||
+      step > highestReachedStep
+    ) {
+      return;
+    }
+
     setStepError("");
     setCurrentStep(step);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   function openReviewComment(
@@ -4522,6 +5171,68 @@ export default function CreatePlanningPage() {
     );
   }
 
+  async function loadSubmissionReadiness(
+    activePlanningRecordId: string,
+  ) {
+    setSubmissionReadinessLoading(
+      true,
+    );
+    setSubmissionReadiness(
+      null,
+    );
+    setSubmissionReadinessError("");
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${activePlanningRecordId}/submission-readiness`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+      const data =
+        (await response.json()) as
+          PlanningSubmissionReadinessResponse;
+
+      if (
+        !response.ok ||
+        !data.readiness
+      ) {
+        throw new Error(
+          data.message ||
+            "Unable to load submission readiness.",
+        );
+      }
+
+      setSubmissionReadiness(
+        data.readiness,
+      );
+
+      return data.readiness;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to load submission readiness.";
+
+      setSubmissionReadiness(
+        null,
+      );
+
+      setSubmissionReadinessError(
+        message,
+      );
+
+      throw error;
+    } finally {
+      setSubmissionReadinessLoading(
+        false,
+      );
+    }
+  }
+
   async function loadApprovalRouting(
     activePlanningRecordId: string,
   ) {
@@ -4598,6 +5309,34 @@ export default function CreatePlanningPage() {
       );
     }
   }
+
+  useEffect(() => {
+    if (
+      currentStep !== 8 ||
+      !planningRecordId ||
+      submissionReadiness ||
+      submissionReadinessLoading ||
+      submissionReadinessError
+    ) {
+      return;
+    }
+
+    void loadSubmissionReadiness(
+      planningRecordId,
+    ).catch(() => {
+      /*
+       * Step 8 remains available when the readiness
+       * preview cannot load. Submission is still
+       * authoritatively validated by the server.
+       */
+    });
+  }, [
+    currentStep,
+    planningRecordId,
+    submissionReadiness,
+    submissionReadinessLoading,
+    submissionReadinessError,
+  ]);
 
   async function continueFromQualifiedReview() {
     if (!reviewerName.trim()) {
@@ -4797,6 +5536,19 @@ export default function CreatePlanningPage() {
       await loadApprovalRouting(
         planningRecordId,
       );
+
+      try {
+        await loadSubmissionReadiness(
+          planningRecordId,
+        );
+      } catch {
+        /*
+         * Submission readiness is a preview for Step 8.
+         * Do not prevent entry when the preview cannot load.
+         * The authoritative submit endpoint recalculates
+         * compliance before allowing submission.
+         */
+      }
 
       setSubmitted(false);
       setSubmittedAt(null);
@@ -5284,9 +6036,11 @@ export default function CreatePlanningPage() {
 
       {/* Progress */}
       <WizardProgress
-        currentStep={
-          currentStep
+        currentStep={currentStep}
+        highestReachedStep={
+          highestReachedStep
         }
+        onNavigate={returnToStep}
       />
 
       {/* STEP 1 */}
@@ -8075,54 +8829,281 @@ export default function CreatePlanningPage() {
                               </div>
                             ) : null}
 
-                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                              <div>
-                                <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                                  Suggested Hazards
-                                </p>
-
-                                {step.suggestedHazards.length > 0 ? (
-                                  <ul className="mt-2 space-y-2">
-                                    {step.suggestedHazards.map((hazard) => (
-                                      <li
-                                        key={hazard}
-                                        className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
-                                      >
-                                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--qoreva-violet)]" />
-                                        <span>{hazard}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
-                                    No additional hazards generated.
+                            <div className="mt-4">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                                    Hazard-to-Control Map
                                   </p>
-                                )}
+
+                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    Each hazard is shown with the controls Qoreva associated
+                                    directly to that exposure. The relationship is based on
+                                    structured planning logic rather than visual position.
+                                  </p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => returnToStep(5)}
+                                  className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
+                                >
+                                  Modify in Planning
+                                </button>
                               </div>
 
-                              <div>
-                                <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                                  Suggested Controls
-                                </p>
+                              {(step.hazardControlGroups ?? []).length > 0 ? (
+                                <div className="mt-4 grid gap-3">
+                                  {(step.hazardControlGroups ?? []).map(
+                                    (group, groupIndex) => {
+                                      const hazardActivityCodes =
+                                        group.hazard.sourceActivityCodes ?? [];
 
-                                {step.suggestedControls.length > 0 ? (
-                                  <ul className="mt-2 space-y-2">
-                                    {step.suggestedControls.map((control) => (
-                                      <li
-                                        key={control}
-                                        className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
-                                      >
-                                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                                        <span>{control}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
-                                    No additional controls generated.
+                                      const hazardRequirementIds =
+                                        group.hazard.sourceRequirementIds ?? [];
+
+                                      const hazardPresentation =
+                                        getHazardPresentation(
+                                          group.hazard.text,
+                                          hazardActivityCodes,
+                                        );
+
+                                      return (
+                                        <article
+                                          key={group.id}
+                                          className="overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]"
+                                        >
+                                          <div className="border-b border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                              <div className="flex min-w-0 items-start gap-3">
+                                                <span
+                                                  aria-hidden="true"
+                                                  title={hazardPresentation.category}
+                                                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] text-[var(--qoreva-violet-dark)] shadow-sm"
+                                                >
+                                                  <HazardIcon
+                                                    category={hazardPresentation.category}
+                                                    className="h-[22px] w-[22px]"
+                                                  />
+                                                </span>
+
+                                                <div className="min-w-0">
+                                                  <div className="flex flex-wrap items-center gap-1.5">
+                                                    <p className="text-[9px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                                                      Hazard {groupIndex + 1}
+                                                    </p>
+
+                                                    <span className="text-[9px] font-bold text-[var(--qoreva-subtle)]">
+                                                      •
+                                                    </span>
+
+                                                    <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                                      {hazardPresentation.category}
+                                                    </span>
+                                                  </div>
+
+                                                  <h5 className="mt-1 text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                                    {group.hazard.text}
+                                                  </h5>
+
+                                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                                    <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                      {group.hazard.source === "Rule"
+                                                        ? "Qoreva Rule"
+                                                        : group.hazard.source}
+                                                    </span>
+
+                                                    {group.hazard.required ? (
+                                                      <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-danger)]">
+                                                        Required
+                                                      </span>
+                                                    ) : null}
+
+                                                    {hazardActivityCodes.map(
+                                                      (activityCode) => (
+                                                        <span
+                                                          key={`${group.id}-${activityCode}`}
+                                                          className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]"
+                                                        >
+                                                          {activityCode.replaceAll(
+                                                            "_",
+                                                            " ",
+                                                          )}
+                                                        </span>
+                                                      ),
+                                                    )}
+
+                                                    {hazardRequirementIds.length > 0 ? (
+                                                      <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                                        {hazardRequirementIds.length} Requirement
+                                                        {hazardRequirementIds.length === 1
+                                                          ? ""
+                                                          : "s"}
+                                                      </span>
+                                                    ) : null}
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <span className="shrink-0 rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                {group.controls.length} Control
+                                                {group.controls.length === 1 ? "" : "s"}
+                                              </span>
+                                            </div>
+                                          </div>
+
+                                          <div className="p-4">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                                              Controls for this hazard
+                                            </p>
+
+                                            {group.controls.length > 0 ? (
+                                              <div className="mt-3 grid gap-2">
+                                                {group.controls.map(
+                                                  (control, controlIndex) => (
+                                                    <div
+                                                      key={control.id}
+                                                      className="flex items-start gap-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-porcelain)] p-3"
+                                                    >
+                                                      <span
+                                                        aria-hidden="true"
+                                                        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-success-soft)] text-xs font-black text-[var(--qoreva-success)]"
+                                                      >
+                                                        ✓
+                                                      </span>
+
+                                                      <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                                                          {control.text}
+                                                        </p>
+
+                                                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                          <span className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                            Control {controlIndex + 1}
+                                                          </span>
+
+                                                          <span className="text-[9px] font-bold text-[var(--qoreva-subtle)]">
+                                                            •
+                                                          </span>
+
+                                                          <span className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                            {control.source === "Rule"
+                                                              ? "Qoreva Rule"
+                                                              : control.source}
+                                                          </span>
+
+                                                          {control.required ? (
+                                                            <>
+                                                              <span className="text-[9px] font-bold text-[var(--qoreva-subtle)]">
+                                                                •
+                                                              </span>
+
+                                                              <span className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-danger)]">
+                                                                Required
+                                                              </span>
+                                                            </>
+                                                          ) : null}
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  ),
+                                                )}
+                                              </div>
+                                            ) : (
+                                              <div className="mt-3 rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-3">
+                                                <div className="flex items-start gap-2">
+                                                  <span
+                                                    aria-hidden="true"
+                                                    className="mt-0.5 text-sm"
+                                                  >
+                                                    !
+                                                  </span>
+
+                                                  <div>
+                                                    <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                                      No specific control is mapped to this hazard yet.
+                                                    </p>
+
+                                                    <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                      Qoreva preserved the hazard instead of inventing
+                                                      an unsupported control relationship. Review the
+                                                      planning details and applicable requirements before
+                                                      this record becomes official.
+                                                    </p>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </article>
+                                      );
+                                    },
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="mt-4 rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-white p-4">
+                                  <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    Legacy hazard and control format
                                   </p>
-                                )}
-                              </div>
+
+                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    This saved draft does not contain the newer explicit
+                                    hazard-to-control relationship data. Qoreva is showing
+                                    the preserved legacy lists below without guessing which
+                                    control belongs to which hazard.
+                                  </p>
+
+                                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                    <div>
+                                      <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                        Suggested Hazards
+                                      </p>
+
+                                      {step.suggestedHazards.length > 0 ? (
+                                        <ul className="mt-2 space-y-2">
+                                          {step.suggestedHazards.map((hazard) => (
+                                            <li
+                                              key={hazard}
+                                              className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
+                                            >
+                                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--qoreva-violet)]" />
+                                              <span>{hazard}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : (
+                                        <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
+                                          No additional hazards generated.
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    <div>
+                                      <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                        Suggested Controls
+                                      </p>
+
+                                      {step.suggestedControls.length > 0 ? (
+                                        <ul className="mt-2 space-y-2">
+                                          {step.suggestedControls.map((control) => (
+                                            <li
+                                              key={control}
+                                              className="flex gap-2 text-sm font-medium leading-5 text-[var(--qoreva-muted)]"
+                                            >
+                                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--qoreva-success)]" />
+                                              <span>{control}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : (
+                                        <p className="mt-2 text-sm font-medium text-[var(--qoreva-muted)]">
+                                          No additional controls generated.
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -9998,6 +10979,153 @@ export default function CreatePlanningPage() {
                 />
               </section>
 
+              {!submitted ? (
+                <section
+                  className={`rounded-2xl border p-5 ${
+                    submissionReadinessLoading
+                      ? "border-[var(--qoreva-border)] bg-white"
+                      : submissionReadinessError
+                        ? "border-[#E7D8A5] bg-[#FFFBEA]"
+                        : submissionReadiness?.ready
+                          ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)]"
+                          : submissionReadiness
+                            ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                            : "border-[var(--qoreva-border)] bg-white"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-black ${
+                        submissionReadinessLoading
+                          ? "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                          : submissionReadinessError
+                            ? "bg-[#D69E2E] text-white"
+                            : submissionReadiness?.ready
+                              ? "bg-[var(--qoreva-success)] text-white"
+                              : submissionReadiness
+                                ? "bg-[var(--qoreva-danger)] text-white"
+                                : "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                      }`}
+                    >
+                      {submissionReadinessLoading
+                        ? "…"
+                        : submissionReadinessError
+                          ? "!"
+                          : submissionReadiness?.ready
+                            ? "✓"
+                            : submissionReadiness
+                              ? "!"
+                              : "?"}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-black text-[var(--qoreva-obsidian)]">
+                        {submissionReadinessLoading
+                          ? "Checking Submission Readiness..."
+                          : submissionReadinessError
+                            ? "Readiness Check Unavailable"
+                            : submissionReadiness?.ready
+                              ? "Ready to Submit"
+                              : submissionReadiness
+                                ? "Action Required"
+                                : "Submission Readiness"}
+                      </h3>
+
+                      <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                        {submissionReadinessLoading
+                          ? "Qoreva is checking the applicable submission requirements for this planning record."
+                          : submissionReadinessError
+                            ? "Qoreva could not load the readiness preview. This does not mean the plan failed compliance. Final submission will still be validated by the server."
+                            : submissionReadiness?.ready
+                              ? "All applicable submission-blocking requirements currently evaluated by Qoreva are satisfied."
+                              : submissionReadiness
+                                ? `${submissionReadiness.compliance.summary.submissionBlocking} submission requirement${
+                                    submissionReadiness.compliance.summary.submissionBlocking === 1
+                                      ? ""
+                                      : "s"
+                                  } need${
+                                    submissionReadiness.compliance.summary.submissionBlocking === 1
+                                      ? "s"
+                                      : ""
+                                  } attention before this plan can be submitted.`
+                                : "Submission readiness has not been checked yet."}
+                      </p>
+
+                      {submissionReadinessError &&
+                      planningRecordId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void loadSubmissionReadiness(
+                              planningRecordId,
+                            ).catch(() => {
+                              /*
+                               * The retry result is surfaced
+                               * through readiness state.
+                               */
+                            });
+                          }}
+                          disabled={submissionReadinessLoading}
+                          className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-[#E7D8A5] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-obsidian)] transition hover:bg-[#FFF7D6] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {submissionReadinessLoading
+                            ? "Checking..."
+                            : "Retry Readiness Check"}
+                        </button>
+                      ) : null}
+
+                      {submissionReadiness &&
+                      !submissionReadiness.ready &&
+                      submissionReadiness.compliance.blockers.length >
+                        0 ? (
+                        <div className="mt-4 space-y-3">
+                          {submissionReadiness.compliance.blockers.map(
+                            (blocker) => (
+                              <div
+                                key={`${blocker.requirementRuleCode}-${blocker.questionCode}`}
+                                className="rounded-xl border border-[#F0BDC4] bg-white p-4"
+                              >
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      {blocker.requirementTitle}
+                                    </p>
+
+                                    <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
+                                      Source:{" "}
+                                      {blocker.requirementPackName}
+                                      {blocker.organizationName
+                                        ? ` • ${blocker.organizationName}`
+                                        : ""}
+                                    </p>
+                                  </div>
+
+                                  <span className="w-fit rounded-full bg-[var(--qoreva-danger-soft)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                    Action Required
+                                  </span>
+                                </div>
+
+                                <div className="mt-3 rounded-xl bg-[var(--qoreva-surface-muted)] p-3">
+                                  <p className="text-xs font-black text-[var(--qoreva-text)]">
+                                    {blocker.questionText}
+                                  </p>
+
+                                  {blocker.message ? (
+                                    <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                      {blocker.message}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               {submitted ? (
                 <section className="rounded-2xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] p-5">
                   <div className="flex items-start gap-3">
@@ -10896,8 +12024,12 @@ function formatDynamicAnswer(
 
 function WizardProgress({
   currentStep,
+  highestReachedStep,
+  onNavigate,
 }: {
   currentStep: number;
+  highestReachedStep: number;
+  onNavigate: (step: number) => void;
 }) {
   return (
     <section
@@ -10940,8 +12072,7 @@ function WizardProgress({
                 text-[var(--qoreva-obsidian)]
               "
             >
-              Step {currentStep} of
-              8
+              Step {currentStep} of 8
             </h2>
           </div>
 
@@ -10987,15 +12118,17 @@ function WizardProgress({
                 step.number ===
                 currentStep;
 
-              const complete =
+              const available =
+                step.number <=
+                highestReachedStep;
+
+              const completed =
                 step.number <
-                currentStep;
+                highestReachedStep;
 
               return (
                 <div
-                  key={
-                    step.number
-                  }
+                  key={step.number}
                   className="
                     relative
                     flex
@@ -11003,17 +12136,70 @@ function WizardProgress({
                     items-start
                   "
                 >
-                  <div
-                    className="
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        available &&
+                        !active
+                      ) {
+                        onNavigate(
+                          step.number,
+                        );
+                      }
+                    }}
+                    disabled={!available}
+                    aria-current={
+                      active
+                        ? "step"
+                        : undefined
+                    }
+                    title={
+                      active
+                        ? `Currently on ${step.shortTitle}`
+                        : available
+                          ? `Go to ${step.shortTitle}`
+                          : `${step.shortTitle} has not been reached yet`
+                    }
+                    className={`
                       relative
                       z-10
                       flex
+                      min-w-[76px]
                       flex-col
                       items-center
+                      rounded-xl
+                      px-2
+                      py-1.5
                       text-center
-                    "
+                      transition-all
+                      duration-150
+
+                      ${
+                        available &&
+                        !active
+                          ? `
+                            cursor-pointer
+                            hover:bg-[var(--qoreva-surface-muted)]
+                            focus-visible:outline-none
+                            focus-visible:ring-2
+                            focus-visible:ring-[var(--qoreva-violet)]
+                            focus-visible:ring-offset-2
+                          `
+                          : ""
+                      }
+
+                      ${
+                        !available
+                          ? `
+                            cursor-not-allowed
+                            opacity-55
+                          `
+                          : ""
+                      }
+                    `}
                   >
-                    <div
+                    <span
                       className={`
                         flex
                         h-9
@@ -11024,6 +12210,8 @@ function WizardProgress({
                         border
                         text-xs
                         font-black
+                        transition-all
+                        duration-150
 
                         ${
                           active
@@ -11031,8 +12219,10 @@ function WizardProgress({
                               border-[var(--qoreva-violet)]
                               bg-[var(--qoreva-violet)]
                               text-white
+                              ring-4
+                              ring-[rgba(102,87,232,0.08)]
                             `
-                            : complete
+                            : completed
                               ? `
                                 border-[#BDE8D4]
                                 bg-[var(--qoreva-success-soft)]
@@ -11046,34 +12236,34 @@ function WizardProgress({
                         }
                       `}
                     >
-                      {complete ? (
+                      {completed &&
+                      !active ? (
                         <CheckIcon />
                       ) : (
                         step.number
                       )}
-                    </div>
+                    </span>
 
-                    <p
+                    <span
                       className={`
                         mt-2
                         max-w-24
                         text-[10px]
                         font-black
+                        transition-colors
 
                         ${
                           active
                             ? "text-[var(--qoreva-violet-dark)]"
-                            : complete
+                            : completed
                               ? "text-[var(--qoreva-success)]"
                               : "text-[var(--qoreva-muted)]"
                         }
                       `}
                     >
-                      {
-                        step.shortTitle
-                      }
-                    </p>
-                  </div>
+                      {step.shortTitle}
+                    </span>
+                  </button>
 
                   {index <
                   wizardSteps.length -
@@ -11081,12 +12271,13 @@ function WizardProgress({
                     <div
                       aria-hidden="true"
                       className={`
-                        mt-[17px]
+                        mt-[21px]
                         h-px
                         flex-1
 
                         ${
-                          complete
+                          step.number <
+                          highestReachedStep
                             ? "bg-[#BDE8D4]"
                             : "bg-[var(--qoreva-border)]"
                         }
@@ -11099,6 +12290,23 @@ function WizardProgress({
           )}
         </div>
       </div>
+
+      {highestReachedStep > 1 ? (
+        <div
+          className="
+            border-t
+            border-[var(--qoreva-border)]
+            bg-[var(--qoreva-surface-muted)]
+            px-5
+            py-2.5
+            sm:px-6
+          "
+        >
+          <p className="text-center text-[10px] font-bold text-[var(--qoreva-muted)]">
+            Select a completed step to review or update that section.
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }
