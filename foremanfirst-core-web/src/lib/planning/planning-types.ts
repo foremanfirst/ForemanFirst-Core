@@ -55,6 +55,194 @@ export type PlanningSourceDocumentContext = {
   aiConfidence: number | null;
 };
 
+export type PlanningHazardControlDecisionType =
+  | "Assign"
+  | "Accept"
+  | "Modify"
+  | "NotApplicable";
+
+export type PlanningHazardControlDecisionItemType =
+  | "Hazard"
+  | "Control";
+
+export type PlanningHazardControlDecisionContext = {
+  id: string;
+  revisionNumber: number;
+
+  /**
+   * Stable generated-item identity used to reconnect
+   * a qualified-user decision to the same generated
+   * hazard or control during future draft generation.
+   */
+  recommendationId: string;
+
+  itemType:
+    PlanningHazardControlDecisionItemType;
+
+  /**
+   * Exact text that existed when the decision was made.
+   * Preserved for traceability and audit history.
+   */
+  originalText: string;
+
+  decision:
+    PlanningHazardControlDecisionType;
+
+  /**
+   * Qualified-user replacement text when the decision
+   * is Modify.
+   */
+  modifiedText: string | null;
+
+  /**
+   * Generated hazard item ID selected by the user when
+   * assigning a control to a specific hazard.
+   */
+  targetHazardId: string | null;
+
+  /**
+   * Optional semantic relationship identity.
+   *
+   * Kept as a string in this shared planning contract
+   * so this file does not depend directly on the
+   * canonical hazard-control library implementation.
+   */
+  canonicalHazardConceptId: string | null;
+
+  sourceType: string | null;
+
+  /**
+   * Additional persisted provenance associated with
+   * the qualified-user decision.
+   */
+  sourceMetadata: unknown;
+
+  decidedById: string | null;
+  decidedByName: string | null;
+  decidedByRole: string | null;
+  decidedAt: string;
+};
+
+export type PlanningHazardControlOverrideItemType =
+  | "Hazard"
+  | "Control";
+
+export type PlanningHazardControlOverrideAction =
+  | "Add"
+  | "Edit"
+  | "Change"
+  | "Remove";
+
+export type PlanningHazardControlOverrideContext = {
+  id: string;
+  revisionNumber: number;
+
+  /**
+   * Stable revision-scoped logical identity for this
+   * user-authored operation.
+   *
+   * Reusing the same operationKey makes saves
+   * idempotent and allows later edits to update the
+   * same logical override rather than duplicating it.
+   */
+  operationKey: string;
+
+  /**
+   * Stable draft work-step identity.
+   *
+   * This is intentionally not a PlanningWorkStep
+   * database foreign key because Guided Intake work
+   * steps can exist before final work-step persistence.
+   */
+  workStepId: string;
+  workStepSequence: number | null;
+  workStepTitle: string | null;
+
+  itemType:
+    PlanningHazardControlOverrideItemType;
+
+  /**
+   * Add:
+   *   Qualified user creates a new hazard/control.
+   *
+   * Edit:
+   *   Qualified user changes wording while preserving
+   *   the existing semantic identity.
+   *
+   * Change:
+   *   Qualified user changes/resolves the semantic
+   *   identity of an existing hazard.
+   *
+   * Remove:
+   *   Qualified user removes user-authored draft
+   *   content. Generated/requirement-backed content
+   *   should generally use NotApplicable in the
+   *   decision layer instead of destructive removal.
+   */
+  action:
+    PlanningHazardControlOverrideAction;
+
+  /**
+   * Stable generated or user-authored item identity
+   * being changed.
+   *
+   * Null for Add operations.
+   */
+  targetItemId: string | null;
+
+  /**
+   * Controls are explicitly scoped to their parent
+   * hazard.
+   */
+  parentHazardId: string | null;
+
+  /**
+   * Exact source wording before a user-authored
+   * change.
+   *
+   * Null for newly added items.
+   */
+  originalText: string | null;
+
+  /**
+   * Final qualified-user wording for Add/Edit/Change.
+   *
+   * Null for Remove operations.
+   */
+  finalText: string | null;
+
+  /**
+   * Canonical semantic identity when safely known.
+   *
+   * Custom hazards may intentionally remain null.
+   */
+  canonicalHazardConceptId: string | null;
+
+  /**
+   * Original item provenance, such as User, Rule,
+   * Requirement, or Qoreva-generated intelligence.
+   */
+  sourceType: string | null;
+
+  /**
+   * Additional source/provenance metadata preserved
+   * for audit and future Sources & Requirement Details
+   * display.
+   */
+  sourceMetadata: unknown;
+
+  /**
+   * Optional qualified-user explanation for a material
+   * change or removal.
+   */
+  reason: string | null;
+
+  changedById: string | null;
+  changedByName: string | null;
+  changedByRole: string | null;
+  changedAt: string;
+};
+
 export type PlanningGenerationContext = {
   planningRecordId: string;
   tenantId: string;
@@ -105,6 +293,37 @@ export type PlanningGenerationContext = {
   requirements: PlanningRequirementContext[];
 
   sourceDocuments: PlanningSourceDocumentContext[];
+
+  /**
+   * Qualified-user decisions applied to generated
+   * hazard/control recommendations.
+   *
+   * These decisions act as an overlay after Qoreva's
+   * deterministic hazard resolution and automatic
+   * control assignment have completed.
+   *
+   * Persisted qualified-user decisions take precedence
+   * over advisory generated relationships when the
+   * working draft is rebuilt.
+   */
+  hazardControlDecisions:
+    PlanningHazardControlDecisionContext[];
+
+  /**
+   * Qualified-user authored changes to the working
+   * hazard/control content.
+   *
+   * This remains separate from the recommendation
+   * decision layer because changing the plan itself is
+   * not the same operation as accepting, modifying,
+   * assigning, or marking a generated recommendation
+   * Not Applicable.
+   *
+   * Only overrides belonging to the active formal PTP
+   * revision are provided to draft generation.
+   */
+  hazardControlOverrides:
+    PlanningHazardControlOverrideContext[];
 
   existingControls: {
     requiredPpe: string | null;

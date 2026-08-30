@@ -371,16 +371,9 @@ function packPriority(
 function baselineRoles({
   responsibleSupervisor,
   responsibleSupervisorId,
-  reviewerName,
-  reviewerId,
-  reviewerRole,
 }: {
   responsibleSupervisor: string | null;
   responsibleSupervisorId: string | null;
-
-  reviewerName: string | null;
-  reviewerId: string | null;
-  reviewerRole: string | null;
 }): ResolvedPlanningApprovalRole[] {
   return [
     {
@@ -430,7 +423,6 @@ function baselineRoles({
         "QUALIFIED_REVIEWER",
 
       label:
-        reviewerRole ??
         "Qualified Reviewer",
 
       required:
@@ -439,11 +431,21 @@ function baselineRoles({
       order:
         20,
 
+      /*
+       * The Step 7 PlanningReview represents the
+       * creator/preparer's Pre-Submission Review.
+       *
+       * It must not silently assign that person as
+       * the downstream Step 8 Qualified Reviewer.
+       * Downstream approver assignment is resolved
+       * independently through configured routing /
+       * future role assignment.
+       */
       signerName:
-        reviewerName,
+        null,
 
       signerId:
-        reviewerId,
+        null,
 
       signerEmail:
         null,
@@ -520,19 +522,6 @@ export async function resolvePlanningApprovalRouting(
 
         contractor:
           true,
-
-        reviews: {
-          where: {
-            revisionNumber: {
-              gt: 0,
-            },
-          },
-
-          orderBy: {
-            completedAt:
-              "desc",
-          },
-        },
       },
     });
 
@@ -541,15 +530,6 @@ export async function resolvePlanningApprovalRouting(
       "Planning record was not found.",
     );
   }
-
-  const currentReview =
-    record.reviews.find(
-      (review) =>
-        review.revisionNumber ===
-          record.revisionNumber &&
-        review.status ===
-          "Completed",
-    ) ?? null;
 
   const applicabilityContext:
     ApplicabilityContext = {
@@ -697,18 +677,6 @@ export async function resolvePlanningApprovalRouting(
 
       responsibleSupervisorId:
         record.responsibleSupervisorId,
-
-      reviewerName:
-        currentReview?.reviewerName ??
-        null,
-
-      reviewerId:
-        currentReview?.reviewerId ??
-        null,
-
-      reviewerRole:
-        currentReview?.reviewerRole ??
-        null,
     });
 
   for (
@@ -907,7 +875,7 @@ export async function resolvePlanningApprovalRouting(
         applicablePacks.length,
 
       resolverVersion:
-        "qoreva-planning-approval-routing-v1",
+        "qoreva-planning-approval-routing-v2-independent-downstream-reviewer",
     },
   };
 }

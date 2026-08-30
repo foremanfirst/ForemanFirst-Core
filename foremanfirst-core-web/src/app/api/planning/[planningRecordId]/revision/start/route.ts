@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
+
 import { prisma } from "@/lib/prisma";
+
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -9,16 +15,29 @@ type RouteContext = {
   }>;
 };
 
-function toNullableString(value: unknown) {
+function toNullableString(
+  value: unknown,
+) {
   if (typeof value !== "string") {
     return null;
   }
 
-  const trimmed = value.trim();
+  const trimmed =
+    value.trim();
 
   return trimmed.length > 0
     ? trimmed
     : null;
+}
+
+function getAuditRole(
+  roleCodes: string[],
+) {
+  if (roleCodes.length > 0) {
+    return roleCodes[0];
+  }
+
+  return "Planning Creator";
 }
 
 export async function POST(
@@ -29,27 +48,25 @@ export async function POST(
     const { planningRecordId } =
       await context.params;
 
+    /*
+     * Resolve identity and Planning editing authority
+     * entirely server-side.
+     *
+     * The browser is not trusted to provide actorId,
+     * actorName, actorRole, tenant, project, or Planning
+     * permissions.
+     */
+    const authorized =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
     const revisionReason =
       toNullableString(
         body.revisionReason,
-      );
-
-    const actorId =
-      toNullableString(
-        body.actorId,
-      );
-
-    const actorName =
-      toNullableString(
-        body.actorName,
-      );
-
-    const actorRole =
-      toNullableString(
-        body.actorRole,
       );
 
     if (!revisionReason) {
@@ -64,31 +81,30 @@ export async function POST(
       );
     }
 
-    if (
-      !actorName ||
-      !actorRole
-    ) {
-      return NextResponse.json(
-        {
-          message:
-            "Actor name and role are required before starting a new revision.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
     const existing =
       await prisma.planningRecord.findFirst({
         where: {
-          id: planningRecordId,
-          isArchived: false,
+          id:
+            planningRecordId,
+
+          tenantId:
+            authorized
+              .planningRecord
+              .tenantId,
+
+          projectId:
+            authorized
+              .planningRecord
+              .projectId,
+
+          isArchived:
+            false,
         },
 
         select: {
           id: true,
           tenantId: true,
+          projectId: true,
           status: true,
           revisionNumber: true,
           submittedAt: true,
@@ -117,6 +133,23 @@ export async function POST(
         {
           message:
             "A new revision can only be started when the planning record status is Revision Needed.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      existing.revisionNumber !==
+      authorized
+        .planningRecord
+        .revisionNumber
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The planning record revision changed before the new revision could be started.",
         },
         {
           status: 409,
@@ -184,27 +217,119 @@ export async function POST(
       );
     }
 
+    const actorRole =
+      getAuditRole(
+        authorized
+          .membership
+          .roleCodes,
+      );
+
     const record =
       await prisma.$transaction(
         async (tx) => {
+          /*
+           * Re-read the workflow state inside the transaction
+           * before advancing the formal revision number.
+           */
+          const current =
+            await tx.planningRecord.findFirst({
+              where: {
+                id:
+                  planningRecordId,
+
+                tenantId:
+                  existing.tenantId,
+
+                projectId:
+                  existing.projectId,
+
+                isArchived:
+                  false,
+              },
+
+              select: {
+                id: true,
+                status: true,
+                revisionNumber:
+                  true,
+              },
+            });
+
+          if (!current) {
+            throw new PlanningEditorAuthorizationError(
+              "Planning record was not found.",
+              404,
+            );
+          }
+
+          if (
+            current.status !==
+            "Revision Needed"
+          ) {
+            throw new PlanningEditorAuthorizationError(
+              "The planning record is no longer awaiting a new revision.",
+              409,
+            );
+          }
+
+          if (
+            current.revisionNumber !==
+            previousRevisionNumber
+          ) {
+            throw new PlanningEditorAuthorizationError(
+              "The planning record revision changed before the new revision could be started.",
+              409,
+            );
+          }
+
+          const nextRevisionCheck =
+            await tx.planningRevision.findFirst({
+              where: {
+                planningRecordId,
+                tenantId:
+                  existing.tenantId,
+                revisionNumber:
+                  nextRevisionNumber,
+              },
+
+              select: {
+                id: true,
+              },
+            });
+
+          if (nextRevisionCheck) {
+            throw new PlanningEditorAuthorizationError(
+              `Revision ${nextRevisionNumber} already exists for this planning record.`,
+              409,
+            );
+          }
+
           const updated =
             await tx.planningRecord.update({
               where: {
-                id: planningRecordId,
+                id:
+                  planningRecordId,
               },
 
               data: {
                 revisionNumber:
                   nextRevisionNumber,
 
-                status: "Draft",
+                status:
+                  "Draft",
 
-                submittedAt: null,
-                approvedAt: null,
-                activeAt: null,
+                submittedAt:
+                  null,
+
+                approvedAt:
+                  null,
+
+                activeAt:
+                  null,
 
                 updatedBy:
-                  actorId,
+                  authorized
+                    .user.id,
               },
 
               include: {
@@ -219,7 +344,8 @@ export async function POST(
                   select: {
                     id: true,
                     name: true,
-                    projectCode: true,
+                    projectCode:
+                      true,
                   },
                 },
 
@@ -253,9 +379,14 @@ export async function POST(
               revisionNumber:
                 nextRevisionNumber,
 
-              actorId,
+              actorId:
+                authorized
+                  .user.id,
 
-              actorName,
+              actorName:
+                authorized
+                  .user
+                  .displayName,
 
               actorRole,
 
@@ -264,11 +395,44 @@ export async function POST(
 
               metadata: {
                 previousRevisionNumber,
+
                 newRevisionNumber:
                   nextRevisionNumber,
+
                 previousRevisionId:
                   previousRevision.id,
+
                 revisionReason,
+
+                initiatedBy: {
+                  userId:
+                    authorized
+                      .user.id,
+
+                  email:
+                    authorized
+                      .user.email,
+
+                  projectMembershipId:
+                    authorized
+                      .membership
+                      .projectMembershipId,
+
+                  roleCodes:
+                    authorized
+                      .membership
+                      .roleCodes,
+
+                  canCreatePlanning:
+                    authorized
+                      .membership
+                      .canCreatePlanning,
+
+                  canManagePlanning:
+                    authorized
+                      .membership
+                      .canManagePlanning,
+                },
               },
             },
           });
@@ -279,14 +443,50 @@ export async function POST(
 
     return NextResponse.json({
       record,
+
       revision: {
         previousRevisionNumber,
+
         currentRevisionNumber:
           nextRevisionNumber,
+
         revisionReason,
+
+        startedBy: {
+          id:
+            authorized.user.id,
+
+          name:
+            authorized
+              .user
+              .displayName,
+
+          email:
+            authorized
+              .user.email,
+
+          role:
+            actorRole,
+        },
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+      PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to start planning revision:",
       error,

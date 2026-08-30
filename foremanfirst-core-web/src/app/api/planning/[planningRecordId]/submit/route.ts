@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
+
 import { prisma } from "@/lib/prisma";
-import {
-  resolvePlanningApprovalRouting,
-} from "@/lib/planning/approval-routing";
-import {
-  evaluatePlanningSubmissionReadiness,
-} from "@/lib/planning/submission-readiness";
+import { resolvePlanningApprovalRouting } from "@/lib/planning/approval-routing";
+import { evaluatePlanningSubmissionReadiness } from "@/lib/planning/submission-readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -15,20 +12,25 @@ type RouteContext = {
   }>;
 };
 
-type SignatureInput = {
-  role?: string;
-  signerId?: string | null;
-  signerName?: string;
-  signerEmail?: string | null;
-  isRequired?: boolean;
-  sortOrder?: number;
-  status?: string;
-  signatureType?: string;
-  signatureDataUrl?: string | null;
-  signedAt?: string | null;
+type SubmittedApprovalAssignment = {
+  roleCode: string;
+  userId: string;
 };
 
-function toNullableString(value: unknown) {
+type ValidatedApprovalAssignment = {
+  roleCode: string;
+
+  userId: string;
+  userName: string;
+  userEmail: string;
+
+  tenantMembershipId: string;
+  projectMembershipId: string;
+};
+
+function toNullableString(
+  value: unknown,
+) {
   if (typeof value !== "string") {
     return null;
   }
@@ -72,67 +74,121 @@ function toNonNegativeInt(
   return parsed;
 }
 
-function toNullableDate(value: unknown) {
-  if (
-    typeof value !== "string" ||
-    !value.trim()
-  ) {
-    return null;
-  }
-
-  const parsed =
-    new Date(value);
-
-  return Number.isNaN(
-    parsed.getTime(),
-  )
-    ? null
-    : parsed;
-}
-
-function isPngDataUrl(
-  value: string,
-) {
-  return value.startsWith(
-    "data:image/png;base64,",
-  );
-}
-
-
-function normalizeRoleLabel(
+function normalizeRoleCode(
   value: unknown,
 ) {
-  const normalized =
-    toNullableString(value);
-
-  return normalized
-    ? normalized
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase()
-    : null;
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(
+      /[^A-Z0-9]+/g,
+      "_",
+    )
+    .replace(
+      /^_+|_+$/g,
+      "",
+    );
 }
 
-
-function isRequiredSignature(
-  signature: SignatureInput,
-  requiredRoleLabels?: Set<string>,
-) {
-  const normalizedRole =
-    normalizeRoleLabel(
-      signature.role,
-    );
-
-  if (
-    normalizedRole &&
-    requiredRoleLabels?.has(
-      normalizedRole,
-    )
-  ) {
-    return true;
+function parseApprovalAssignments(
+  value: unknown,
+):
+  | {
+      ok: true;
+      assignments: SubmittedApprovalAssignment[];
+    }
+  | {
+      ok: false;
+      message: string;
+    } {
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      message:
+        "Approval assignments are required before this planning record can be submitted for review.",
+    };
   }
 
-  return signature.isRequired !== false;
+  const assignments:
+    SubmittedApprovalAssignment[] = [];
+
+  for (
+    let index = 0;
+    index < value.length;
+    index += 1
+  ) {
+    const item = value[index];
+
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      Array.isArray(item)
+    ) {
+      return {
+        ok: false,
+        message:
+          "One or more approval assignments are invalid.",
+      };
+    }
+
+    const record =
+      item as Record<
+        string,
+        unknown
+      >;
+
+    const roleCode =
+      normalizeRoleCode(
+        record.roleCode,
+      );
+
+    const userId =
+      toNullableString(
+        record.userId,
+      );
+
+    if (
+      !roleCode ||
+      !userId
+    ) {
+      return {
+        ok: false,
+        message:
+          "Every approval assignment must include a role and an eligible Qoreva user.",
+      };
+    }
+
+    assignments.push({
+      roleCode,
+      userId,
+    });
+  }
+
+  const duplicateRole =
+    assignments.find(
+      (
+        assignment,
+        index,
+      ) =>
+        assignments.findIndex(
+          (candidate) =>
+            candidate.roleCode ===
+            assignment.roleCode,
+        ) !== index,
+    );
+
+  if (duplicateRole) {
+    return {
+      ok: false,
+      message:
+        `Approval role ${duplicateRole.roleCode} was assigned more than once.`,
+    };
+  }
+
+  return {
+    ok: true,
+    assignments,
+  };
 }
 
 export async function POST(
@@ -140,17 +196,21 @@ export async function POST(
   context: RouteContext,
 ) {
   try {
-    const { planningRecordId } =
-      await context.params;
+    const {
+      planningRecordId,
+    } = await context.params;
 
     const body =
       await request.json();
 
-    if (body.acknowledged !== true) {
+    if (
+      body.acknowledged !==
+      true
+    ) {
       return NextResponse.json(
         {
           message:
-            "Final submission acknowledgement is required.",
+            "Submission acknowledgement is required before sending this planning record for review.",
         },
         {
           status: 400,
@@ -161,12 +221,17 @@ export async function POST(
     const existingRecord =
       await prisma.planningRecord.findFirst({
         where: {
-          id: planningRecordId,
-          isArchived: false,
+          id:
+            planningRecordId,
+
+          isArchived:
+            false,
         },
+
         select: {
           id: true,
           tenantId: true,
+          projectId: true,
           status: true,
           revisionNumber: true,
           submittedAt: true,
@@ -185,44 +250,101 @@ export async function POST(
       );
     }
 
+    /*
+     * Idempotent retry behavior.
+     *
+     * Once this revision is Submitted, return its persisted
+     * approval workflow rather than creating another one.
+     */
     if (
       existingRecord.status ===
       "Submitted"
     ) {
-      const record =
-        await prisma.planningRecord.findUnique({
+      const [
+        record,
+        approvals,
+      ] = await Promise.all([
+        prisma.planningRecord.findUnique({
           where: {
-            id: planningRecordId,
+            id:
+              planningRecordId,
           },
+
           select: {
             id: true,
             status: true,
             submittedAt: true,
+            revisionNumber: true,
           },
-        });
+        }),
+
+        prisma.planningApproval.findMany({
+          where: {
+            planningRecordId,
+
+            tenantId:
+              existingRecord
+                .tenantId,
+
+            revisionNumber:
+              existingRecord
+                .revisionNumber,
+          },
+
+          orderBy: [
+            {
+              sortOrder:
+                "asc",
+            },
+            {
+              roleLabel:
+                "asc",
+            },
+          ],
+
+          select: {
+            id: true,
+            roleCode: true,
+            roleLabel: true,
+            isRequired: true,
+            sortOrder: true,
+
+            approverId: true,
+            approverName: true,
+            approverEmail: true,
+
+            status: true,
+            signatureRequired: true,
+            notificationStatus: true,
+          },
+        }),
+      ]);
 
       return NextResponse.json({
         record,
+
+        workflow: {
+          status:
+            "SubmittedForReview",
+
+          approvals,
+        },
+
         saved: {
-          signatures:
-            await prisma.planningSignature.count({
-              where: {
-                planningRecordId,
-                revisionNumber:
-                  existingRecord.revisionNumber,
-              },
-            }),
+          approvals:
+            approvals.length,
         },
       });
     }
 
     if (
-      existingRecord.status !== "Draft"
+      existingRecord.status !==
+      "Draft"
     ) {
       return NextResponse.json(
         {
           message:
-            "Only Draft planning records can be submitted.",
+            "Only Draft planning records can be submitted for review.",
         },
         {
           status: 409,
@@ -233,12 +355,14 @@ export async function POST(
     const revisionNumber =
       toPositiveInt(
         body.revisionNumber,
-        existingRecord.revisionNumber,
+        existingRecord
+          .revisionNumber,
       );
 
     if (
       revisionNumber !==
-      existingRecord.revisionNumber
+      existingRecord
+        .revisionNumber
     ) {
       return NextResponse.json(
         {
@@ -252,22 +376,21 @@ export async function POST(
     }
 
     /*
-     * Recalculate submission readiness from
-     * persisted server-side Planning data.
-     *
-     * Browser-provided compliance state is never
-     * trusted for the official workflow gate.
+     * Recalculate submission readiness from persisted
+     * server-side Planning data.
      */
     const submissionReadiness =
       await evaluatePlanningSubmissionReadiness(
         planningRecordId,
       );
 
-    if (!submissionReadiness.ready) {
+    if (
+      !submissionReadiness.ready
+    ) {
       return NextResponse.json(
         {
           message:
-            "Resolve all submission-blocking requirements before submitting this planning record.",
+            "Resolve all submission-blocking requirements before submitting this planning record for review.",
 
           code:
             "PLANNING_COMPLIANCE_BLOCKED",
@@ -275,42 +398,55 @@ export async function POST(
           compliance: {
             summary:
               submissionReadiness
-                .compliance.summary,
+                .compliance
+                .summary,
 
             blockers:
-              submissionReadiness.blockers.map(
-                (result) => ({
-                  requirementRuleCode:
-                    result.requirementRuleCode,
+              submissionReadiness
+                .blockers
+                .map(
+                  (
+                    result,
+                  ) => ({
+                    requirementRuleCode:
+                      result
+                        .requirementRuleCode,
 
-                  requirementTitle:
-                    result.requirementTitle,
+                    requirementTitle:
+                      result
+                        .requirementTitle,
 
-                  requirementPackName:
-                    result.requirementPackName,
+                    requirementPackName:
+                      result
+                        .requirementPackName,
 
-                  packType:
-                    result.packType,
+                    packType:
+                      result
+                        .packType,
 
-                  organizationName:
-                    result.organizationName,
+                    organizationName:
+                      result
+                        .organizationName,
 
-                  questionCode:
-                    result.questionCode,
+                    questionCode:
+                      result
+                        .questionCode,
 
-                  questionText:
-                    result.questionText,
+                    questionText:
+                      result
+                        .questionText,
 
-                  status:
-                    result.status,
+                    status:
+                      result.status,
 
-                  blockingLevel:
-                    result.blockingLevel,
+                    blockingLevel:
+                      result
+                        .blockingLevel,
 
-                  message:
-                    result.message,
-                }),
-              ),
+                    message:
+                      result.message,
+                  }),
+                ),
           },
         },
         {
@@ -319,13 +455,23 @@ export async function POST(
       );
     }
 
+    /*
+     * Resolve routing immediately before submission.
+     *
+     * Requirement Pack routing determines WHAT approval
+     * roles are required.
+     *
+     * User/project membership determines WHO is eligible
+     * to satisfy those roles.
+     */
     const approvalRouting =
       await resolvePlanningApprovalRouting(
         planningRecordId,
       );
 
     if (
-      approvalRouting.revisionNumber !==
+      approvalRouting
+        .revisionNumber !==
       revisionNumber
     ) {
       return NextResponse.json(
@@ -339,21 +485,20 @@ export async function POST(
       );
     }
 
-    const requiredApprovalRoles =
-      approvalRouting.roles.filter(
-        (role) =>
-          role.required,
+    if (
+      approvalRouting
+        .roles.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "At least one approval role must be resolved before this planning record can be submitted for review.",
+        },
+        {
+          status: 409,
+        },
       );
-
-    const requiredRoleLabels =
-      new Set(
-        requiredApprovalRoles.map(
-          (role) =>
-            normalizeRoleLabel(
-              role.label,
-            )!,
-        ),
-      );
+    }
 
     const [
       revision,
@@ -362,10 +507,14 @@ export async function POST(
       prisma.planningRevision.findFirst({
         where: {
           planningRecordId,
+
           tenantId:
-            existingRecord.tenantId,
+            existingRecord
+              .tenantId,
+
           revisionNumber,
         },
+
         select: {
           id: true,
         },
@@ -374,16 +523,28 @@ export async function POST(
       prisma.planningReview.findFirst({
         where: {
           planningRecordId,
+
           tenantId:
-            existingRecord.tenantId,
+            existingRecord
+              .tenantId,
+
           revisionNumber,
-          status: "Completed",
+
+          status:
+            "Completed",
         },
+
         orderBy: {
-          completedAt: "desc",
+          completedAt:
+            "desc",
         },
+
         select: {
           id: true,
+          reviewerId: true,
+          reviewerName: true,
+          reviewerRole: true,
+          completedAt: true,
         },
       }),
     ]);
@@ -404,7 +565,7 @@ export async function POST(
       return NextResponse.json(
         {
           message:
-            "A completed qualified review is required before submission.",
+            "A completed Pre-Submission Review is required before submission.",
         },
         {
           status: 409,
@@ -413,241 +574,383 @@ export async function POST(
     }
 
     const openCommentCount =
-      await prisma.planningReviewComment.count({
-        where: {
-          planningRecordId,
-          tenantId:
-            existingRecord.tenantId,
-          revisionNumber,
-          status: "Open",
-        },
-      });
+      await prisma
+        .planningReviewComment
+        .count({
+          where: {
+            planningRecordId,
 
-    if (openCommentCount > 0) {
-      return NextResponse.json(
-        {
-          message:
-            "Resolve all open review comments before submission.",
-        },
-        {
-          status: 409,
-        },
-      );
-    }
+            tenantId:
+              existingRecord
+                .tenantId,
 
-    const signatures =
-      Array.isArray(body.signatures)
-        ? (body.signatures as SignatureInput[])
-        : [];
+            revisionNumber,
 
-    if (signatures.length === 0) {
-      return NextResponse.json(
-        {
-          message:
-            "At least one signature is required.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    const normalizedSignatureRoles =
-      signatures.map(
-        (signature) =>
-          normalizeRoleLabel(
-            signature.role,
-          ),
-      );
-
-    const duplicateRole =
-      normalizedSignatureRoles.find(
-        (role, index) =>
-          Boolean(role) &&
-          normalizedSignatureRoles.indexOf(
-            role,
-          ) !== index,
-      );
-
-    if (duplicateRole) {
-      return NextResponse.json(
-        {
-          message:
-            "Duplicate signature roles are not allowed in the submission package.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    const missingRequiredApprovalRole =
-      requiredApprovalRoles.find(
-        (requiredRole) => {
-          const requiredLabel =
-            normalizeRoleLabel(
-              requiredRole.label,
-            );
-
-          return !signatures.some(
-            (signature) =>
-              normalizeRoleLabel(
-                signature.role,
-              ) === requiredLabel,
-          );
-        },
-      );
-
-    if (missingRequiredApprovalRole) {
-      return NextResponse.json(
-        {
-          message:
-            `${missingRequiredApprovalRole.label} is required by the resolved approval routing and cannot be omitted from submission.`,
-        },
-        {
-          status: 409,
-        },
-      );
-    }
-
-    const unsignedRequiredApprovalRole =
-      requiredApprovalRoles.find(
-        (requiredRole) => {
-          const requiredLabel =
-            normalizeRoleLabel(
-              requiredRole.label,
-            );
-
-          const signature =
-            signatures.find(
-              (candidate) =>
-                normalizeRoleLabel(
-                  candidate.role,
-                ) ===
-                requiredLabel,
-            );
-
-          return (
-            !signature ||
-            (
-              toNullableString(
-                signature.status,
-              ) ?? "Pending"
-            ) !== "Signed"
-          );
-        },
-      );
-
-    if (unsignedRequiredApprovalRole) {
-      return NextResponse.json(
-        {
-          message:
-            `${unsignedRequiredApprovalRole.label} must be signed before submission.`,
-        },
-        {
-          status: 409,
-        },
-      );
-    }
-
-    const invalidSignature =
-      signatures.find(
-        (signature) => {
-          const role =
-            toNullableString(
-              signature.role,
-            );
-          const signerName =
-            toNullableString(
-              signature.signerName,
-            );
-          const status =
-            toNullableString(
-              signature.status,
-            ) ?? "Pending";
-
-          if (
-            !role ||
-            !signerName
-          ) {
-            return true;
-          }
-
-          if (
-            ![
-              "Pending",
-              "Signed",
-            ].includes(status)
-          ) {
-            return true;
-          }
-
-          if (
-            status === "Signed"
-          ) {
-            const image =
-              toNullableString(
-                signature.signatureDataUrl,
-              );
-
-            if (
-              !image ||
-              !isPngDataUrl(image)
-            ) {
-              return true;
-            }
-
-            // Keep inline signature payloads bounded for MVP.
-            if (
-              image.length >
-              1_500_000
-            ) {
-              return true;
-            }
-          }
-
-          return false;
-        },
-      );
-
-    if (invalidSignature) {
-      return NextResponse.json(
-        {
-          message:
-            "One or more signature records are incomplete or invalid.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    const pendingRequired =
-      signatures.filter(
-        (signature) =>
-          isRequiredSignature(
-            signature,
-            requiredRoleLabels,
-          ) &&
-          (
-            toNullableString(
-              signature.status,
-            ) ?? "Pending"
-          ) !== "Signed",
-      );
+            status:
+              "Open",
+          },
+        });
 
     if (
-      pendingRequired.length > 0
+      openCommentCount > 0
     ) {
       return NextResponse.json(
         {
           message:
-            "All required signatures must be completed before submission.",
+            "Resolve all open Pre-Submission Review comments before submission.",
         },
         {
           status: 409,
         },
       );
+    }
+
+    /*
+     * Every route requires a stable role code and label.
+     */
+    const invalidRole =
+      approvalRouting.roles.find(
+        (role) =>
+          !toNullableString(
+            role.code,
+          ) ||
+          !toNullableString(
+            role.label,
+          ),
+      );
+
+    if (invalidRole) {
+      return NextResponse.json(
+        {
+          message:
+            "One or more resolved approval roles are invalid.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const normalizedRoleCodes =
+      approvalRouting.roles.map(
+        (role) =>
+          normalizeRoleCode(
+            role.code,
+          ),
+      );
+
+    const duplicateRoleCode =
+      normalizedRoleCodes.find(
+        (
+          roleCode,
+          index,
+        ) =>
+          normalizedRoleCodes
+            .indexOf(
+              roleCode,
+            ) !== index,
+      );
+
+    if (duplicateRoleCode) {
+      return NextResponse.json(
+        {
+          message:
+            `Duplicate approval role ${duplicateRoleCode} was resolved for this planning record.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    /*
+     * Parse creator-selected approval assignments.
+     *
+     * Browser selections are proposals only. They become
+     * authoritative only after server-side membership and
+     * role eligibility validation below.
+     */
+    const parsedAssignments =
+      parseApprovalAssignments(
+        body.approvalAssignments,
+      );
+
+    if (!parsedAssignments.ok) {
+      return NextResponse.json(
+        {
+          message:
+            parsedAssignments
+              .message,
+
+          code:
+            "PLANNING_APPROVAL_ASSIGNMENT_REQUIRED",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const assignments =
+      parsedAssignments.assignments;
+
+    const requiredRoles =
+      approvalRouting.roles.filter(
+        (role) =>
+          role.required,
+      );
+
+    /*
+     * Every required approval role must have exactly one
+     * creator-confirmed assignment.
+     */
+    const missingRequiredRole =
+      requiredRoles.find(
+        (role) => {
+          const roleCode =
+            normalizeRoleCode(
+              role.code,
+            );
+
+          return !assignments.some(
+            (assignment) =>
+              assignment.roleCode ===
+              roleCode,
+          );
+        },
+      );
+
+    if (missingRequiredRole) {
+      return NextResponse.json(
+        {
+          message:
+            `${missingRequiredRole.label} must be assigned to an eligible Qoreva user before submission.`,
+
+          code:
+            "PLANNING_APPROVAL_ASSIGNMENT_REQUIRED",
+
+          role: {
+            roleCode:
+              normalizeRoleCode(
+                missingRequiredRole.code,
+              ),
+
+            roleLabel:
+              missingRequiredRole.label,
+          },
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    /*
+     * Reject assignments for roles that are not part of
+     * the resolved workflow.
+     */
+    const unknownAssignment =
+      assignments.find(
+        (assignment) =>
+          !normalizedRoleCodes.includes(
+            assignment.roleCode,
+          ),
+      );
+
+    if (unknownAssignment) {
+      return NextResponse.json(
+        {
+          message:
+            `Approval role ${unknownAssignment.roleCode} is not part of the resolved workflow for this planning record.`,
+
+          code:
+            "PLANNING_APPROVAL_ASSIGNMENT_INVALID",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    /*
+     * Validate each proposed person against authoritative
+     * Qoreva identity and membership data.
+     *
+     * Requirements:
+     *
+     * - same tenant
+     * - same project
+     * - active User
+     * - active TenantMembership
+     * - active ProjectMembership
+     * - canApprovePlanning
+     * - matching approvalRoleCode
+     */
+    const validatedAssignments:
+      ValidatedApprovalAssignment[] =
+      [];
+
+    for (
+      const assignment
+      of assignments
+    ) {
+      const membership =
+        await prisma
+          .projectMembership
+          .findFirst({
+            where: {
+              tenantId:
+                existingRecord
+                  .tenantId,
+
+              projectId:
+                existingRecord
+                  .projectId,
+
+              isActive:
+                true,
+
+              canApprovePlanning:
+                true,
+
+              tenantMembership: {
+                tenantId:
+                  existingRecord
+                    .tenantId,
+
+                isActive:
+                  true,
+
+                userId:
+                  assignment
+                    .userId,
+
+                user: {
+                  isActive:
+                    true,
+
+                  status:
+                    "Active",
+                },
+              },
+            },
+
+            select: {
+              id: true,
+              approvalRoleCodes:
+                true,
+
+              tenantMembership: {
+                select: {
+                  id: true,
+
+                  user: {
+                    select: {
+                      id: true,
+                      displayName:
+                        true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+      if (!membership) {
+        return NextResponse.json(
+          {
+            message:
+              "One or more selected approvers are not active members of this project with Planning approval permission.",
+
+            code:
+              "PLANNING_APPROVAL_ASSIGNMENT_INVALID",
+
+            role: {
+              roleCode:
+                assignment
+                  .roleCode,
+            },
+          },
+          {
+            status: 409,
+          },
+        );
+      }
+
+      const eligibleRoleCodes =
+        membership
+          .approvalRoleCodes
+          .map(
+            normalizeRoleCode,
+          );
+
+      if (
+        !eligibleRoleCodes.includes(
+          assignment.roleCode,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              `${membership.tenantMembership.user.displayName} is not eligible to serve as ${assignment.roleCode} for this project.`,
+
+            code:
+              "PLANNING_APPROVAL_ASSIGNMENT_INVALID",
+
+            role: {
+              roleCode:
+                assignment
+                  .roleCode,
+            },
+
+            user: {
+              id:
+                membership
+                  .tenantMembership
+                  .user.id,
+
+              name:
+                membership
+                  .tenantMembership
+                  .user
+                  .displayName,
+            },
+          },
+          {
+            status: 409,
+          },
+        );
+      }
+
+      validatedAssignments.push({
+        roleCode:
+          assignment.roleCode,
+
+        userId:
+          membership
+            .tenantMembership
+            .user.id,
+
+        userName:
+          membership
+            .tenantMembership
+            .user
+            .displayName,
+
+        userEmail:
+          membership
+            .tenantMembership
+            .user.email,
+
+        tenantMembershipId:
+          membership
+            .tenantMembership
+            .id,
+
+        projectMembershipId:
+          membership.id,
+      });
     }
 
     const submittedAt =
@@ -656,135 +959,257 @@ export async function POST(
     const result =
       await prisma.$transaction(
         async (tx) => {
-          await tx.planningSignature.deleteMany({
-            where: {
-              planningRecordId,
-              tenantId:
-                existingRecord.tenantId,
-              revisionNumber,
-            },
-          });
+          /*
+           * Never delete decided approval history.
+           */
+          const decidedApprovalCount =
+            await tx
+              .planningApproval
+              .count({
+                where: {
+                  planningRecordId,
 
-          await tx.planningSignature.createMany({
-            data:
-              signatures.map(
-                (
-                  signature,
-                  index,
-                ) => {
-                  const status =
-                    toNullableString(
-                      signature.status,
-                    ) ?? "Pending";
+                  tenantId:
+                    existingRecord
+                      .tenantId,
 
-                  return {
-                    tenantId:
-                      existingRecord.tenantId,
-                    planningRecordId,
-                    revisionNumber,
+                  revisionNumber,
 
-                    role:
-                      toNullableString(
-                        signature.role,
-                      )!,
-                    signerId:
-                      toNullableString(
-                        signature.signerId,
-                      ),
-                    signerName:
-                      toNullableString(
-                        signature.signerName,
-                      )!,
-                    signerEmail:
-                      toNullableString(
-                        signature.signerEmail,
-                      ),
-
-                    isRequired:
-                      isRequiredSignature(
-                        signature,
-                        requiredRoleLabels,
-                      ),
-                    sortOrder:
-                      toNonNegativeInt(
-                        signature.sortOrder,
-                        index,
-                      ),
-
-                    status,
-                    signatureType:
-                      toNullableString(
-                        signature.signatureType,
-                      ) ??
-                      "Drawn",
-
-                    // MVP persistence: store the PNG data URL directly in the
-                    // URL field. Move this to S3/Azure Blob before broad rollout.
-                    signatureStorageProvider:
-                      status === "Signed"
-                        ? "inline-data-url"
-                        : null,
-                    signatureStorageKey:
-                      null,
-                    signatureStorageUrl:
-                      status === "Signed"
-                        ? toNullableString(
-                            signature.signatureDataUrl,
-                          )
-                        : null,
-
-                    signedAt:
-                      status === "Signed"
-                        ? toNullableDate(
-                            signature.signedAt,
-                          ) ??
-                          submittedAt
-                        : null,
-
-                    userAgent:
-                      request.headers.get(
-                        "user-agent",
-                      ),
-                  };
+                  status: {
+                    not:
+                      "Pending",
+                  },
                 },
-              ),
-          });
+              });
 
-          const transition =
-            await tx.planningRecord.updateMany({
+          if (
+            decidedApprovalCount >
+            0
+          ) {
+            throw new Error(
+              "SUBMISSION_APPROVAL_HISTORY_CONFLICT",
+            );
+          }
+
+          /*
+           * Pending remnants from an interrupted Draft
+           * submission may be safely reconstructed because
+           * no formal decision has occurred yet.
+           */
+          await tx
+            .planningApproval
+            .deleteMany({
               where: {
-                id: planningRecordId,
+                planningRecordId,
+
                 tenantId:
-                  existingRecord.tenantId,
+                  existingRecord
+                    .tenantId,
+
                 revisionNumber,
-                status: "Draft",
-                isArchived: false,
-              },
-              data: {
+
                 status:
-                  "Submitted",
-                submittedAt,
+                  "Pending",
               },
             });
 
-          if (transition.count !== 1) {
+          await tx
+            .planningApproval
+            .createMany({
+              data:
+                approvalRouting
+                  .roles
+                  .map(
+                    (
+                      role,
+                      index,
+                    ) => {
+                      const roleCode =
+                        normalizeRoleCode(
+                          role.code,
+                        );
+
+                      const assignment =
+                        validatedAssignments
+                          .find(
+                            (
+                              candidate,
+                            ) =>
+                              candidate
+                                .roleCode ===
+                              roleCode,
+                          );
+
+                      /*
+                       * Required roles were already checked
+                       * above. Optional roles may remain
+                       * unassigned.
+                       */
+                      return {
+                        tenantId:
+                          existingRecord
+                            .tenantId,
+
+                        planningRecordId,
+                        revisionNumber,
+
+                        roleCode,
+
+                        roleLabel:
+                          role.label
+                            .trim(),
+
+                        isRequired:
+                          role.required,
+
+                        sortOrder:
+                          toNonNegativeInt(
+                            role.order,
+                            index,
+                          ),
+
+                        approverId:
+                          assignment
+                            ?.userId ??
+                          null,
+
+                        approverName:
+                          assignment
+                            ?.userName ??
+                          null,
+
+                        approverEmail:
+                          assignment
+                            ?.userEmail ??
+                          null,
+
+                        status:
+                          "Pending",
+
+                        signatureRequired:
+                          true,
+
+                        planningSignatureId:
+                          null,
+
+                        notificationStatus:
+                          assignment
+                            ? "Pending"
+                            : null,
+
+                        notifiedAt:
+                          null,
+
+                        reminderSentAt:
+                          null,
+                      };
+                    },
+                  ),
+            });
+
+          /*
+           * Signatures are downstream approval evidence.
+           */
+          const signedSignatureCount =
+            await tx
+              .planningSignature
+              .count({
+                where: {
+                  planningRecordId,
+
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  revisionNumber,
+
+                  status:
+                    "Signed",
+                },
+              });
+
+          if (
+            signedSignatureCount >
+            0
+          ) {
+            throw new Error(
+              "SUBMISSION_SIGNATURE_HISTORY_CONFLICT",
+            );
+          }
+
+          await tx
+            .planningSignature
+            .deleteMany({
+              where: {
+                planningRecordId,
+
+                tenantId:
+                  existingRecord
+                    .tenantId,
+
+                revisionNumber,
+
+                status: {
+                  not:
+                    "Signed",
+                },
+              },
+            });
+
+          const transition =
+            await tx
+              .planningRecord
+              .updateMany({
+                where: {
+                  id:
+                    planningRecordId,
+
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  revisionNumber,
+
+                  status:
+                    "Draft",
+
+                  isArchived:
+                    false,
+                },
+
+                data: {
+                  status:
+                    "Submitted",
+
+                  submittedAt,
+                },
+              });
+
+          if (
+            transition.count !==
+            1
+          ) {
             throw new Error(
               "SUBMISSION_STATE_CONFLICT",
             );
           }
 
           const record =
-            await tx.planningRecord.findUnique({
-              where: {
-                id: planningRecordId,
-              },
-              select: {
-                id: true,
-                status: true,
-                submittedAt: true,
-                revisionNumber: true,
-              },
-            });
+            await tx
+              .planningRecord
+              .findUnique({
+                where: {
+                  id:
+                    planningRecordId,
+                },
+
+                select: {
+                  id: true,
+                  status: true,
+                  submittedAt: true,
+                  revisionNumber: true,
+                },
+              });
 
           if (!record) {
             throw new Error(
@@ -792,117 +1217,325 @@ export async function POST(
             );
           }
 
-          await tx.planningEvent.create({
-            data: {
-              tenantId:
-                existingRecord.tenantId,
-              planningRecordId,
-              eventType:
-                "Planning Record Submitted",
-              previousStatus:
-                existingRecord.status,
-              newStatus:
-                "Submitted",
-              revisionNumber,
-              actorName:
-                toNullableString(
-                  body.submittedByName,
-                ),
-              actorRole:
-                toNullableString(
-                  body.submittedByRole,
-                ),
-              comment:
-                "Planning record submitted after completed qualified review and required signatures.",
-              metadata: {
-                planningRevisionId:
-                  revision.id,
-                planningReviewId:
-                  completedReview.id,
-                signatureCount:
-                  signatures.length,
-                requiredSignatureCount:
-                  signatures.filter(
-                    (signature) =>
-                      isRequiredSignature(
-                        signature,
-                        requiredRoleLabels,
-                      ),
-                  ).length,
-                signedSignatureCount:
-                  signatures.filter(
-                    (signature) =>
-                      (
-                        toNullableString(
-                          signature.status,
-                        ) ?? "Pending"
-                      ) === "Signed",
-                  ).length,
-                optionalSignatureCount:
-                  signatures.filter(
-                    (signature) =>
-                      !isRequiredSignature(
-                        signature,
-                        requiredRoleLabels,
-                      ),
-                  ).length,
-                resolvedApprovalRoleCount:
-                  approvalRouting.roles.length,
-                resolvedRequiredRoleCount:
-                  requiredApprovalRoles.length,
-                applicableRequirementPackCount:
-                  approvalRouting.applicablePacks.length,
-                approvalRoutingResolverVersion:
-                  approvalRouting.metadata.resolverVersion,
-                resolvedApprovalRoles:
-                  approvalRouting.roles.map(
-                    (role) => ({
-                      code:
-                        role.code,
-                      label:
-                        role.label,
-                      required:
-                        role.required,
-                      sourceType:
-                        role.sourceType,
-                      sourcePackIds:
-                        role.sources
-                          .map(
-                            (source) =>
-                              source.requirementPackId,
-                          )
-                          .filter(Boolean),
-                    }),
-                  ),
-                acknowledgement:
-                  true,
-                signatureStorageMode:
-                  "inline-data-url",
-              },
-            },
-          });
+          const approvals =
+            await tx
+              .planningApproval
+              .findMany({
+                where: {
+                  planningRecordId,
 
-          return record;
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  revisionNumber,
+                },
+
+                orderBy: [
+                  {
+                    sortOrder:
+                      "asc",
+                  },
+                  {
+                    roleLabel:
+                      "asc",
+                  },
+                ],
+
+                select: {
+                  id: true,
+                  roleCode: true,
+                  roleLabel: true,
+                  isRequired: true,
+                  sortOrder: true,
+
+                  approverId: true,
+                  approverName: true,
+                  approverEmail: true,
+
+                  status: true,
+                  signatureRequired:
+                    true,
+                  notificationStatus:
+                    true,
+                },
+              });
+
+          await tx
+            .planningEvent
+            .create({
+              data: {
+                tenantId:
+                  existingRecord
+                    .tenantId,
+
+                planningRecordId,
+
+                eventType:
+                  "Planning Record Submitted for Review",
+
+                previousStatus:
+                  existingRecord
+                    .status,
+
+                newStatus:
+                  "Submitted",
+
+                revisionNumber,
+
+                actorId:
+                  toNullableString(
+                    body.submittedById,
+                  ),
+
+                actorName:
+                  toNullableString(
+                    body.submittedByName,
+                  ),
+
+                actorRole:
+                  toNullableString(
+                    body.submittedByRole,
+                  ),
+
+                comment:
+                  "Planning record submitted for downstream review and required approval signatures.",
+
+                metadata: {
+                  planningRevisionId:
+                    revision.id,
+
+                  preSubmissionReviewId:
+                    completedReview
+                      .id,
+
+                  preSubmissionReviewedBy: {
+                    id:
+                      completedReview
+                        .reviewerId,
+
+                    name:
+                      completedReview
+                        .reviewerName,
+
+                    role:
+                      completedReview
+                        .reviewerRole,
+
+                    completedAt:
+                      completedReview
+                        .completedAt,
+                  },
+
+                  approvalCount:
+                    approvals.length,
+
+                  requiredApprovalCount:
+                    approvals.filter(
+                      (
+                        approval,
+                      ) =>
+                        approval
+                          .isRequired,
+                    ).length,
+
+                  assignedApprovalCount:
+                    approvals.filter(
+                      (
+                        approval,
+                      ) =>
+                        Boolean(
+                          approval
+                            .approverId,
+                        ),
+                    ).length,
+
+                  approvalAssignments:
+                    validatedAssignments
+                      .map(
+                        (
+                          assignment,
+                        ) => ({
+                          roleCode:
+                            assignment
+                              .roleCode,
+
+                          userId:
+                            assignment
+                              .userId,
+
+                          userName:
+                            assignment
+                              .userName,
+
+                          userEmail:
+                            assignment
+                              .userEmail,
+
+                          tenantMembershipId:
+                            assignment
+                              .tenantMembershipId,
+
+                          projectMembershipId:
+                            assignment
+                              .projectMembershipId,
+                        }),
+                      ),
+
+                  applicableRequirementPackCount:
+                    approvalRouting
+                      .applicablePacks
+                      .length,
+
+                  approvalRoutingResolverVersion:
+                    approvalRouting
+                      .metadata
+                      .resolverVersion,
+
+                  resolvedApprovalRoles:
+                    approvalRouting
+                      .roles
+                      .map(
+                        (
+                          role,
+                        ) => ({
+                          code:
+                            role.code,
+
+                          label:
+                            role.label,
+
+                          required:
+                            role.required,
+
+                          order:
+                            role.order,
+
+                          sourceType:
+                            role.sourceType,
+
+                          sources:
+                            role.sources
+                              .map(
+                                (
+                                  source,
+                                ) => ({
+                                  requirementPackId:
+                                    source
+                                      .requirementPackId,
+
+                                  requirementPackName:
+                                    source
+                                      .requirementPackName,
+
+                                  packType:
+                                    source
+                                      .packType,
+
+                                  organizationName:
+                                    source
+                                      .organizationName,
+                                }),
+                              ),
+                        }),
+                      ),
+
+                  applicableRequirementPacks:
+                    approvalRouting
+                      .applicablePacks,
+
+                  acknowledgement:
+                    true,
+
+                  workflowVersion:
+                    "qoreva-planning-submit-for-review-v2-validated-assignments",
+                },
+              },
+            });
+
+          return {
+            record,
+            approvals,
+          };
         },
       );
 
     return NextResponse.json({
-      record: result,
+      record:
+        result.record,
+
+      workflow: {
+        status:
+          "SubmittedForReview",
+
+        approvals:
+          result.approvals,
+      },
+
       saved: {
-        signatures:
-          signatures.length,
+        approvals:
+          result.approvals
+            .length,
       },
     });
   } catch (error) {
     console.error(
-      "Unable to submit planning record:",
+      "Unable to submit planning record for review:",
       error,
     );
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "SUBMISSION_STATE_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The planning record changed while it was being submitted. Refresh and try again.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "SUBMISSION_APPROVAL_HISTORY_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "This revision already contains downstream approval history and cannot be resubmitted as a new Draft workflow.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "SUBMISSION_SIGNATURE_HISTORY_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "This revision already contains signed approval evidence and cannot be reset during submission.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
 
     return NextResponse.json(
       {
         message:
-          "Unable to submit planning record.",
+          "Unable to submit planning record for review.",
       },
       {
         status: 500,

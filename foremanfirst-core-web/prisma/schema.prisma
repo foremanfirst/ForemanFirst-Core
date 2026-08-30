@@ -94,6 +94,7 @@ model Project {
   contractorDocumentRequirements ContractorDocumentRequirement[]
   planningRecords                PlanningRecord[]
   organizations                  ProjectOrganization[]
+  memberships                    ProjectMembership[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -132,12 +133,152 @@ model ProjectOrganization {
   @@index([isActive])
 }
 
+// ============================================================
+// QOREVA IDENTITY & MEMBERSHIP FOUNDATION
+// ============================================================
+//
+// User
+//   Authenticated human identity.
+//
+// TenantMembership
+//   Grants a User access to a Qoreva tenant/customer account.
+//
+// ProjectMembership
+//   Grants that tenant member access and responsibilities on
+//   a specific project.
+//
+// Worker remains the field/workforce personnel profile.
+// A Worker may optionally link to a User when that person
+// has an authenticated Qoreva account.
+// ============================================================
+
+model User {
+  id String @id @default(cuid())
+
+  firstName   String?
+  lastName    String?
+  displayName String
+
+  // Global authenticated identity.
+  // Application services should normalize email before save.
+  email String @unique
+
+  phone String?
+
+  // Authentication providers such as Microsoft Entra ID,
+  // Google Workspace, and email/password will map into this
+  // identity during the authentication implementation phase.
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+
+  status   String  @default("Active")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantMemberships TenantMembership[]
+  workerProfiles    Worker[]
+
+  @@index([status])
+  @@index([isActive])
+  @@index([lastName, firstName])
+}
+
+model TenantMembership {
+  id       String @id @default(cuid())
+  tenantId String
+
+  userId String
+
+  // Tenant responsibilities such as:
+  // TENANT_ADMIN
+  // SAFETY_MANAGER
+  // PROJECT_MANAGER
+  // SUPERINTENDENT
+  roleCodes String[] @default([])
+
+  canManageUsers        Boolean @default(false)
+  canManageProjects     Boolean @default(false)
+  canManageRequirements Boolean @default(false)
+
+  isActive Boolean @default(true)
+
+  joinedAt   DateTime  @default(now())
+  disabledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectMemberships ProjectMembership[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([isActive])
+}
+
+model ProjectMembership {
+  id       String @id @default(cuid())
+  tenantId String
+
+  projectId          String
+  tenantMembershipId String
+
+  // Human/project responsibilities such as:
+  // PROJECT_MANAGER
+  // SUPERINTENDENT
+  // SAFETY_MANAGER
+  // FOREMAN
+  // QUALIFIED_PERSON
+  roleCodes String[] @default([])
+
+  // Formal workflow eligibility.
+  //
+  // Examples:
+  // QUALIFIED_REVIEWER
+  // RESPONSIBLE_SUPERVISOR
+  // OWNER_REVIEWER
+  approvalRoleCodes String[] @default([])
+
+  // Explicit Planning permissions.
+  canCreatePlanning  Boolean @default(false)
+  canReviewPlanning  Boolean @default(false)
+  canApprovePlanning Boolean @default(false)
+  canManagePlanning  Boolean @default(false)
+
+  isActive Boolean @default(true)
+
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenantMembership TenantMembership @relation(fields: [tenantMembershipId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tenantMembershipId])
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([tenantMembershipId])
+  @@index([isActive])
+}
+
 model Worker {
   id       String @id @default(cuid())
   tenantId String
 
   companyId String
   projectId String?
+
+  // Optional authenticated Qoreva identity.
+  //
+  // Not every field worker requires a platform account.
+  // A User may be linked to field Worker profiles when
+  // that person also has authenticated Qoreva access.
+  userId String?
 
   firstName  String
   middleName String?
@@ -188,12 +329,14 @@ model Worker {
 
   company Company  @relation(fields: [companyId], references: [id])
   project Project? @relation(fields: [projectId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   dailyWseSignatures DailyWorkerSafetyEngagementSignature[]
 
   @@index([tenantId])
   @@index([companyId])
   @@index([projectId])
+  @@index([userId])
   @@index([isArchived])
   @@index([accessStatus])
   @@index([badgeStatus])
@@ -438,16 +581,19 @@ model PlanningRecord {
   project    Project     @relation(fields: [projectId], references: [id])
   contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
 
-  workSteps         PlanningWorkStep[]
-  activities        PlanningActivity[]
-  questionResponses PlanningQuestionResponse[]
-  sourceDocuments   PlanningSourceDocument[]
-  revisions         PlanningRevision[]
-  reviews           PlanningReview[]
-  reviewComments    PlanningReviewComment[]
-  signatures        PlanningSignature[]
-  events            PlanningEvent[]
-  dailyWseRecords   DailyWorkerSafetyEngagement[]
+  workSteps              PlanningWorkStep[]
+  activities             PlanningActivity[]
+  questionResponses      PlanningQuestionResponse[]
+  sourceDocuments        PlanningSourceDocument[]
+  revisions              PlanningRevision[]
+  reviews                PlanningReview[]
+  reviewComments         PlanningReviewComment[]
+  approvals              PlanningApproval[]
+  signatures             PlanningSignature[]
+  events                 PlanningEvent[]
+  dailyWseRecords        DailyWorkerSafetyEngagement[]
+  hazardControlDecisions PlanningHazardControlDecision[]
+  hazardControlOverrides PlanningHazardControlOverride[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -488,6 +634,123 @@ model PlanningWorkStep {
   @@index([planningRecordId])
   @@index([riskLevel])
   @@index([safetyCritical])
+}
+
+model PlanningHazardControlDecision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  recommendationId String
+
+  itemType String
+
+  originalText String
+
+  decision String
+
+  modifiedText String?
+
+  targetHazardId String?
+
+  canonicalHazardConceptId String?
+
+  sourceType String?
+
+  sourceMetadata Json?
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, revisionNumber, recommendationId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([decision])
+  @@index([targetHazardId])
+  @@index([canonicalHazardConceptId])
+  @@index([decidedAt])
+}
+
+model PlanningHazardControlOverride {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable draft work-step identity. This intentionally is not a
+  // PlanningWorkStep foreign key because Guided Intake work steps can
+  // exist before the final work-step records are persisted.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  // Hazard or Control
+  itemType String
+
+  // Add, Edit, Change, Remove
+  action String
+
+  // Stable identity of an existing generated or user-authored item.
+  // Null for a newly added item with no prior source item.
+  targetItemId String?
+
+  // Controls are scoped to a hazard.
+  parentHazardId String?
+
+  // Existing source wording. Null for a newly added item.
+  originalText String?
+
+  // Final qualified-user wording for Add/Edit/Change.
+  finalText String?
+
+  // Canonical semantic identity when known. This remains nullable for
+  // custom hazards that do not map safely to the canonical library.
+  canonicalHazardConceptId String?
+
+  // Preserve where the original item came from.
+  sourceType     String?
+  sourceMetadata Json?
+
+  // Optional explanation for a material change or removal.
+  reason String?
+
+  changedById   String?
+  changedByName String?
+  changedByRole String?
+  changedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  // Stable revision-scoped identity used for idempotent saves/retries.
+  operationKey String
+
+  @@unique([planningRecordId, revisionNumber, operationKey])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([workStepId])
+  @@index([itemType])
+  @@index([action])
+  @@index([targetItemId])
+  @@index([parentHazardId])
+  @@index([canonicalHazardConceptId])
+  @@index([changedAt])
 }
 
 model PlanningQuestionResponse {
@@ -647,6 +910,68 @@ model PlanningReviewComment {
   @@index([revisionNumber])
   @@index([targetId])
   @@index([status])
+  @@index([createdAt])
+}
+
+model PlanningApproval {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Snapshot of the approval route that applied when submitted.
+  // It must not silently change if Requirement Packs change later.
+  roleCode  String
+  roleLabel String
+
+  isRequired Boolean @default(true)
+  sortOrder  Int     @default(0)
+
+  // A route may exist before a specific approver is assigned.
+  approverId    String?
+  approverName  String?
+  approverEmail String?
+
+  // Pending, Approved, RevisionRequired, Rejected
+  status String @default("Pending")
+
+  // Human reviewer decision context.
+  decisionComment String?
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime?
+
+  // Some approval routes require an electronic signature
+  // in addition to the approval decision.
+  signatureRequired Boolean @default(true)
+
+  // Optional relationship to captured PlanningSignature evidence.
+  planningSignatureId String?
+
+  // Notification lifecycle foundation.
+  notificationStatus String?
+  notifiedAt         DateTime?
+  reminderSentAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, revisionNumber, roleCode, sortOrder])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([roleCode])
+  @@index([approverId])
+  @@index([approverEmail])
+  @@index([status])
+  @@index([planningSignatureId])
+  @@index([decidedAt])
+  @@index([notifiedAt])
   @@index([createdAt])
 }
 

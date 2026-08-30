@@ -4,7 +4,13 @@ import type {
   GeneratedHazardControlGroup,
   PlanningDraftGenerationResult,
   PlanningGenerationContext,
+  PlanningHazardControlDecisionContext,
+  PlanningHazardControlOverrideContext,
 } from "./planning-types";
+
+import {
+  findCanonicalHazardMatch,
+} from "./hazard-control-library";
 
 type ActivityHazardControlGuidance = {
   hazard: string;
@@ -43,6 +49,9 @@ const activityGuidanceLibrary: Record<
       "Changing work conditions",
       "Hand and power tool exposure",
       "Poor housekeeping or access",
+      "Adjacent operations or simultaneous work",
+      "Trip hazards",
+      "Required inspection not completed",
     ],
 
     controls: [
@@ -73,6 +82,28 @@ const activityGuidanceLibrary: Record<
           "Maintain housekeeping and clear access around the work area.",
         ],
       },
+      {
+        hazard: "Adjacent operations or simultaneous work",
+        controls: [
+          "Review adjacent operations with the crew before starting work.",
+          "Coordinate work boundaries, access, equipment movement, and sequencing with affected crews.",
+          "Stop and reassess when adjacent work creates a new or uncontrolled exposure.",
+        ],
+      },
+      {
+        hazard: "Trip hazards",
+        controls: [
+          "Maintain housekeeping and clear access around the work area.",
+          "Keep walking and working surfaces free of materials, cords, hoses, debris, and other avoidable trip hazards.",
+        ],
+      },
+      {
+        hazard: "Required inspection not completed",
+        controls: [
+          "Complete required pre-work and equipment inspections before the affected work begins.",
+          "Do not proceed when a required inspection has not been completed or an unsafe condition remains unresolved.",
+        ],
+      },
     ],
 
     ppe: [],
@@ -98,6 +129,7 @@ const activityGuidanceLibrary: Record<
       "Equipment rollover or unstable operating surface",
       "Pedestrian and equipment interaction",
       "Unauthorized entry into equipment operating area",
+      "Personnel inside equipment swing radius",
     ],
 
     controls: [
@@ -151,6 +183,15 @@ const activityGuidanceLibrary: Record<
           "Maintain effective communication between operators and spotters.",
         ],
       },
+      {
+        hazard: "Personnel inside equipment swing radius",
+        controls: [
+          "Separate workers from moving equipment whenever practical.",
+          "Keep personnel outside equipment swing radius and line-of-fire areas.",
+          "Use a spotter when visibility, backing, congestion, or site conditions require one.",
+          "Maintain effective communication between operators and spotters.",
+        ],
+      },
     ],
 
     ppe: [
@@ -180,6 +221,7 @@ const activityGuidanceLibrary: Record<
       "Mobile equipment operating near excavation edges",
       "Water accumulation or changing soil conditions",
       "Unsafe access or egress",
+      "Workers exposed to excavation hazards",
     ],
 
     controls: [
@@ -204,6 +246,12 @@ const activityGuidanceLibrary: Record<
       {
         hazard: "Underground utility contact",
         controls: [
+          "Obtain applicable utility locate information before disturbing the ground.",
+          "Review available drawings, records, and field markings.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
         ],
       },
       {
@@ -239,6 +287,16 @@ const activityGuidanceLibrary: Record<
           "Provide safe access and egress where required.",
         ],
       },
+      {
+        hazard: "Workers exposed to excavation hazards",
+        controls: [
+          "A competent person must inspect the excavation and surrounding conditions as required.",
+          "Determine the required protective system based on excavation depth, soil, loading, water, and actual site conditions.",
+          "Maintain required spoil, material, and equipment setback from the excavation edge.",
+          "Protect workers from equipment operating near excavation edges.",
+          "Provide safe access and egress where required.",
+        ],
+      },
     ],
 
     ppe: [],
@@ -266,7 +324,10 @@ const activityGuidanceLibrary: Record<
       "Contact with underground electrical, gas, communication, water, sewer, or other utilities",
       "Unexpected utility location or elevation",
       "Stored energy or hazardous release from damaged utilities",
+      "Electrical contact from underground utility",
+      "Gas, water, or other utility release",
       "Conflicting drawings, records, locates, or field markings",
+      "Damaged or mislocated underground utility",
     ],
 
     controls: [
@@ -310,11 +371,41 @@ const activityGuidanceLibrary: Record<
         ],
       },
       {
+        hazard: "Electrical contact from underground utility",
+        controls: [
+          "Obtain applicable utility locate information before disturbing the ground.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
+      {
+        hazard: "Gas, water, or other utility release",
+        controls: [
+          "Obtain applicable utility locate information before disturbing the ground.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
+      {
         hazard: "Conflicting drawings, records, locates, or field markings",
         controls: [
           "Review available drawings, records, and field markings.",
           "Use private locating or additional locating methods when required by project conditions.",
           "Positively expose or verify utilities where required before mechanical excavation.",
+          "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+        ],
+      },
+      {
+        hazard: "Damaged or mislocated underground utility",
+        controls: [
+          "Review available drawings, records, and field markings.",
+          "Positively expose or verify utilities where required before mechanical excavation.",
+          "Maintain required clearances from known utilities.",
+          "Use approved non-destructive excavation methods where required.",
           "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
         ],
       },
@@ -986,7 +1077,7 @@ function findRelevantActivityCodes(
 
         if (
           code === "EXCAVATION" &&
-          /\b(excavat|trench|dig|grading|backfill)/i.test(
+          /\b(excavat(?:e|ed|ing|ion)?|trench(?:es|ed|ing)?|dig(?:ging)?|grading|backfill(?:ing)?)\b/i.test(
             normalized,
           )
         ) {
@@ -996,7 +1087,7 @@ function findRelevantActivityCodes(
         if (
           code ===
             "UNDERGROUND_UTILITIES" &&
-          /\b(utility|utilities|conduit|daylight|hydrovac|underground)/i.test(
+          /\b(utility|utilities|conduit|daylight|hydrovac|underground|mismarked|unmarked|mislocated)\b/i.test(
             normalized,
           )
         ) {
@@ -1005,7 +1096,7 @@ function findRelevantActivityCodes(
 
         if (
           code === "MOBILE_EQUIPMENT" &&
-          /\b(excavator|dozer|loader|forklift|telehandler|backhoe|grader|equipment)/i.test(
+          /\b(excavator|dozer|loader|forklift|telehandler|backhoe|grader|equipment|swing radius|operating area|unstable ground)\b/i.test(
             normalized,
           )
         ) {
@@ -1043,7 +1134,7 @@ function findRelevantActivityCodes(
         if (
           code ===
             "RIGGING_MATERIAL_HANDLING" &&
-          /\b(rig|rigging|hoist|lifting|sling|shackle|chain fall)/i.test(
+          /\b(rig|rigging|hoist|lifting|sling|shackle|chain fall|material handling|pinch|crush|crushing)\b/i.test(
             normalized,
           )
         ) {
@@ -1420,7 +1511,7 @@ function buildUserHazardControlGroups(
   ];
 }
 
-function mergeGeneratedHazardControlGroups(
+function mergeGeneratedHazardControlGroupsByExactText(
   groups: GeneratedHazardControlGroup[],
 ): GeneratedHazardControlGroup[] {
   const merged =
@@ -1618,6 +1709,314 @@ function mergeGeneratedHazardControlGroups(
 }
 
 
+/**
+ * V7.8 semantic consolidation.
+ *
+ * The previous merge layer only collapsed identical display
+ * wording. That allowed the same underlying Qoreva hazard
+ * relationship to survive as several cards when it arrived
+ * through:
+ * - a user-entered phrase,
+ * - GENERAL_WORK baseline guidance,
+ * - one or more detected activities,
+ * - canonical-library resolution.
+ *
+ * This layer deliberately does NOT lower any matching
+ * threshold. It only consolidates groups when the centralized
+ * canonical hazard library independently resolves both hazard
+ * phrases to the same stable canonical definition.
+ *
+ * User wording wins as the display label when a user-authored
+ * group and a Rule group represent the same canonical hazard.
+ * All activity/question/requirement provenance is unioned.
+ */
+function getHazardConsolidationKey(
+  group: GeneratedHazardControlGroup,
+) {
+  const exactKey =
+    group.hazard.text
+      .trim()
+      .toLowerCase();
+
+  if (
+    group.hazard.text ===
+    "User-entered controls requiring hazard assignment"
+  ) {
+    return `review:${exactKey}`;
+  }
+
+  const applicableActivityCodes =
+    uniqueStrings(
+      group.hazard
+        .sourceActivityCodes,
+    );
+
+  const canonicalMatch =
+    findCanonicalHazardMatch(
+      group.hazard.text,
+      applicableActivityCodes,
+    );
+
+  if (!canonicalMatch) {
+    return `text:${exactKey}`;
+  }
+
+  return `canonical:${canonicalMatch.definition.id}`;
+}
+
+function getControlConsolidationKey(
+  control: GeneratedHazardControlGroup["controls"][number],
+) {
+  /*
+   * Controls do not yet have a separate canonical control
+   * identity in the V7.7 type surface. Keep this conservative:
+   * normalize punctuation/spacing/case only. Do not fuzzy-merge
+   * different control statements because small wording
+   * differences can carry materially different requirements.
+   */
+  return control.text
+    .trim()
+    .toLowerCase()
+    .replace(/[.,;:!?]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function mergeControlIntoGroup(
+  targetGroup: GeneratedHazardControlGroup,
+  incomingControl: GeneratedHazardControlGroup["controls"][number],
+) {
+  const incomingKey =
+    getControlConsolidationKey(
+      incomingControl,
+    );
+
+  const existingControl =
+    targetGroup.controls.find(
+      (control) =>
+        getControlConsolidationKey(
+          control,
+        ) === incomingKey,
+    );
+
+  if (!existingControl) {
+    targetGroup.controls.push({
+      ...incomingControl,
+      sourceActivityCodes:
+        uniqueStrings(
+          incomingControl
+            .sourceActivityCodes,
+        ),
+      sourceQuestionCodes:
+        uniqueStrings(
+          incomingControl
+            .sourceQuestionCodes,
+        ),
+      sourceRequirementIds:
+        uniqueStrings(
+          incomingControl
+            .sourceRequirementIds,
+        ),
+    });
+
+    return;
+  }
+
+  existingControl.sourceActivityCodes =
+    uniqueStrings([
+      ...existingControl
+        .sourceActivityCodes,
+      ...incomingControl
+        .sourceActivityCodes,
+    ]);
+
+  existingControl.sourceQuestionCodes =
+    uniqueStrings([
+      ...existingControl
+        .sourceQuestionCodes,
+      ...incomingControl
+        .sourceQuestionCodes,
+    ]);
+
+  existingControl.sourceRequirementIds =
+    uniqueStrings([
+      ...existingControl
+        .sourceRequirementIds,
+      ...incomingControl
+        .sourceRequirementIds,
+    ]);
+
+  existingControl.required =
+    existingControl.required ||
+    incomingControl.required;
+
+  /*
+   * Preserve qualified-user wording if the same normalized
+   * control also exists as a generated Rule statement.
+   */
+  if (
+    existingControl.source !==
+      "User" &&
+    incomingControl.source ===
+      "User"
+  ) {
+    existingControl.text =
+      incomingControl.text;
+    existingControl.source =
+      "User";
+  }
+}
+
+function consolidateSemanticHazardControlGroups(
+  groups: GeneratedHazardControlGroup[],
+) {
+  const exactMerged =
+    mergeGeneratedHazardControlGroupsByExactText(
+      groups,
+    );
+
+  const consolidated =
+    new Map<
+      string,
+      GeneratedHazardControlGroup
+    >();
+
+  for (
+    const group of
+    exactMerged
+  ) {
+    const key =
+      getHazardConsolidationKey(
+        group,
+      );
+
+    const existing =
+      consolidated.get(key);
+
+    if (!existing) {
+      consolidated.set(key, {
+        ...group,
+        hazard: {
+          ...group.hazard,
+          sourceActivityCodes:
+            uniqueStrings(
+              group.hazard
+                .sourceActivityCodes,
+            ),
+          sourceQuestionCodes:
+            uniqueStrings(
+              group.hazard
+                .sourceQuestionCodes,
+            ),
+          sourceRequirementIds:
+            uniqueStrings(
+              group.hazard
+                .sourceRequirementIds,
+            ),
+        },
+        controls:
+          group.controls.map(
+            (control) => ({
+              ...control,
+              sourceActivityCodes:
+                uniqueStrings(
+                  control
+                    .sourceActivityCodes,
+                ),
+              sourceQuestionCodes:
+                uniqueStrings(
+                  control
+                    .sourceQuestionCodes,
+                ),
+              sourceRequirementIds:
+                uniqueStrings(
+                  control
+                    .sourceRequirementIds,
+                ),
+            }),
+          ),
+      });
+
+      continue;
+    }
+
+    existing.hazard.sourceActivityCodes =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceActivityCodes,
+        ...group.hazard
+          .sourceActivityCodes,
+      ]);
+
+    existing.hazard.sourceQuestionCodes =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceQuestionCodes,
+        ...group.hazard
+          .sourceQuestionCodes,
+      ]);
+
+    existing.hazard.sourceRequirementIds =
+      uniqueStrings([
+        ...existing.hazard
+          .sourceRequirementIds,
+        ...group.hazard
+          .sourceRequirementIds,
+      ]);
+
+    existing.hazard.required =
+      existing.hazard.required ||
+      group.hazard.required;
+
+    /*
+     * The field user's wording is the clearest presentation
+     * label when Qoreva has proven semantic equivalence.
+     * Stable canonical identity still drives consolidation
+     * underneath that wording.
+     */
+    if (
+      existing.hazard.source !==
+        "User" &&
+      group.hazard.source ===
+        "User"
+    ) {
+      existing.hazard.text =
+        group.hazard.text;
+      existing.hazard.source =
+        "User";
+    }
+
+    for (
+      const control of
+      group.controls
+    ) {
+      mergeControlIntoGroup(
+        existing,
+        control,
+      );
+    }
+  }
+
+  return Array.from(
+    consolidated.values(),
+  );
+}
+
+/*
+ * Public internal merge boundary used throughout the generator.
+ *
+ * Keeping this name means the assignment/decision/override
+ * pipeline automatically benefits from semantic consolidation
+ * without changing the established confidence thresholds.
+ */
+function mergeGeneratedHazardControlGroups(
+  groups: GeneratedHazardControlGroup[],
+): GeneratedHazardControlGroup[] {
+  return consolidateSemanticHazardControlGroups(
+    groups,
+  );
+}
+
+
 const hazardMatchStopWords =
   new Set([
     "a",
@@ -1670,6 +2069,10 @@ function canonicalHazardToken(
         "drawing",
       electrical:
         "electric",
+      electricity:
+        "electric",
+      electrocution:
+        "electric",
       equipment:
         "equipment",
       excavating:
@@ -1692,8 +2095,38 @@ function canonicalHazardToken(
         "locate",
       markings:
         "marking",
+      unmarked:
+        "marking",
+      mislocated:
+        "locate",
+      unknown:
+        "unexpected",
       mismarked:
         "marking",
+      inspection:
+        "inspect",
+      inspections:
+        "inspect",
+      missed:
+        "missing",
+      adjacent:
+        "adjacent",
+      operation:
+        "operation",
+      operations:
+        "operation",
+      trip:
+        "trip",
+      tripping:
+        "trip",
+      gas:
+        "release",
+      water:
+        "release",
+      release:
+        "release",
+      released:
+        "release",
       mobile:
         "mobile",
       moving:
@@ -1702,6 +2135,28 @@ function canonicalHazardToken(
         "worker",
       rollover:
         "rollover",
+      radius:
+        "radius",
+      swing:
+        "swing",
+      pinch:
+        "pinch",
+      crush:
+        "crush",
+      crushing:
+        "crush",
+      damaged:
+        "damage",
+      damage:
+        "damage",
+      debris:
+        "housekeeping",
+      uneven:
+        "unstable",
+      surfaces:
+        "surface",
+      surface:
+        "surface",
       site:
         "site",
       struck:
@@ -1775,6 +2230,329 @@ function buildHazardTokenSet(
   return new Set(rawTokens);
 }
 
+
+type CanonicalHazardConcept =
+  | "ADJACENT_OPERATIONS"
+  | "TRIP_HAZARD"
+  | "REQUIRED_INSPECTION"
+  | "UTILITY_LOCATION"
+  | "UTILITY_ELECTRICAL_CONTACT"
+  | "UTILITY_RELEASE"
+  | "UTILITY_DAMAGE"
+  | "EQUIPMENT_SWING_RADIUS"
+  | "EQUIPMENT_OPERATING_AREA"
+  | "EQUIPMENT_UNSTABLE_SURFACE"
+  | "PEDESTRIAN_EQUIPMENT_INTERACTION"
+  | "EXCAVATION_ACCESS_EGRESS"
+  | "EXCAVATION_WORKER_EXPOSURE";
+
+function getCanonicalHazardConcepts(
+  value: string,
+  activityCode: string,
+): Set<CanonicalHazardConcept> {
+  const normalized = value.toLowerCase();
+  const concepts = new Set<CanonicalHazardConcept>();
+
+  if (
+    activityCode === "GENERAL_WORK" &&
+    /\b(adjacent|simultaneous)\b/i.test(normalized) &&
+    /\b(operation|operations|work|crew|crews)\b/i.test(normalized)
+  ) {
+    concepts.add("ADJACENT_OPERATIONS");
+  }
+
+  if (
+    activityCode === "GENERAL_WORK" &&
+    /\b(trip|tripping|housekeeping|walking surface|walking surfaces)\b/i.test(
+      normalized,
+    )
+  ) {
+    concepts.add("TRIP_HAZARD");
+  }
+
+  if (
+    activityCode === "GENERAL_WORK" &&
+    (
+      /\b(missed|missing|incomplete|required)\b.*\binspection\b/i.test(
+        normalized,
+      ) ||
+      /\binspection\b.*\b(missed|missing|incomplete|required)\b/i.test(
+        normalized,
+      )
+    )
+  ) {
+    concepts.add("REQUIRED_INSPECTION");
+  }
+
+  if (activityCode === "UNDERGROUND_UTILITIES") {
+    if (
+      /\b(unknown|unexpected|mismarked|unmarked|mislocated|conflicting)\b/i.test(
+        normalized,
+      ) &&
+      /\b(utility|utilities|conduit|drawing|drawings|locate|locates|marking|markings|location|elevation)\b/i.test(
+        normalized,
+      )
+    ) {
+      concepts.add("UTILITY_LOCATION");
+    }
+
+    if (
+      /\b(electrical|electric|shock|electrocution)\b/i.test(normalized) &&
+      /\b(utility|utilities|underground|conduit|contact)\b/i.test(normalized)
+    ) {
+      concepts.add("UTILITY_ELECTRICAL_CONTACT");
+    }
+
+    if (
+      /\b(gas|water|sewer|utility|utilities)\b/i.test(normalized) &&
+      /\b(release|leak|rupture|damaged|damage)\b/i.test(normalized)
+    ) {
+      concepts.add("UTILITY_RELEASE");
+    }
+
+    if (
+      /\b(damaged|damage|mislocated|mismarked)\b/i.test(normalized) &&
+      /\b(utility|utilities|conduit|underground)\b/i.test(normalized)
+    ) {
+      concepts.add("UTILITY_DAMAGE");
+    }
+  }
+
+  if (activityCode === "MOBILE_EQUIPMENT") {
+    if (
+      /\b(swing|radius|line[- ]?of[- ]?fire)\b/i.test(normalized)
+    ) {
+      concepts.add("EQUIPMENT_SWING_RADIUS");
+    }
+
+    if (
+      /\b(unauthorized|entry|entering|operating area|work zone)\b/i.test(
+        normalized,
+      ) &&
+      /\b(equipment|vehicle|operator|area|zone|entry)\b/i.test(normalized)
+    ) {
+      concepts.add("EQUIPMENT_OPERATING_AREA");
+    }
+
+    if (
+      /\b(unstable|soft|uneven|ground condition|surface)\b/i.test(normalized) &&
+      /\b(equipment|ground|surface|rollover)\b/i.test(normalized)
+    ) {
+      concepts.add("EQUIPMENT_UNSTABLE_SURFACE");
+    }
+
+    if (
+      /\b(worker|workers|personnel|pedestrian|pedestrians)\b/i.test(
+        normalized,
+      ) &&
+      /\b(equipment|vehicle|vehicles|moving)\b/i.test(normalized)
+    ) {
+      concepts.add("PEDESTRIAN_EQUIPMENT_INTERACTION");
+    }
+  }
+
+  if (activityCode === "EXCAVATION") {
+    if (
+      /\b(access|egress|ladder|entry|exit)\b/i.test(normalized) &&
+      /\b(excavat|trench|access|egress|entry|exit)\b/i.test(normalized)
+    ) {
+      concepts.add("EXCAVATION_ACCESS_EGRESS");
+    }
+
+    if (
+      /\b(worker|workers|personnel)\b/i.test(normalized) &&
+      /\b(excavat|trench|cave|soil|edge|equipment|hazard|hazards)\b/i.test(
+        normalized,
+      )
+    ) {
+      concepts.add("EXCAVATION_WORKER_EXPOSURE");
+    }
+  }
+
+  return concepts;
+}
+
+function getCanonicalHazardConceptBoost(
+  userHazardText: string,
+  candidateHazardText: string,
+  activityCode: string,
+) {
+  const userConcepts =
+    getCanonicalHazardConcepts(
+      userHazardText,
+      activityCode,
+    );
+
+  if (userConcepts.size === 0) {
+    return 0;
+  }
+
+  const candidateConcepts =
+    getCanonicalHazardConcepts(
+      candidateHazardText,
+      activityCode,
+    );
+
+  const sharedConcepts =
+    Array.from(userConcepts).filter(
+      (concept) =>
+        candidateConcepts.has(concept),
+    );
+
+  if (sharedConcepts.length === 0) {
+    return 0;
+  }
+
+  /*
+   * Canonical concepts are intentionally narrow and
+   * deterministic. A shared concept is stronger evidence
+   * than ordinary token overlap, but it does not bypass
+   * the resolver's minimum-score or ambiguity safeguards.
+   */
+  return Math.min(
+    0.42,
+    0.3 +
+      Math.max(
+        0,
+        sharedConcepts.length - 1,
+      ) *
+        0.06,
+  );
+}
+
+
+function getCanonicalRelationshipMatchRank(
+  userHazardText: string,
+  candidateHazardText: string,
+  activityCode: string,
+) {
+  const userConcepts =
+    getCanonicalHazardConcepts(
+      userHazardText,
+      activityCode,
+    );
+
+  if (userConcepts.size === 0) {
+    return 0;
+  }
+
+  const candidateConcepts =
+    getCanonicalHazardConcepts(
+      candidateHazardText,
+      activityCode,
+    );
+
+  const sharedConcepts =
+    Array.from(userConcepts).filter(
+      (concept) =>
+        candidateConcepts.has(concept),
+    );
+
+  if (sharedConcepts.length === 0) {
+    return 0;
+  }
+
+  const candidate =
+    candidateHazardText
+      .trim()
+      .toLowerCase();
+
+  /*
+   * V7.3 canonical relationship layer.
+   *
+   * These are intentionally narrow, deterministic
+   * relationships. They identify the preferred
+   * Qoreva hazard/control relationship for a known
+   * semantic concept before fuzzy scoring is used.
+   *
+   * A canonical relationship does NOT make the
+   * resulting control official. It only gives the
+   * draft generator a safer, deterministic source
+   * relationship for qualified-user review.
+   */
+  const preferredRelationshipText:
+    Partial<
+      Record<
+        CanonicalHazardConcept,
+        string
+      >
+    > = {
+      ADJACENT_OPERATIONS:
+        "adjacent operations or simultaneous work",
+
+      TRIP_HAZARD:
+        "trip hazards",
+
+      REQUIRED_INSPECTION:
+        "required inspection not completed",
+
+      UTILITY_LOCATION:
+        /\b(conflicting|drawing|drawings|record|records|locate|locates|marking|markings)\b/i.test(
+          userHazardText,
+        )
+          ? "conflicting drawings, records, locates, or field markings"
+          : "unexpected utility location or elevation",
+
+      UTILITY_ELECTRICAL_CONTACT:
+        "electrical contact from underground utility",
+
+      UTILITY_RELEASE:
+        "gas, water, or other utility release",
+
+      UTILITY_DAMAGE:
+        "damaged or mislocated underground utility",
+
+      EQUIPMENT_SWING_RADIUS:
+        "personnel inside equipment swing radius",
+
+      EQUIPMENT_OPERATING_AREA:
+        "unauthorized entry into equipment operating area",
+
+      EQUIPMENT_UNSTABLE_SURFACE:
+        "equipment rollover or unstable operating surface",
+
+      PEDESTRIAN_EQUIPMENT_INTERACTION:
+        "pedestrian and equipment interaction",
+
+      EXCAVATION_ACCESS_EGRESS:
+        "unsafe access or egress",
+
+      EXCAVATION_WORKER_EXPOSURE:
+        "workers exposed to excavation hazards",
+    };
+
+  let rank = 0;
+
+  for (
+    const concept of
+    sharedConcepts
+  ) {
+    const preferredText =
+      preferredRelationshipText[
+        concept
+      ];
+
+    if (
+      preferredText &&
+      candidate === preferredText
+    ) {
+      /*
+       * 100 establishes canonical precedence.
+       * Additional shared concepts only break ties
+       * between otherwise valid canonical matches.
+       */
+      rank = Math.max(
+        rank,
+        100 +
+          sharedConcepts.length,
+      );
+    }
+  }
+
+  return rank;
+}
+
+
 function getHazardConceptBoost(
   userHazardText: string,
   candidateHazardText: string,
@@ -1806,6 +2584,44 @@ function getHazardConceptBoost(
   if (
     activityCode ===
       "MOBILE_EQUIPMENT" &&
+    (
+      (
+        /\b(swing|radius|line[- ]?of[- ]?fire)\b/i.test(user) &&
+        /\b(swing|radius|line[- ]?of[- ]?fire|moving equipment)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(entering|entry|operating area|work zone)\b/i.test(user) &&
+        /\b(entry|operating area|pedestrian|equipment)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(unstable ground|unstable surface|ground condition)\b/i.test(user) &&
+        /\b(unstable|operating surface|ground)\b/i.test(candidate)
+      )
+    )
+  ) {
+    boost += 0.24;
+  }
+
+  if (
+    activityCode ===
+      "RIGGING_MATERIAL_HANDLING" &&
+    (
+      (
+        /\b(pinch|crush|crushing)\b/i.test(user) &&
+        /\b(pinch|crush|crushing)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(material handling|handling material|lifting)\b/i.test(user) &&
+        /\b(load|rigging|pinch|movement)\b/i.test(candidate)
+      )
+    )
+  ) {
+    boost += 0.22;
+  }
+
+  if (
+    activityCode ===
+      "MOBILE_EQUIPMENT" &&
     /\b(equipment|mobile|vehicle|operator|spotter|blind|struck|unstable|unauthorized|entry)\b/i.test(
       user,
     ) &&
@@ -1818,11 +2634,49 @@ function getHazardConceptBoost(
 
   if (
     activityCode ===
+      "GENERAL_WORK" &&
+    (
+      (
+        /\b(adjacent|simultaneous|operation|operations|crew|crews)\b/i.test(user) &&
+        /\b(adjacent|simultaneous|operation|operations|crew|crews)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(trip|tripping|housekeeping|access|uneven|surface|surfaces|holes|debris)\b/i.test(user) &&
+        /\b(trip|tripping|housekeeping|access|surface)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(inspection|inspect|missed|required)\b/i.test(user) &&
+        /\b(inspection|inspect|required)\b/i.test(candidate)
+      )
+    )
+  ) {
+    boost += 0.18;
+  }
+
+  if (
+    activityCode ===
+      "UNDERGROUND_UTILITIES" &&
+    (
+      (
+        /\b(electrical|electric|shock|electrocution)\b/i.test(user) &&
+        /\b(electrical|electric|utility)\b/i.test(candidate)
+      ) ||
+      (
+        /\b(gas|water|release|leak)\b/i.test(user) &&
+        /\b(gas|water|release|utility)\b/i.test(candidate)
+      )
+    )
+  ) {
+    boost += 0.22;
+  }
+
+  if (
+    activityCode ===
       "EXCAVATION" &&
-    /\b(excavat|trench|cave|soil|spoil|edge|access|egress|water|condition|fall)\b/i.test(
+    /\b(excavat(?:e|ed|ing|ion)?|trench(?:es|ed|ing)?|cave|soil|spoil|edge|access|egress|water|condition|fall|worker)\b/i.test(
       user,
     ) &&
-    /\b(excavat|trench|cave|soil|spoil|edge|access|egress|water|condition|fall)\b/i.test(
+    /\b(excavat(?:e|ed|ing|ion)?|trench(?:es|ed|ing)?|cave|soil|spoil|edge|access|egress|water|condition|fall|worker)\b/i.test(
       candidate,
     )
   ) {
@@ -1915,14 +2769,1131 @@ function getHazardMatchScore(
         userHazardText,
         candidateHazardText,
         activityCode,
+      ) +
+      getCanonicalHazardConceptBoost(
+        userHazardText,
+        candidateHazardText,
+        activityCode,
       ),
   );
 }
 
-function resolveUserHazardControls(
+function hasExplicitRecommendedControlSelections(
+  hazardId: string,
+  overrides: PlanningHazardControlOverrideContext[],
+) {
+  return overrides.some(
+    (override) =>
+      override.itemType === "Control" &&
+      override.action === "Add" &&
+      override.parentHazardId === hazardId &&
+      override.operationKey?.startsWith(
+        "recommended-control-add:",
+      ),
+  );
+}
+
+function resolveUserHazardFromCanonicalLibrary(
+  userGroup: GeneratedHazardControlGroup,
+  applicableActivityCodes: string[],
+) {
+  const canonicalMatch =
+    findCanonicalHazardMatch(
+      userGroup.hazard.text,
+      applicableActivityCodes,
+    );
+
+  if (!canonicalMatch) {
+    return false;
+  }
+
+  const matchedActivityCodes =
+    uniqueStrings(
+      canonicalMatch
+        .definition
+        .activityCodes
+        .filter(
+          (activityCode) =>
+            activityCode !==
+              "GENERAL_WORK" &&
+            applicableActivityCodes.includes(
+              activityCode,
+            ),
+        ),
+    );
+
+  userGroup.hazard.sourceActivityCodes =
+    uniqueStrings([
+      ...userGroup.hazard
+        .sourceActivityCodes,
+      ...matchedActivityCodes,
+    ]);
+
+  userGroup.controls =
+    canonicalMatch
+      .definition
+      .controls
+      .map(
+        (controlText) => ({
+          id: stableDraftItemId(
+            "canonical-resolved-control",
+            userGroup.hazard.id,
+            canonicalMatch
+              .definition
+              .id,
+            controlText,
+          ),
+
+          text: controlText,
+
+          source:
+            "Rule" as const,
+
+          sourceActivityCodes:
+            matchedActivityCodes,
+
+          sourceQuestionCodes:
+            [],
+
+          sourceRequirementIds:
+            [],
+
+          required: false,
+        }),
+      );
+
+  return (
+    userGroup.controls.length >
+    0
+  );
+}
+
+function getControlAssignmentScore(
+  controlText: string,
+  hazardGroup: GeneratedHazardControlGroup,
+) {
+  const controlTokens =
+    buildHazardTokenSet(
+      controlText,
+    );
+
+  if (controlTokens.size === 0) {
+    return 0;
+  }
+
+  const relationshipText = [
+    hazardGroup.hazard.text,
+    ...hazardGroup.controls.map(
+      (control) =>
+        control.text,
+    ),
+  ].join(" ");
+
+  const relationshipTokens =
+    buildHazardTokenSet(
+      relationshipText,
+    );
+
+  const sharedTokens =
+    Array.from(
+      controlTokens,
+    ).filter(
+      (token) =>
+        relationshipTokens.has(
+          token,
+        ),
+    );
+
+  let score =
+    sharedTokens.length /
+    controlTokens.size;
+
+  const control =
+    controlText.toLowerCase();
+
+  const hazard =
+    hazardGroup.hazard.text.toLowerCase();
+
+  /*
+   * Narrow deterministic control-to-hazard evidence.
+   * These boosts describe control intent, not merely
+   * broad activity similarity.
+   */
+  if (
+    /\b(spotter|operator|equipment|vehicle|travel path|operating area|separat|swing|line[- ]?of[- ]?fire)\b/i.test(
+      control,
+    ) &&
+    /\b(equipment|vehicle|pedestrian|worker|swing|operating area|struck)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  if (
+    /\b(utility|utilities|conduit|locate|marking|drawing|daylight|hydrovac|hand dig|non-destructive|clearance)\b/i.test(
+      control,
+    ) &&
+    /\b(utility|utilities|conduit|underground|electrical|gas|water)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  if (
+    /\b(excavat|trench|competent person|protective system|spoil|access|egress|soil|water accumulation)\b/i.test(
+      control,
+    ) &&
+    /\b(excavat|trench|cave|soil|spoil|access|egress|worker)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  if (
+    /\b(rigging|load|lift|lifting|pinch|crush|fall zone|sling|shackle)\b/i.test(
+      control,
+    ) &&
+    /\b(load|rigging|pinch|crush|fall zone|movement)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  if (
+    /\b(lockout|loto|energy|de-energ|isolation|zero energy|lockbox)\b/i.test(
+      control,
+    ) &&
+    /\b(electric|energ|stored|circuit)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  if (
+    /\b(housekeeping|walking surface|cord|hose|debris|trip)\b/i.test(
+      control,
+    ) &&
+    /\b(trip|housekeeping|access)\b/i.test(
+      hazard,
+    )
+  ) {
+    score += 0.35;
+  }
+
+  return Math.min(
+    1,
+    score,
+  );
+}
+
+function assignUserControlsToHazards(
   groups: GeneratedHazardControlGroup[],
 ) {
-  const consumedRuleGroupIds =
+  const assignmentGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.text ===
+        "User-entered controls requiring hazard assignment",
+    );
+
+  if (assignmentGroups.length === 0) {
+    return groups;
+  }
+
+  const targetGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.text !==
+          "User-entered controls requiring hazard assignment",
+    );
+
+  const remainingAssignmentGroupIds =
+    new Set<string>();
+
+  for (
+    const assignmentGroup of
+    assignmentGroups
+  ) {
+    const remainingControls =
+      [];
+
+    for (
+      const control of
+      assignmentGroup.controls
+    ) {
+      const candidates =
+        targetGroups
+          .map(
+            (targetGroup) => ({
+              targetGroup,
+              score:
+                getControlAssignmentScore(
+                  control.text,
+                  targetGroup,
+                ),
+            }),
+          )
+          .filter(
+            (candidate) =>
+              candidate.score >=
+              0.72,
+          )
+          .sort(
+            (left, right) =>
+              right.score -
+              left.score,
+          );
+
+      const best =
+        candidates[0];
+
+      const second =
+        candidates[1];
+
+      /*
+       * Control assignment is intentionally stricter
+       * than the legacy hazard fallback. If the control
+       * does not clearly describe one relationship, it
+       * remains in qualified-user review.
+       */
+      if (
+        !best ||
+        (
+          second &&
+          best.score -
+            second.score <
+            0.12
+        )
+      ) {
+        remainingControls.push(
+          control,
+        );
+
+        continue;
+      }
+
+      const target =
+        best.targetGroup;
+
+      const alreadyPresent =
+        target.controls.some(
+          (existingControl) =>
+            existingControl.text
+              .trim()
+              .toLowerCase() ===
+            control.text
+              .trim()
+              .toLowerCase(),
+        );
+
+      if (!alreadyPresent) {
+        target.controls.push({
+          ...control,
+
+          id: stableDraftItemId(
+            "assigned-user-control",
+            target.hazard.id,
+            control.text,
+          ),
+
+          source:
+            "User",
+
+          sourceActivityCodes:
+            uniqueStrings([
+              ...control
+                .sourceActivityCodes,
+              ...target.hazard
+                .sourceActivityCodes,
+            ]),
+
+          sourceQuestionCodes:
+            uniqueStrings([
+              ...control
+                .sourceQuestionCodes,
+              ...target.hazard
+                .sourceQuestionCodes,
+            ]),
+
+          sourceRequirementIds:
+            uniqueStrings([
+              ...control
+                .sourceRequirementIds,
+              ...target.hazard
+                .sourceRequirementIds,
+            ]),
+        });
+      }
+    }
+
+    assignmentGroup.controls =
+      remainingControls;
+
+    if (
+      remainingControls.length >
+      0
+    ) {
+      remainingAssignmentGroupIds.add(
+        assignmentGroup.id,
+      );
+    }
+  }
+
+  return groups.filter(
+    (group) =>
+      group.hazard.text !==
+        "User-entered controls requiring hazard assignment" ||
+      remainingAssignmentGroupIds.has(
+        group.id,
+      ),
+  );
+}
+
+
+function removeEmptyHazardAssignmentGroups(
+  groups: GeneratedHazardControlGroup[],
+) {
+  return groups.filter(
+    (group) =>
+      group.hazard.text !==
+        "User-entered controls requiring hazard assignment" ||
+      group.controls.length > 0,
+  );
+}
+
+function findGeneratedControlLocation(
+  groups: GeneratedHazardControlGroup[],
+  recommendationId: string,
+) {
+  for (const group of groups) {
+    const controlIndex =
+      group.controls.findIndex(
+        (control) =>
+          control.id ===
+          recommendationId,
+      );
+
+    if (controlIndex >= 0) {
+      return {
+        group,
+        controlIndex,
+        control:
+          group.controls[
+            controlIndex
+          ],
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Apply qualified-user decisions that affect the control
+ * itself before Qoreva performs automatic control assignment.
+ *
+ * Why this happens before assignment:
+ *
+ * - Modify should give the deterministic assignment engine a
+ *   chance to evaluate the qualified user's revised wording.
+ *
+ * - NotApplicable should remove the item before Qoreva tries
+ *   to infer a relationship for something the user has already
+ *   determined does not apply.
+ *
+ * Assign is intentionally handled later, after group merging,
+ * because targetHazardId comes from the structured draft the
+ * user reviewed and therefore references the final merged
+ * hazard identity.
+ */
+function applyControlDecisionsBeforeAssignment(
+  groups: GeneratedHazardControlGroup[],
+  decisions: PlanningHazardControlDecisionContext[],
+) {
+  for (const decision of decisions) {
+    if (
+      decision.itemType !==
+      "Control"
+    ) {
+      continue;
+    }
+
+    if (
+      decision.decision !==
+        "Modify" &&
+      decision.decision !==
+        "NotApplicable"
+    ) {
+      continue;
+    }
+
+    const location =
+      findGeneratedControlLocation(
+        groups,
+        decision.recommendationId,
+      );
+
+    if (!location) {
+      continue;
+    }
+
+    /*
+     * Mandatory requirement-backed controls should never
+     * be silently removed by a generic Not Applicable
+     * overlay. Current Step 6 review decisions originate
+     * from user-entered controls, which are non-required,
+     * but this guard keeps the generator safe as the
+     * decision workflow expands.
+     */
+    if (
+      decision.decision ===
+        "NotApplicable"
+    ) {
+      if (
+        location.control.required
+      ) {
+        continue;
+      }
+
+      location.group.controls.splice(
+        location.controlIndex,
+        1,
+      );
+
+      continue;
+    }
+
+    const modifiedText =
+      decision.modifiedText?.trim();
+
+    if (!modifiedText) {
+      continue;
+    }
+
+    /*
+     * A modified control receives a new deterministic
+     * recommendation identity.
+     *
+     * This is intentional:
+     * - the original decision remains auditable against
+     *   the original generated control;
+     * - if the revised wording still cannot be confidently
+     *   assigned, it becomes a new review item rather than
+     *   incorrectly appearing fully resolved;
+     * - if the revised wording is now clear enough, the
+     *   normal deterministic assignment engine may place it.
+     */
+    location.group.controls[
+      location.controlIndex
+    ] = {
+      ...location.control,
+
+      id: stableDraftItemId(
+        "qualified-modified-control",
+        decision.id,
+        modifiedText,
+      ),
+
+      text:
+        modifiedText,
+
+      /*
+       * Preserve the item's original provenance.
+       *
+       * "Modify" is a qualified-user action applied to an
+       * existing recommendation; it does not change where
+       * that recommendation originated. The persisted
+       * decision record carries originalText, modifiedText,
+       * actor, time, sourceType, and sourceMetadata.
+       */
+      source:
+        location.control.source,
+    };
+  }
+
+  return removeEmptyHazardAssignmentGroups(
+    groups,
+  );
+}
+
+/**
+ * Apply explicit qualified-user hazard assignments after
+ * automatic assignment and hazard-group merging.
+ *
+ * Persisted Assign decisions take precedence over Qoreva's
+ * advisory relationship inference. The exact user-entered
+ * control is moved to the hazard selected by the qualified
+ * user while its source/provenance remains preserved.
+ */
+function applyExplicitControlAssignments(
+  groups: GeneratedHazardControlGroup[],
+  decisions: PlanningHazardControlDecisionContext[],
+) {
+  for (const decision of decisions) {
+    if (
+      decision.itemType !==
+        "Control" ||
+      decision.decision !==
+        "Assign" ||
+      !decision.targetHazardId
+    ) {
+      continue;
+    }
+
+    const location =
+      findGeneratedControlLocation(
+        groups,
+        decision.recommendationId,
+      );
+
+    if (!location) {
+      continue;
+    }
+
+    const targetGroup =
+      groups.find(
+        (group) =>
+          group.hazard.id ===
+          decision.targetHazardId,
+      );
+
+    if (!targetGroup) {
+      /*
+       * Do not guess if the previously selected hazard
+       * no longer exists in the regenerated draft. Keep
+       * the control in its current relationship so the
+       * qualified-user workflow can surface the changed
+       * planning context rather than silently reassigning it.
+       */
+      continue;
+    }
+
+    const control =
+      location.control;
+
+    location.group.controls.splice(
+      location.controlIndex,
+      1,
+    );
+
+    const alreadyPresent =
+      targetGroup.controls.some(
+        (existingControl) =>
+          existingControl.text
+            .trim()
+            .toLowerCase() ===
+          control.text
+            .trim()
+            .toLowerCase(),
+      );
+
+    if (!alreadyPresent) {
+      targetGroup.controls.push({
+        ...control,
+
+        /*
+         * Preserve recommendationId so the persisted
+         * qualified-user decision continues to refer to
+         * the same user-entered control across refreshes.
+         */
+        id:
+          decision.recommendationId,
+
+        source:
+          "User",
+
+        sourceActivityCodes:
+          uniqueStrings([
+            ...control
+              .sourceActivityCodes,
+            ...targetGroup.hazard
+              .sourceActivityCodes,
+          ]),
+
+        sourceQuestionCodes:
+          uniqueStrings([
+            ...control
+              .sourceQuestionCodes,
+            ...targetGroup.hazard
+              .sourceQuestionCodes,
+          ]),
+
+        sourceRequirementIds:
+          uniqueStrings([
+            ...control
+              .sourceRequirementIds,
+            ...targetGroup.hazard
+              .sourceRequirementIds,
+          ]),
+      });
+    }
+  }
+
+  return removeEmptyHazardAssignmentGroups(
+    groups,
+  );
+}
+
+
+function findGeneratedHazardGroup(
+  groups: GeneratedHazardControlGroup[],
+  targetItemId: string,
+) {
+  return groups.find(
+    (group) =>
+      group.hazard.id ===
+      targetItemId,
+  ) ?? null;
+}
+
+function buildOverrideHazardGroup(
+  override: PlanningHazardControlOverrideContext,
+): GeneratedHazardControlGroup | null {
+  const finalText =
+    override.finalText?.trim();
+
+  if (!finalText) {
+    return null;
+  }
+
+  const hazardId =
+    stableDraftItemId(
+      "qualified-added-hazard",
+      override.id,
+      finalText,
+    );
+
+  return {
+    id: stableDraftItemId(
+      "qualified-added-hazard-group",
+      override.id,
+      finalText,
+    ),
+
+    hazard: {
+      id: hazardId,
+      text: finalText,
+      source: "User",
+      sourceActivityCodes: [],
+      sourceQuestionCodes: [],
+      sourceRequirementIds: [],
+      required: false,
+    },
+
+    controls: [],
+  };
+}
+
+/**
+ * V7.7 qualified-user content overlay.
+ *
+ * Decisions answer "what should happen to this generated
+ * recommendation?" Overrides answer "what should the working
+ * plan itself contain?"
+ *
+ * This overlay intentionally runs after deterministic hazard
+ * resolution, automatic control assignment, merging, and
+ * explicit Assign decisions. The qualified user's authored
+ * working content therefore takes precedence over advisory
+ * generation without rewriting the original source evidence.
+ *
+ * Ordering:
+ * 1. Hazard Add/Edit/Change/Remove.
+ * 2. Control Add/Edit/Remove.
+ *
+ * Change is semantic, not merely wording. The changed hazard
+ * keeps a stable qualified-user identity and its existing
+ * controls are cleared so Qoreva never silently carries old
+ * controls across a material hazard reclassification. The
+ * revised hazard is then eligible for the same conservative
+ * canonical/deterministic resolver used elsewhere.
+ */
+function applyHazardControlOverrides(
+  groups: GeneratedHazardControlGroup[],
+  overrides: PlanningHazardControlOverrideContext[],
+) {
+  let workingGroups =
+    groups.map((group) => ({
+      ...group,
+      hazard: {
+        ...group.hazard,
+      },
+      controls:
+        group.controls.map(
+          (control) => ({
+            ...control,
+          }),
+        ),
+    }));
+
+  const orderedOverrides =
+    [...overrides].sort(
+      (left, right) =>
+        left.changedAt.localeCompare(
+          right.changedAt,
+        ),
+    );
+
+  const hazardOverrides =
+    orderedOverrides.filter(
+      (override) =>
+        override.itemType ===
+        "Hazard",
+    );
+
+  const controlOverrides =
+    orderedOverrides.filter(
+      (override) =>
+        override.itemType ===
+        "Control",
+    );
+
+  for (
+    const override of
+    hazardOverrides
+  ) {
+    if (
+      override.action ===
+      "Add"
+    ) {
+      const addedGroup =
+        buildOverrideHazardGroup(
+          override,
+        );
+
+      if (!addedGroup) {
+        continue;
+      }
+
+      const duplicate =
+        workingGroups.some(
+          (group) =>
+            group.hazard.text
+              .trim()
+              .toLowerCase() ===
+            addedGroup.hazard.text
+              .trim()
+              .toLowerCase(),
+        );
+
+      if (!duplicate) {
+        workingGroups.push(
+          addedGroup,
+        );
+      }
+
+      continue;
+    }
+
+    if (!override.targetItemId) {
+      continue;
+    }
+
+    const targetGroup =
+      findGeneratedHazardGroup(
+        workingGroups,
+        override.targetItemId,
+      );
+
+    if (!targetGroup) {
+      /*
+       * The source item changed or disappeared during
+       * regeneration. Never guess at a replacement target.
+       * The persisted override remains available for audit
+       * and a future stale-target review experience.
+       */
+      continue;
+    }
+
+    if (
+      override.action ===
+      "Remove"
+    ) {
+      /*
+       * Remove hides the hazard from the active working PTP
+       * for this revision without deleting its provenance.
+       *
+       * The persisted override retains original wording,
+       * source, requirement links, actor, reason, and time.
+       * Requirement-backed removals are additionally
+       * confirmed and explained in the Step 6 UI.
+       *
+       * Undo updates the same operationKey from Remove to an
+       * identity-preserving Edit so the base hazard reappears
+       * on regeneration while the audit event history remains.
+       */
+      workingGroups =
+        workingGroups.filter(
+          (group) =>
+            group.hazard.id !==
+            targetGroup.hazard.id,
+        );
+
+      continue;
+    }
+
+    const finalText =
+      override.finalText?.trim();
+
+    if (!finalText) {
+      continue;
+    }
+
+    if (
+      override.action ===
+      "Edit"
+    ) {
+      targetGroup.hazard = {
+        ...targetGroup.hazard,
+        text: finalText,
+
+        /*
+         * Edit changes wording only. Preserve the original
+         * provenance; the persisted override records that a
+         * qualified user edited the wording.
+         */
+        source:
+          targetGroup.hazard.source,
+      };
+
+      continue;
+    }
+
+    if (
+      override.action ===
+      "Change"
+    ) {
+      targetGroup.hazard = {
+        ...targetGroup.hazard,
+
+        id: stableDraftItemId(
+          "qualified-changed-hazard",
+          override.id,
+          finalText,
+        ),
+
+        text: finalText,
+
+        source: "User",
+      };
+
+      /*
+       * Semantic classification changed. Existing controls
+       * belonged to the old hazard meaning and therefore
+       * cannot be silently retained.
+       */
+      targetGroup.controls = [];
+    }
+  }
+
+  /*
+   * Newly added hazards and semantically changed hazards
+   * may now be resolvable against Qoreva's canonical
+   * relationships. The existing thresholds and ambiguity
+   * safeguards remain unchanged.
+   */
+  workingGroups =
+    resolveUserHazardControls(
+      workingGroups,
+      overrides,
+    );
+
+  for (
+    const override of
+    controlOverrides
+  ) {
+    if (
+      override.action ===
+      "Change"
+    ) {
+      /*
+       * The API rejects Control + Change. Keep this guard
+       * here so generation remains deterministic even if
+       * legacy or manually inserted data exists.
+       */
+      continue;
+    }
+
+    if (
+      override.action ===
+      "Add"
+    ) {
+      const finalText =
+        override.finalText?.trim();
+
+      if (
+        !finalText ||
+        !override.parentHazardId
+      ) {
+        continue;
+      }
+
+      const parentGroup =
+        findGeneratedHazardGroup(
+          workingGroups,
+          override.parentHazardId,
+        );
+
+      if (!parentGroup) {
+        continue;
+      }
+
+      const duplicate =
+        parentGroup.controls.some(
+          (control) =>
+            control.text
+              .trim()
+              .toLowerCase() ===
+            finalText.toLowerCase(),
+        );
+
+      if (!duplicate) {
+        parentGroup.controls.push({
+          id: stableDraftItemId(
+            "qualified-added-control",
+            override.id,
+            parentGroup.hazard.id,
+            finalText,
+          ),
+
+          text: finalText,
+
+          source: "User",
+
+          sourceActivityCodes:
+            uniqueStrings(
+              parentGroup.hazard
+                .sourceActivityCodes,
+            ),
+
+          sourceQuestionCodes:
+            uniqueStrings(
+              parentGroup.hazard
+                .sourceQuestionCodes,
+            ),
+
+          sourceRequirementIds:
+            uniqueStrings(
+              parentGroup.hazard
+                .sourceRequirementIds,
+            ),
+
+          required: false,
+        });
+      }
+
+      continue;
+    }
+
+    if (!override.targetItemId) {
+      continue;
+    }
+
+    const location =
+      findGeneratedControlLocation(
+        workingGroups,
+        override.targetItemId,
+      );
+
+    if (!location) {
+      continue;
+    }
+
+    if (
+      override.action ===
+      "Remove"
+    ) {
+      /*
+       * Only user-authored non-required controls may be
+       * removed through the override layer. Requirement-
+       * backed/generated controls use NotApplicable so
+       * provenance and compliance review cannot disappear.
+       */
+      if (
+        location.control.source !==
+          "User" ||
+        location.control.required
+      ) {
+        continue;
+      }
+
+      location.group.controls.splice(
+        location.controlIndex,
+        1,
+      );
+
+      continue;
+    }
+
+    const finalText =
+      override.finalText?.trim();
+
+    if (
+      override.action ===
+        "Edit" &&
+      finalText
+    ) {
+      location.group.controls[
+        location.controlIndex
+      ] = {
+        ...location.control,
+
+        text: finalText,
+
+        /*
+         * Edit changes wording only. Preserve the control's
+         * original provenance; the override record captures
+         * the qualified-user edit and audit details.
+         */
+        source:
+          location.control.source,
+      };
+    }
+  }
+
+  return removeEmptyHazardAssignmentGroups(
+    mergeGeneratedHazardControlGroups(
+      workingGroups,
+    ),
+  );
+}
+
+
+function resolveUserHazardControls(
+  groups: GeneratedHazardControlGroup[],
+  overrides: PlanningHazardControlOverrideContext[] = [],
+) {
+  /*
+   * A single Qoreva Rule relationship may legitimately
+   * support more than one user-entered field phrase.
+   *
+   * Example:
+   * - "unknown underground utility"
+   * - "mismarked utility"
+   * - "damaged conduit"
+   *
+   * Those phrases may all resolve to the same validated
+   * underground-utility relationship. Do not remove a
+   * Rule group from candidate availability after its
+   * first match.
+   *
+   * Instead:
+   * 1. Evaluate every unresolved user hazard against the
+   *    complete Rule candidate set.
+   * 2. Preserve the existing confidence and ambiguity
+   *    safeguards.
+   * 3. Track Rule groups that successfully supported at
+   *    least one user hazard.
+   * 4. Suppress those source Rule cards only after all
+   *    user hazards have been evaluated, preventing
+   *    duplicate UI cards without preventing reuse.
+   */
+  const matchedRuleGroupIds =
     new Set<string>();
 
   const userGroups =
@@ -1947,62 +3918,235 @@ function resolveUserHazardControls(
     const userGroup of
     userGroups
   ) {
-    const candidates =
-      ruleGroups
-        .map(
-          (ruleGroup) => {
-            const activityCode =
-              ruleGroup.hazard
-                .sourceActivityCodes[0] ??
-              "";
-
-            return {
-              ruleGroup,
-              score:
-                getHazardMatchScore(
-                  userGroup.hazard
-                    .text,
-                  ruleGroup.hazard
-                    .text,
-                  activityCode,
-                ),
-            };
-          },
-        )
-        .filter(
-          (candidate) =>
-            candidate.score >=
-            0.45,
-        )
-        .sort(
-          (left, right) =>
-            right.score -
-            left.score,
-        );
-
-    const best =
-      candidates[0];
-
-    if (!best) {
+    /*
+     * Step 6.1 selected-control preservation.
+     *
+     * If a qualified user explicitly selected one or more recommended
+     * controls for this hazard, do not auto-populate the entire canonical
+     * control set during regeneration. The selected controls are applied
+     * later by the persisted override layer. This preserves the user's
+     * exact selection: 1 selected = 1 added, 3 selected = 3 added.
+     */
+    if (
+      hasExplicitRecommendedControlSelections(
+        userGroup.hazard.id,
+        overrides,
+      )
+    ) {
       continue;
     }
 
-    const secondBest =
-      candidates[1];
+    /*
+     * V7.4 canonical-library integration.
+     *
+     * The centralized Qoreva hazard/control library gets
+     * first opportunity to resolve ordinary field wording.
+     * If it cannot do so confidently, the proven V7.3
+     * relationship/scoring resolver below remains unchanged
+     * as the fallback.
+     */
+    const applicableActivityCodes =
+      uniqueStrings(
+        ruleGroups.flatMap(
+          (ruleGroup) =>
+            ruleGroup.hazard
+              .sourceActivityCodes,
+        ),
+      );
+
+    const resolvedByCanonicalLibrary =
+      resolveUserHazardFromCanonicalLibrary(
+        userGroup,
+        applicableActivityCodes,
+      );
+
+    if (
+      resolvedByCanonicalLibrary
+    ) {
+      /*
+       * Canonical-library resolution already copied the
+       * validated controls onto the user hazard. Mark every
+       * Rule card that resolves to the same canonical hazard
+       * as represented so the UI does not show both the
+       * field wording and duplicate source relationship.
+       */
+      const userCanonicalMatch =
+        findCanonicalHazardMatch(
+          userGroup.hazard.text,
+          applicableActivityCodes,
+        );
+
+      if (userCanonicalMatch) {
+        for (
+          const ruleGroup of
+          ruleGroups
+        ) {
+          const ruleCanonicalMatch =
+            findCanonicalHazardMatch(
+              ruleGroup.hazard.text,
+              ruleGroup.hazard
+                .sourceActivityCodes,
+            );
+
+          if (
+            ruleCanonicalMatch &&
+            ruleCanonicalMatch
+              .definition.id ===
+              userCanonicalMatch
+                .definition.id
+          ) {
+            matchedRuleGroupIds.add(
+              ruleGroup.id,
+            );
+          }
+        }
+      }
+
+      continue;
+    }
+
+    const evaluatedCandidates =
+      ruleGroups.map(
+        (ruleGroup) => {
+          /*
+           * A Rule relationship can carry more than one
+           * activity provenance code. Evaluate canonical
+           * relationship evidence and fallback similarity
+           * against every contributing activity.
+           */
+          const activityCodes =
+            ruleGroup.hazard
+              .sourceActivityCodes
+              .length > 0
+              ? ruleGroup.hazard
+                  .sourceActivityCodes
+              : [""];
+
+          const canonicalRank =
+            Math.max(
+              ...activityCodes.map(
+                (activityCode) =>
+                  getCanonicalRelationshipMatchRank(
+                    userGroup.hazard
+                      .text,
+                    ruleGroup.hazard
+                      .text,
+                    activityCode,
+                  ),
+              ),
+            );
+
+          const score =
+            Math.max(
+              ...activityCodes.map(
+                (activityCode) =>
+                  getHazardMatchScore(
+                    userGroup.hazard
+                      .text,
+                    ruleGroup.hazard
+                      .text,
+                    activityCode,
+                  ),
+              ),
+            );
+
+          return {
+            ruleGroup,
+            canonicalRank,
+            score,
+          };
+        },
+      );
 
     /*
-     * Require a clear best match. If two different
-     * hazards score almost the same, Qoreva leaves
-     * the relationship unresolved for qualified
-     * review instead of guessing.
+     * Resolution hierarchy:
+     *
+     * 1. Canonical Qoreva relationship.
+     * 2. Conservative deterministic similarity score.
+     * 3. Leave unresolved for qualified-user review.
+     *
+     * Canonical matching is deliberately narrow. If
+     * more than one relationship has the same highest
+     * canonical rank, Qoreva does not guess; it falls
+     * through to the existing scoring safeguards.
      */
+    const canonicalCandidates =
+      evaluatedCandidates
+        .filter(
+          (candidate) =>
+            candidate.canonicalRank >
+            0,
+        )
+        .sort(
+          (left, right) =>
+            right.canonicalRank -
+            left.canonicalRank,
+        );
+
+    let best:
+      | (typeof evaluatedCandidates)[number]
+      | undefined;
+
     if (
-      secondBest &&
-      best.score -
-        secondBest.score <
-        0.08
+      canonicalCandidates.length >
+      0
     ) {
-      continue;
+      const canonicalBest =
+        canonicalCandidates[0];
+
+      const canonicalSecond =
+        canonicalCandidates[1];
+
+      if (
+        !canonicalSecond ||
+        canonicalBest
+          .canonicalRank >
+          canonicalSecond
+            .canonicalRank
+      ) {
+        best = canonicalBest;
+      }
+    }
+
+    if (!best) {
+      const scoredCandidates =
+        evaluatedCandidates
+          .filter(
+            (candidate) =>
+              candidate.score >=
+              0.45,
+          )
+          .sort(
+            (left, right) =>
+              right.score -
+              left.score,
+          );
+
+      const scoredBest =
+        scoredCandidates[0];
+
+      if (!scoredBest) {
+        continue;
+      }
+
+      const scoredSecond =
+        scoredCandidates[1];
+
+      /*
+       * Preserve the V7.2 ambiguity safeguard.
+       * Do not lower the threshold and do not force
+       * a relationship simply to reduce warnings.
+       */
+      if (
+        scoredSecond &&
+        scoredBest.score -
+          scoredSecond.score <
+          0.08
+      ) {
+        continue;
+      }
+
+      best = scoredBest;
     }
 
     userGroup.hazard.sourceActivityCodes =
@@ -2048,23 +4192,354 @@ function resolveUserHazardControls(
                 .hazard
                 .sourceActivityCodes,
             ]),
+
+          sourceQuestionCodes:
+            uniqueStrings([
+              ...control
+                .sourceQuestionCodes,
+              ...best.ruleGroup
+                .hazard
+                .sourceQuestionCodes,
+            ]),
+
+          sourceRequirementIds:
+            uniqueStrings([
+              ...control
+                .sourceRequirementIds,
+              ...best.ruleGroup
+                .hazard
+                .sourceRequirementIds,
+            ]),
         }),
       );
 
-    consumedRuleGroupIds.add(
+    matchedRuleGroupIds.add(
       best.ruleGroup.id,
     );
   }
 
+  /*
+   * Suppress only the Rule cards that were successfully
+   * represented through one or more resolved user hazards.
+   * Unmatched Rule relationships remain visible so Qoreva
+   * does not silently discard applicable planning guidance.
+   */
   return groups.filter(
     (group) =>
-      !consumedRuleGroupIds.has(
+      !matchedRuleGroupIds.has(
         group.id,
       ),
   );
 }
 
 
+
+
+/**
+ * V7.9 work-step hazard applicability.
+ *
+ * Activity detection identifies candidate guidance libraries. It does not,
+ * by itself, make every hazard in those libraries applicable to every step.
+ *
+ * This filter is deliberately conservative and deterministic:
+ * - user-entered hazards are never filtered here;
+ * - a generated Rule hazard is included when the work-step wording contains
+ *   evidence for that specific exposure/condition;
+ * - planning/readiness steps can surface planning-oriented relationships
+ *   without importing execution hazards such as cave-in or swing-radius;
+ * - no arbitrary maximum hazard count is used.
+ *
+ * Controls are not independently trimmed. Once a hazard relationship is
+ * applicable, its full validated control set remains available for qualified
+ * creator review (Accept / Modify / Not Applicable).
+ */
+function isGeneratedHazardApplicableToWorkStep(
+  activityCode: string,
+  hazardText: string,
+  stepText: string,
+) {
+  const step = stepText.toLowerCase();
+  const hazard = hazardText.toLowerCase();
+
+  const has = (pattern: RegExp) => pattern.test(step);
+  const hazardHas = (pattern: RegExp) => pattern.test(hazard);
+
+  const planningOrVerificationStep =
+    has(/\b(pre[- ]?work|planning|plan|review|verify|verification|locate|locating|marking|drawings?|records?|inspect|inspection|prepare|preparation)\b/i);
+
+  const activeExcavationStep =
+    has(/\b(excavat(?:e|ed|ing|ion)?|trench(?:es|ed|ing)?|dig(?:ging)?|soil|spoil|cave[- ]?in|protective system|shoring|sloping|benching)\b/i);
+
+  const activeEquipmentStep =
+    has(/\b(excavator|dozer|loader|forklift|telehandler|backhoe|grader|skid steer|compactor|equipment operation|equipment setup|operating area|travel path|backing|swing radius)\b/i);
+
+  const activeUtilityExposureStep =
+    has(/\b(utility|utilities|underground|conduit|daylight|daylighting|hydrovac|hydro[- ]?vac|hand dig|hand digging|locate|locating|marking|drawings?|records?|clearance|expose|exposing|verification|verify)\b/i);
+
+  const activeElectricalStep =
+    has(/\b(energized|de[- ]?energized|loto|lockout|tagout|breaker|panel|circuit|voltage|electrical work|energy isolation|zero energy)\b/i);
+
+  const activeRiggingStep =
+    has(/\b(rig|rigging|hoist|lifting|lift|sling|shackle|chain fall|suspended load|material handling|pinch|crush|load movement)\b/i);
+
+  const activeTrafficStep =
+    has(/\b(traffic|roadway|vehicle|truck|delivery|spotter|flagger|pedestrian route|traffic control)\b/i);
+
+  const activeHeightStep =
+    has(/\b(height|elevated|roof|ladder|scaffold|fall protection|leading edge|opening)\b/i);
+
+  const activeChemicalStep =
+    has(/\b(chemical|epoxy|primer|paint|coating|adhesive|solvent|cement|sds)\b/i);
+
+  const activeHotWorkStep =
+    has(/\b(weld|welding|grind|grinding|torch|cutting|hot work)\b/i);
+
+  const activeMewpStep =
+    has(/\b(mewp|boom lift|scissor lift|aerial lift|manlift)\b/i);
+
+  if (activityCode === "GENERAL_WORK") {
+    if (hazardHas(/\bchanging work conditions\b/i)) {
+      return true;
+    }
+
+    if (hazardHas(/\bhand and power tool\b/i)) {
+      return has(/\b(tool|tools|hand tool|power tool|saw|drill|grinder)\b/i);
+    }
+
+    if (hazardHas(/\bpoor housekeeping|trip hazards?\b/i)) {
+      return has(/\b(housekeeping|access|walking|trip|debris|cord|hose|material staging|work area|restore)\b/i);
+    }
+
+    if (hazardHas(/\badjacent operations|simultaneous work\b/i)) {
+      return has(/\b(adjacent|simultaneous|other crew|other crews|coordination|work zone|work area)\b/i);
+    }
+
+    if (hazardHas(/\brequired inspection not completed\b/i)) {
+      return has(/\b(inspect|inspection|pre[- ]?use|competent person|verify|verification)\b/i);
+    }
+
+    return false;
+  }
+
+  if (activityCode === "EXCAVATION") {
+    if (hazardHas(/\bunderground utility contact\b/i)) {
+      return activeUtilityExposureStep;
+    }
+
+    if (hazardHas(/\bcave[- ]?in|soil collapse\b/i)) {
+      return activeExcavationStep;
+    }
+
+    if (hazardHas(/\bfalls? into excavation\b/i)) {
+      return activeExcavationStep &&
+        has(/\b(edge|open excavation|trench|excavation|access|egress|worker|personnel)\b/i);
+    }
+
+    if (hazardHas(/\bspoil|material falling\b/i)) {
+      return activeExcavationStep &&
+        has(/\b(spoil|material|backfill|excavation|trench|edge)\b/i);
+    }
+
+    if (hazardHas(/\bmobile equipment operating near excavation edges\b/i)) {
+      return activeExcavationStep && activeEquipmentStep;
+    }
+
+    if (hazardHas(/\bwater accumulation|changing soil conditions\b/i)) {
+      return activeExcavationStep &&
+        has(/\b(water|soil|weather|excavation|trench|condition|conditions)\b/i);
+    }
+
+    if (hazardHas(/\bunsafe access or egress\b/i)) {
+      return activeExcavationStep &&
+        has(/\b(access|egress|entry|exit|ladder|excavation|trench)\b/i);
+    }
+
+    if (hazardHas(/\bworkers exposed to excavation hazards\b/i)) {
+      return activeExcavationStep &&
+        has(/\b(worker|workers|personnel|enter|entry|inside|excavation|trench)\b/i);
+    }
+
+    return activeExcavationStep;
+  }
+
+  if (activityCode === "UNDERGROUND_UTILITIES") {
+    if (!activeUtilityExposureStep) {
+      return false;
+    }
+
+    if (hazardHas(/\bcontact with underground\b/i)) {
+      return has(/\b(utility|utilities|underground|conduit|daylight|hydrovac|hand dig|excavat|trench)\b/i);
+    }
+
+    if (hazardHas(/\bunexpected utility location|elevation\b/i)) {
+      return has(/\b(utility|utilities|locate|locating|marking|drawings?|records?|elevation|verify|verification|daylight)\b/i);
+    }
+
+    if (hazardHas(/\bstored energy|hazardous release\b/i)) {
+      return has(/\b(utility|utilities|electrical|gas|water|sewer|damage|contact|excavat|daylight)\b/i);
+    }
+
+    if (hazardHas(/\belectrical contact\b/i)) {
+      return has(/\b(electrical|electric|energized|circuit|conduit|utility|utilities)\b/i);
+    }
+
+    if (hazardHas(/\bgas, water|utility release\b/i)) {
+      return has(/\b(gas|water|sewer|utility|utilities|release|damage|contact)\b/i);
+    }
+
+    if (hazardHas(/\bconflicting drawings|records|locates|field markings\b/i)) {
+      return planningOrVerificationStep ||
+        has(/\b(drawings?|records?|locate|locates|marking|markings|mismarked|unmarked)\b/i);
+    }
+
+    if (hazardHas(/\bdamaged or mislocated\b/i)) {
+      return has(/\b(damage|damaged|mislocated|mismarked|utility|utilities|conduit|excavat|daylight)\b/i);
+    }
+
+    return false;
+  }
+
+  if (activityCode === "MOBILE_EQUIPMENT") {
+    if (!activeEquipmentStep) {
+      return false;
+    }
+
+    if (hazardHas(/\bstruck-by|caught-between\b/i)) {
+      return has(/\b(equipment|excavator|dozer|loader|backhoe|grader|skid steer|compactor|worker|personnel|pedestrian|operating)\b/i);
+    }
+
+    if (hazardHas(/\bblind spots|operator visibility\b/i)) {
+      return has(/\b(backing|visibility|blind|spotter|equipment|vehicle|operator)\b/i);
+    }
+
+    if (hazardHas(/\brollover|unstable operating surface\b/i)) {
+      return has(/\b(unstable|soft|uneven|slope|ground|surface|grade|grading|equipment)\b/i);
+    }
+
+    if (hazardHas(/\bpedestrian and equipment interaction\b/i)) {
+      return has(/\b(worker|workers|personnel|pedestrian|equipment|vehicle|work zone|operating area)\b/i);
+    }
+
+    if (hazardHas(/\bunauthorized entry\b/i)) {
+      return has(/\b(entry|enter|work zone|operating area|controlled area|barricade|equipment)\b/i);
+    }
+
+    if (hazardHas(/\bswing radius\b/i)) {
+      return has(/\b(swing|radius|excavator|backhoe|equipment operation|operating area)\b/i);
+    }
+
+    return false;
+  }
+
+  if (activityCode === "ELECTRICAL_LOTO") {
+    if (!activeElectricalStep) {
+      return false;
+    }
+
+    if (hazardHas(/\belectric shock\b/i)) {
+      return has(/\b(electrical|electric|energized|circuit|panel|breaker|voltage)\b/i);
+    }
+
+    if (hazardHas(/\barc-flash|arc-blast\b/i)) {
+      return has(/\b(arc|energized|panel|breaker|switchgear|electrical work|voltage)\b/i);
+    }
+
+    if (hazardHas(/\bunexpected energization\b/i)) {
+      return has(/\b(loto|lockout|tagout|energized|de[- ]?energized|isolation|breaker|circuit)\b/i);
+    }
+
+    if (hazardHas(/\bstored or hazardous energy\b/i)) {
+      return has(/\b(loto|lockout|tagout|energy|stored|isolation|energized)\b/i);
+    }
+
+    if (hazardHas(/\bincorrect circuit|equipment identification\b/i)) {
+      return has(/\b(circuit|panel|breaker|equipment|identify|identification|loto|lockout)\b/i);
+    }
+
+    return false;
+  }
+
+  if (activityCode === "RIGGING_MATERIAL_HANDLING") {
+    if (!activeRiggingStep) {
+      return false;
+    }
+
+    if (hazardHas(/\bdropped|suspended load\b/i)) {
+      return has(/\b(load|lift|lifting|rigging|hoist|suspended)\b/i);
+    }
+
+    if (hazardHas(/\brigging failure\b/i)) {
+      return has(/\b(rig|rigging|sling|shackle|hoist|chain fall|lift)\b/i);
+    }
+
+    if (hazardHas(/\bcrushing|pinch-point\b/i)) {
+      return has(/\b(pinch|crush|material handling|load|handling|install)\b/i);
+    }
+
+    if (hazardHas(/\bfall zone\b/i)) {
+      return has(/\b(fall zone|suspended|load|rigging|lift)\b/i);
+    }
+
+    if (hazardHas(/\bunexpected load movement\b/i)) {
+      return has(/\b(load|movement|material handling|rigging|lift|install)\b/i);
+    }
+
+    return false;
+  }
+
+  if (activityCode === "TRAFFIC_VEHICLE_INTERACTION") {
+    return activeTrafficStep;
+  }
+
+  if (activityCode === "WORK_AT_HEIGHT") {
+    return activeHeightStep;
+  }
+
+  if (activityCode === "CHEMICAL_USE") {
+    return activeChemicalStep;
+  }
+
+  if (activityCode === "HOT_WORK") {
+    return activeHotWorkStep;
+  }
+
+  if (activityCode === "MEWP") {
+    return activeMewpStep;
+  }
+
+  /*
+   * Unknown future activity libraries are not auto-imported into
+   * a work step until an applicability rule exists. This is safer
+   * than silently restoring the old "activity = every hazard" behavior.
+   */
+  return false;
+}
+
+function getApplicableGeneratedHazardControlGroups(
+  stepSequence: number,
+  activityCode: string,
+  guidance: ActivityGuidance,
+  stepText: string,
+) {
+  return inferHazardControlGroups(
+    activityCode,
+    guidance,
+  )
+    .filter((group) =>
+      isGeneratedHazardApplicableToWorkStep(
+        activityCode,
+        group.hazard,
+        stepText,
+      ),
+    )
+    .map((group) =>
+      buildGeneratedHazardControlGroup(
+        stepSequence,
+        activityCode,
+        group,
+      ),
+    );
+}
 
 function buildWorkStepSuggestions(
   context: PlanningGenerationContext,
@@ -2074,6 +4549,7 @@ function buildWorkStepSuggestions(
       const stepText = [
         step.title,
         step.description,
+        step.hazards,
       ]
         .filter(Boolean)
         .join(" ");
@@ -2090,6 +4566,23 @@ function buildWorkStepSuggestions(
       const hazardControlGroupCandidates:
         GeneratedHazardControlGroup[] =
         buildUserHazardControlGroups(step);
+
+
+      /*
+       * GENERAL_WORK is Qoreva baseline planning guidance rather than a
+       * detected activity. Make its explicit relationships available to
+       * the resolver on every work step, but do not add GENERAL_WORK to
+       * the step's detected activity list.
+       */
+      hazardControlGroupCandidates.push(
+        ...getApplicableGeneratedHazardControlGroups(
+          step.sequence || index + 1,
+          "GENERAL_WORK",
+          activityGuidanceLibrary.GENERAL_WORK,
+          stepText,
+        ),
+      );
+
 
       let riskAttention:
         | "Normal"
@@ -2118,21 +4611,14 @@ function buildWorkStepSuggestions(
           ...guidance.controls,
         );
 
-        for (
-          const group of
-          inferHazardControlGroups(
+        hazardControlGroupCandidates.push(
+          ...getApplicableGeneratedHazardControlGroups(
+            step.sequence || index + 1,
             activityCode,
             guidance,
-          )
-        ) {
-          hazardControlGroupCandidates.push(
-            buildGeneratedHazardControlGroup(
-              step.sequence || index + 1,
-              activityCode,
-              group,
-            ),
-          );
-        }
+            stepText,
+          ),
+        );
 
         riskAttention =
           mergeRiskAttention(
@@ -2140,6 +4626,7 @@ function buildWorkStepSuggestions(
             guidance.riskAttention,
           );
       }
+
 
       /*
        * Existing field-entered hazards and controls
@@ -2169,12 +4656,85 @@ function buildWorkStepSuggestions(
       const resolvedHazardControlGroups =
         resolveUserHazardControls(
           hazardControlGroupCandidates,
+          context.hazardControlOverrides,
+        );
+
+      /*
+       * Apply persisted qualified-user text decisions before
+       * automatic assignment so revised wording can be
+       * evaluated by the same conservative deterministic
+       * assignment logic used for original user controls.
+       */
+
+      const decisionAdjustedHazardControlGroups =
+        applyControlDecisionsBeforeAssignment(
+          resolvedHazardControlGroups,
+          context.hazardControlDecisions,
+        );
+
+
+      const assignedHazardControlGroups =
+        assignUserControlsToHazards(
+          decisionAdjustedHazardControlGroups,
+        );
+
+
+      const mergedHazardControlGroups =
+        mergeGeneratedHazardControlGroups(
+          assignedHazardControlGroups,
+        );
+
+
+      /*
+       * Explicit qualified-user Assign decisions are applied
+       * last because targetHazardId references the merged
+       * structured hazard identity shown in Step 6.
+       */
+      const decisionAppliedHazardControlGroups =
+        applyExplicitControlAssignments(
+          mergedHazardControlGroups,
+          context.hazardControlDecisions,
+        );
+
+
+      /*
+       * Qualified-user authored working-content changes
+       * are applied after recommendation decisions.
+       *
+       * Scope overrides to this work step before applying
+       * them so an operation can never leak into another
+       * step that happens to contain similar wording.
+       */
+      const workStepOverrides =
+        context.hazardControlOverrides.filter(
+          (override) =>
+            (
+              override.workStepSequence !==
+                null &&
+              override.workStepSequence ===
+                (
+                  step.sequence ||
+                  index + 1
+                )
+            ) ||
+            (
+              override.workStepTitle !==
+                null &&
+              override.workStepTitle
+                .trim()
+                .toLowerCase() ===
+                step.title
+                  .trim()
+                  .toLowerCase()
+            ),
         );
 
       const hazardControlGroups =
-        mergeGeneratedHazardControlGroups(
-          resolvedHazardControlGroups,
+        applyHazardControlOverrides(
+          decisionAppliedHazardControlGroups,
+          workStepOverrides,
         );
+
 
       const source =
         step.hazards ||
@@ -2205,17 +4765,26 @@ function buildWorkStepSuggestions(
 
         hazardControlGroups,
 
+        /*
+         * Step 6 Safety Critical classification.
+         *
+         * A broad high-risk activity match is NOT enough to mark every
+         * related work step Safety Critical. Activity detection is used
+         * to generate applicable hazards and focused review guidance,
+         * while the Safety Critical badge is reserved for an explicit
+         * work-step determination already captured in the planning data.
+         *
+         * This prevents planning/verification steps from inheriting a
+         * Safety Critical badge merely because the overall scope includes
+         * excavation, underground utilities, LOTO, rigging, etc.
+         *
+         * Future Requirement Pack rules may explicitly require a step to
+         * be Safety Critical, but that should be represented as a defined
+         * rule/decision rather than inferred from activity keywords here.
+         */
         safetyCriticalSuggested:
           Boolean(
-            step.safetyCritical ||
-            relevantActivityCodes.some(
-              (activityCode) =>
-                context.activities.find(
-                  (activity) =>
-                    activity.activityCode ===
-                    activityCode,
-                )?.isHighRisk,
-            ),
+            step.safetyCritical,
           ),
 
         riskAttention,
@@ -2531,18 +5100,23 @@ function buildReviewFlags(
     });
   }
 
-  const unmappedUserControlGroups =
+  const unmappedUserControls =
     workSteps.flatMap(
       (step) =>
-        step.hazardControlGroups.filter(
-          (group) =>
-            group.hazard.text ===
-            "User-entered controls requiring hazard assignment",
-        ),
+        step.hazardControlGroups
+          .filter(
+            (group) =>
+              group.hazard.text ===
+              "User-entered controls requiring hazard assignment",
+          )
+          .flatMap(
+            (group) =>
+              group.controls,
+          ),
     );
 
   if (
-    unmappedUserControlGroups.length >
+    unmappedUserControls.length >
     0
   ) {
     flags.push({
@@ -2553,8 +5127,8 @@ function buildReviewFlags(
         "Some controls need hazard assignment",
 
       detail:
-        `${unmappedUserControlGroups.length} user-entered control group${
-          unmappedUserControlGroups.length ===
+        `${unmappedUserControls.length} user-entered control${
+          unmappedUserControls.length ===
           1
             ? ""
             : "s"
@@ -2721,7 +5295,7 @@ export function generatePlanningDraft(
         context.sourceDocuments.length,
 
       generatorVersion:
-        "qoreva-planning-draft-v5-hazard-control-resolution",
+        "qoreva-planning-draft-v7.14-step6-1-selected-controls",
     },
   };
 }

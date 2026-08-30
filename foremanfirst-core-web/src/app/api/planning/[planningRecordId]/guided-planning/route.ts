@@ -230,6 +230,113 @@ function normalizeConfirmedActivities(
   );
 }
 
+
+export async function GET(
+  _request: Request,
+  context: RouteContext,
+) {
+  try {
+    const { planningRecordId } =
+      await context.params;
+
+    const existing =
+      await prisma.planningRecord.findFirst({
+        where: {
+          id: planningRecordId,
+          isArchived: false,
+        },
+
+        select: {
+          id: true,
+
+          activities: {
+            where: {
+              isActive: true,
+              confirmationStatus:
+                "Confirmed",
+            },
+
+            orderBy: {
+              createdAt: "asc",
+            },
+
+            select: {
+              activityCode: true,
+              name: true,
+              category: true,
+              detectionSource: true,
+              aiConfidence: true,
+            },
+          },
+        },
+      });
+
+    if (!existing) {
+      return NextResponse.json(
+        {
+          message:
+            "Planning record was not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const activities =
+      existing.activities.map(
+        (activity) => ({
+          activityCode:
+            activity.activityCode,
+
+          name:
+            activity.name,
+
+          category:
+            activity.category,
+
+          detectionSource:
+            activity.detectionSource,
+
+          score:
+            activity.aiConfidence !==
+              null
+              ? Math.round(
+                  Number(
+                    activity.aiConfidence,
+                  ) * 100,
+                )
+              : 0,
+        }),
+      );
+
+    return NextResponse.json({
+      planningRecordId:
+        existing.id,
+
+      activities,
+
+      count:
+        activities.length,
+    });
+  } catch (error) {
+    console.error(
+      "Unable to load guided planning activities:",
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        message:
+          "Unable to load guided planning activities.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
 export async function PUT(
   request: Request,
   context: RouteContext,

@@ -205,6 +205,125 @@ export async function PUT(
                   },
                 });
 
+          let reviewInvalidated = false;
+          let invalidatedReviewId:
+            | string
+            | null = null;
+          let invalidatedSignatureCount = 0;
+
+          /*
+           * Step 7B — Pre-Submission Review Invalidation
+           *
+           * Refreshing an existing draft revision means the material
+           * planning content may have changed after the creator/preparer
+           * completed Step 7. A prior completion must never authorize
+           * submission of newly changed content.
+           *
+           * Keep the formal PTP revision number unchanged while the record
+           * is still Draft, but invalidate the completed pre-submission
+           * review and any signatures tied to that stale draft content.
+           */
+          if (existingRevision) {
+            const completedReview =
+              await tx.planningReview.findFirst({
+                where: {
+                  planningRecordId,
+                  tenantId:
+                    existingRecord.tenantId,
+                  revisionNumber,
+                  status: "Completed",
+                },
+                orderBy: {
+                  updatedAt: "desc",
+                },
+                select: {
+                  id: true,
+                },
+              });
+
+            if (completedReview) {
+              invalidatedReviewId =
+                completedReview.id;
+
+              await tx.planningReview.update({
+                where: {
+                  id:
+                    completedReview.id,
+                },
+                data: {
+                  status:
+                    "Revalidation Required",
+                  confirmations: {
+                    scope: false,
+                    sequence: false,
+                    hazards: false,
+                    controls: false,
+                    risk: false,
+                    requirements: false,
+                    emergency: false,
+                  },
+                  completedAt: null,
+                },
+              });
+
+              reviewInvalidated = true;
+            }
+
+            const signatureDeleteResult =
+              await tx.planningSignature.deleteMany({
+                where: {
+                  planningRecordId,
+                  tenantId:
+                    existingRecord.tenantId,
+                  revisionNumber,
+                },
+              });
+
+            invalidatedSignatureCount =
+              signatureDeleteResult.count;
+
+            if (
+              reviewInvalidated ||
+              invalidatedSignatureCount > 0
+            ) {
+              await tx.planningEvent.create({
+                data: {
+                  tenantId:
+                    existingRecord.tenantId,
+                  planningRecordId,
+                  eventType:
+                    "Pre-Submission Review Invalidated",
+                  previousStatus:
+                    existingRecord.status,
+                  newStatus:
+                    existingRecord.status,
+                  revisionNumber,
+                  actorId:
+                    toNullableString(
+                      body.createdBy,
+                    ),
+                  actorName:
+                    toNullableString(
+                      body.createdByName,
+                    ),
+                  actorRole:
+                    toNullableString(
+                      body.createdByRole,
+                    ),
+                  comment:
+                    "Draft planning content changed after pre-submission review. Reconfirmation is required before the record can proceed to submission.",
+                  metadata: {
+                    planningReviewId:
+                      invalidatedReviewId,
+                    revisionId:
+                      revision.id,
+                    invalidatedSignatureCount,
+                  },
+                },
+              });
+            }
+          }
+
           await tx.planningEvent.create({
             data: {
               tenantId:
@@ -233,21 +352,31 @@ export async function PUT(
                 ),
               comment:
                 existingRevision
-                  ? "Draft planning revision refreshed before qualified review."
-                  : "Draft planning revision generated for qualified review.",
+                  ? "Draft planning revision refreshed before pre-submission review."
+                  : "Draft planning revision generated for pre-submission review.",
               metadata: {
                 revisionId:
                   revision.id,
+                reviewInvalidated,
+                invalidatedSignatureCount,
               },
             },
           });
 
-          return revision;
+          return {
+            revision,
+            reviewInvalidated,
+            invalidatedSignatureCount,
+          };
         },
       );
 
     return NextResponse.json({
-      revision: result,
+      revision: result.revision,
+      reviewInvalidated:
+        result.reviewInvalidated,
+      invalidatedSignatureCount:
+        result.invalidatedSignatureCount,
     });
   } catch (error) {
     console.error(

@@ -106,6 +106,114 @@ type PlanningRecord = {
   }>;
 };
 
+
+type ReviewWorkItem = {
+  planningRecord: {
+    id: string;
+    title: string;
+    planType: string;
+    status: string;
+    revisionNumber: number;
+    submittedAt: string | null;
+    qualityScore: number;
+    project: {
+      id: string;
+      name: string;
+      projectCode: string | null;
+    };
+    contractor: {
+      id: string;
+      name: string;
+    } | null;
+  };
+
+  revision: {
+    revisionNumber: number;
+    isSubmitted: boolean;
+  };
+
+  summary: {
+    totalApprovals: number;
+    requiredApprovals: number;
+    approvedRequired: number;
+    pendingRequired: number;
+    revisionRequired: number;
+    rejected: number;
+    openComments: number;
+    allRequiredApproved: boolean;
+    hasBlockingDecision: boolean;
+  };
+
+  approvals: Array<{
+    id: string;
+    revisionNumber: number;
+    roleCode: string;
+    roleLabel: string;
+    isRequired: boolean;
+    sortOrder: number;
+
+    approver: {
+      id: string | null;
+      name: string | null;
+      email: string | null;
+      currentIdentity: {
+        displayName: string;
+        email: string;
+        status: string;
+        isActive: boolean;
+      } | null;
+    };
+
+    eligibility: {
+      hasActiveProjectMembership: boolean;
+      canReviewPlanning: boolean;
+      canApprovePlanning: boolean;
+      approvalRoleCodes: string[];
+      assignedRoleIsEligible: boolean;
+    };
+
+    status: string;
+    decisionComment: string | null;
+
+    decision: {
+      decidedById: string | null;
+      decidedByName: string | null;
+      decidedByRole: string | null;
+      decidedAt: string | null;
+    };
+
+    signature: {
+      required: boolean;
+      planningSignatureId: string | null;
+    };
+
+    notification: {
+      status: string | null;
+      notifiedAt: string | null;
+      reminderSentAt: string | null;
+    };
+
+    createdAt: string;
+    updatedAt: string;
+  }>;
+
+  capabilities: {
+    reviewerIdentityResolved: boolean;
+    currentReviewerApprovalId: string | null;
+    currentReviewerRoleCode: string | null;
+    currentReviewerRoleLabel: string | null;
+    canApproveAndSign: boolean;
+    canReturnForRevision: boolean;
+  };
+
+  metadata: {
+    workflowVersion: string;
+    revisionScoped: boolean;
+    advisoryOnly: boolean;
+    requiresAuthenticatedReviewerForDecision: boolean;
+  };
+};
+
 export default function PlanningRecordPage() {
   const params = useParams<{ planningRecordId: string }>();
   const planningRecordId = params.planningRecordId;
@@ -114,19 +222,24 @@ export default function PlanningRecordPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  const [reviewWorkItem, setReviewWorkItem] =
+    useState<ReviewWorkItem | null>(null);
+  const [reviewWorkItemLoading, setReviewWorkItemLoading] =
+    useState(false);
+  const [reviewerDecisionSaving, setReviewerDecisionSaving] =
+    useState(false);
+  const [reviewerDecisionError, setReviewerDecisionError] =
+    useState("");
+  const [reviewerDecisionComment, setReviewerDecisionComment] =
+    useState("");
+  const [approvalAttestationAccepted, setApprovalAttestationAccepted] =
+    useState(false);
+
   const [lifecycleSaving, setLifecycleSaving] =
     useState(false);
   const [lifecycleError, setLifecycleError] =
     useState("");
-  const [actorName, setActorName] =
-    useState("");
-  const [actorRole, setActorRole] =
-    useState("");
   const [lifecycleComment, setLifecycleComment] =
-    useState("");
-  const [approvalEffectiveStartDate, setApprovalEffectiveStartDate] =
-    useState("");
-  const [approvalEffectiveEndDate, setApprovalEffectiveEndDate] =
     useState("");
 
   const [wseCreating, setWseCreating] =
@@ -143,6 +256,45 @@ export default function PlanningRecordPage() {
     useState("");
   const [wseWorkLocation, setWseWorkLocation] =
     useState("");
+
+
+  async function loadReviewWorkItem(
+    recordId: string,
+  ) {
+    setReviewWorkItemLoading(true);
+    setReviewerDecisionError("");
+
+    try {
+      const response = await fetch(
+        `/api/planning/${recordId}/review-work-item`,
+        { cache: "no-store" },
+      );
+
+      const data =
+        (await response.json()) as {
+          workItem?: ReviewWorkItem;
+          message?: string;
+        };
+
+      if (!response.ok || !data.workItem) {
+        throw new Error(
+          data.message ||
+            "Unable to load reviewer workflow.",
+        );
+      }
+
+      setReviewWorkItem(data.workItem);
+    } catch (error) {
+      setReviewWorkItem(null);
+      setReviewerDecisionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load reviewer workflow.",
+      );
+    } finally {
+      setReviewWorkItemLoading(false);
+    }
+  }
 
   async function loadRecord(
     options?: {
@@ -179,18 +331,15 @@ export default function PlanningRecordPage() {
 
       setRecord(data.record);
 
-      setApprovalEffectiveStartDate((current) =>
-        current ||
-        dateInputValue(
-          data.record?.effectiveStartDate ?? null,
-        ),
-      );
-      setApprovalEffectiveEndDate((current) =>
-        current ||
-        dateInputValue(
-          data.record?.effectiveEndDate ?? null,
-        ),
-      );
+      if (
+        data.record.status === "Submitted" ||
+        data.record.status === "Revision Needed"
+      ) {
+        await loadReviewWorkItem(data.record.id);
+      } else {
+        setReviewWorkItem(null);
+      }
+
 
       setWseForemanName((current) =>
         current || data.record?.responsibleSupervisor || "",
@@ -227,166 +376,184 @@ export default function PlanningRecordPage() {
     [record],
   );
 
-  async function transitionLifecycle(
-    nextStatus: string,
-  ) {
-    if (!record) {
+  async function approveAndSign() {
+    if (!record || !reviewWorkItem) {
       return;
     }
 
-    if (!actorName.trim()) {
-      setLifecycleError(
-        "Enter the reviewer/actor name before continuing.",
-      );
-      return;
-    }
-
-    if (!actorRole.trim()) {
-      setLifecycleError(
-        "Enter the reviewer/actor role before continuing.",
-      );
-      return;
-    }
+    const approvalId =
+      reviewWorkItem.capabilities
+        .currentReviewerApprovalId;
 
     if (
-      nextStatus === "Revision Needed" &&
-      !lifecycleComment.trim()
+      !approvalId ||
+      !reviewWorkItem.capabilities
+        .canApproveAndSign
     ) {
-      setLifecycleError(
-        "Enter the revision instructions before requesting changes.",
+      setReviewerDecisionError(
+        "This signed-in user is not authorized to approve this review assignment.",
       );
       return;
     }
 
-    if (nextStatus === "Approved") {
-      if (!approvalEffectiveStartDate) {
-        setLifecycleError(
-          "Select the PTP effective start date before approval.",
-        );
-        return;
-      }
-
-      if (!approvalEffectiveEndDate) {
-        setLifecycleError(
-          "Select the PTP effective end date before approval.",
-        );
-        return;
-      }
-
-      if (
-        approvalEffectiveEndDate <
-        approvalEffectiveStartDate
-      ) {
-        setLifecycleError(
-          "The effective end date cannot be before the effective start date.",
-        );
-        return;
-      }
+    if (!approvalAttestationAccepted) {
+      setReviewerDecisionError(
+        "Confirm the electronic approval attestation before signing.",
+      );
+      return;
     }
-
-    const confirmationMessage =
-      nextStatus === "In Review"
-        ? "Start formal review of this submitted planning record?"
-        : nextStatus === "Approved"
-          ? "Approve this planning record for the current revision?"
-          : nextStatus === "Active"
-            ? "Activate this approved planning record for field use?"
-            : nextStatus === "Revision Needed"
-              ? "Return this planning record for revision?"
-              : `Change this planning record to ${nextStatus}?`;
 
     if (
       !window.confirm(
-        confirmationMessage,
+        `Approve and electronically sign Revision ${record.revisionNumber}?`,
       )
     ) {
       return;
     }
 
-    setLifecycleSaving(true);
-    setLifecycleError("");
+    setReviewerDecisionSaving(true);
+    setReviewerDecisionError("");
 
     try {
       const response = await fetch(
-        `/api/planning/${record.id}`,
+        `/api/planning/${record.id}/approvals/${approvalId}/approve-and-sign`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: {
             "Content-Type":
               "application/json",
           },
           body: JSON.stringify({
-            status: nextStatus,
-            updatedByName:
-              actorName.trim(),
-            updatedByRole:
-              actorRole.trim(),
-            statusChangeComment:
-              lifecycleComment.trim() ||
+            attestationAccepted: true,
+            decisionComment:
+              reviewerDecisionComment.trim() ||
               null,
-            ...(nextStatus === "Approved"
-              ? {
-                  effectiveStartDate:
-                    approvalEffectiveStartDate
-                      ? `${approvalEffectiveStartDate}T00:00:00`
-                      : null,
-                  effectiveEndDate:
-                    approvalEffectiveEndDate
-                      ? `${approvalEffectiveEndDate}T23:59:59.999`
-                      : null,
-                }
-              : {}),
           }),
         },
       );
 
-      const data = (await response.json()) as {
-        record?: {
-          id: string;
-          status: string;
+      const data =
+        (await response.json()) as {
+          workflow?: {
+            readyForFinalization?: boolean;
+          };
+          message?: string;
         };
-        message?: string;
-      };
 
       if (!response.ok) {
         throw new Error(
           data.message ||
-            "Unable to update the planning lifecycle.",
+            "Unable to approve and sign this planning review.",
         );
       }
 
-      setLifecycleComment("");
+      setReviewerDecisionComment("");
+      setApprovalAttestationAccepted(false);
+
       await loadRecord({
         showLoading: false,
       });
     } catch (error) {
-      setLifecycleError(
+      setReviewerDecisionError(
         error instanceof Error
           ? error.message
-          : "Unable to update the planning lifecycle.",
+          : "Unable to approve and sign this planning review.",
       );
     } finally {
-      setLifecycleSaving(false);
+      setReviewerDecisionSaving(false);
     }
   }
 
+  async function returnForRevision() {
+    if (!record || !reviewWorkItem) {
+      return;
+    }
+
+    const approvalId =
+      reviewWorkItem.capabilities
+        .currentReviewerApprovalId;
+
+    if (
+      !approvalId ||
+      !reviewWorkItem.capabilities
+        .canReturnForRevision
+    ) {
+      setReviewerDecisionError(
+        "This signed-in user is not authorized to return this review assignment.",
+      );
+      return;
+    }
+
+    if (!reviewerDecisionComment.trim()) {
+      setReviewerDecisionError(
+        "Enter the revision instructions before returning the PTP.",
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Return Revision ${record.revisionNumber} for revision? The submitted revision and review history will remain preserved.`,
+      )
+    ) {
+      return;
+    }
+
+    setReviewerDecisionSaving(true);
+    setReviewerDecisionError("");
+
+    try {
+      const response = await fetch(
+        `/api/planning/${record.id}/approvals/${approvalId}/return-for-revision`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            decisionComment:
+              reviewerDecisionComment.trim(),
+          }),
+        },
+      );
+
+      const data =
+        (await response.json()) as {
+          record?: {
+            id: string;
+            status: string;
+            revisionNumber: number;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to return this planning record for revision.",
+        );
+      }
+
+      setReviewerDecisionComment("");
+      setApprovalAttestationAccepted(false);
+
+      await loadRecord({
+        showLoading: false,
+      });
+    } catch (error) {
+      setReviewerDecisionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to return this planning record for revision.",
+      );
+    } finally {
+      setReviewerDecisionSaving(false);
+    }
+  }
 
   async function startRevision() {
     if (!record) {
-      return;
-    }
-
-    if (!actorName.trim()) {
-      setLifecycleError(
-        "Enter the person starting this revision.",
-      );
-      return;
-    }
-
-    if (!actorRole.trim()) {
-      setLifecycleError(
-        "Enter the person's role or title.",
-      );
       return;
     }
 
@@ -420,10 +587,6 @@ export default function PlanningRecordPage() {
           body: JSON.stringify({
             revisionReason:
               lifecycleComment.trim(),
-            actorName:
-              actorName.trim(),
-            actorRole:
-              actorRole.trim(),
           }),
         },
       );
@@ -1097,7 +1260,7 @@ export default function PlanningRecordPage() {
 
       <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-[var(--qoreva-violet-faint)] p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-2xl">
+          <div className="max-w-3xl">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
               Planning Lifecycle
             </p>
@@ -1106,24 +1269,22 @@ export default function PlanningRecordPage() {
             </h2>
             <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
               {record.status === "Submitted"
-                ? "This planning record has been submitted and is ready for formal review."
-                : record.status === "In Review"
-                  ? "Review the current revision, resolve comments, then approve it or return it for revision."
-                  : record.status === "Revision Needed"
-                    ? "This plan has been returned for revision. A controlled resubmission workflow will create the next revision."
-                    : record.status === "Approved"
-                      ? fieldEligibility(record) === "Effective"
-                        ? "This revision is approved and currently effective for field use. Daily WSE records can be created against this exact revision."
-                        : fieldEligibility(record) === "Upcoming"
-                          ? "This revision is approved but its effective start date has not arrived yet."
-                          : fieldEligibility(record) === "Expired"
-                            ? "This revision is approved but its effective end date has passed. New Daily WSE records are blocked."
-                            : "This revision is approved but effective dates are missing."
-                      : record.status === "Closed"
-                          ? "This planning record is closed and retained as part of the permanent audit history."
-                          : record.status === "Draft" && record.revisionNumber > 1
-                        ? `Revision ${record.revisionNumber} is now the editable working revision. The prior revision remains preserved. Next, open this revision in the Planning editor, regenerate the draft snapshot, re-sign, and resubmit.`
-                        : "Complete and submit the planning record before lifecycle approval actions become available."}
+                ? "This revision is submitted and locked for formal review. Assigned reviewers make their decisions directly against this exact revision."
+                : record.status === "Revision Needed"
+                  ? "This submitted revision was returned for revision and remains preserved. An authorized planning creator can start the next editable revision."
+                  : record.status === "Approved"
+                    ? fieldEligibility(record) === "Effective"
+                      ? "This revision is approved and currently effective for field use. Daily WSE records can be created against this exact revision."
+                      : fieldEligibility(record) === "Upcoming"
+                        ? "This revision is approved but its effective start date has not arrived yet."
+                        : fieldEligibility(record) === "Expired"
+                          ? "This revision is approved but its effective end date has passed. New Daily WSE records are blocked."
+                          : "This revision is approved but effective dates are missing."
+                    : record.status === "Closed"
+                      ? "This planning record is closed and retained as part of the permanent audit history."
+                      : record.status === "Draft" && record.revisionNumber > 1
+                        ? `Revision ${record.revisionNumber} is the editable working revision. The prior submitted revision remains preserved in Qoreva's audit history.`
+                        : "Complete and submit the planning record before formal approval actions become available."}
             </p>
 
             <p className="mt-3 text-xs font-bold text-[var(--qoreva-muted)]">
@@ -1131,236 +1292,382 @@ export default function PlanningRecordPage() {
             </p>
           </div>
 
-          <StatusBadge
-            status={record.status}
-          />
+          <StatusBadge status={record.status} />
         </div>
 
-        {["Submitted", "In Review", "Revision Needed"].includes(record.status) ? (
-          <div className="mt-6 grid gap-4 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 lg:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                Reviewer / Actor Name
-              </span>
-              <input
-                type="text"
-                value={actorName}
-                onChange={(event) => {
-                  setActorName(event.target.value);
-                  setLifecycleError("");
-                }}
-                placeholder="Enter name"
-                className={lifecycleInputClassName}
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                Role / Title
-              </span>
-              <input
-                type="text"
-                value={actorRole}
-                onChange={(event) => {
-                  setActorRole(event.target.value);
-                  setLifecycleError("");
-                }}
-                placeholder="Safety Manager, Project Manager..."
-                className={lifecycleInputClassName}
-              />
-            </label>
-
-            {record.status === "In Review" ? (
+        {record.status === "Submitted" ? (
+          <div className="mt-6 space-y-4">
+            {reviewWorkItemLoading ? (
+              <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 text-sm font-bold text-[var(--qoreva-muted)]">
+                Loading assigned reviewer workflow...
+              </div>
+            ) : reviewWorkItem ? (
               <>
-                <label className="block">
-                  <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                    Effective Start Date
-                  </span>
-                  <input
-                    type="date"
-                    value={approvalEffectiveStartDate}
-                    onChange={(event) => {
-                      setApprovalEffectiveStartDate(
-                        event.target.value,
-                      );
-                      setLifecycleError("");
-                    }}
-                    className={lifecycleInputClassName}
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <Summary
+                    label="Required Approvals"
+                    value={String(
+                      reviewWorkItem.summary
+                        .requiredApprovals,
+                    )}
                   />
-                </label>
+                  <Summary
+                    label="Approved"
+                    value={String(
+                      reviewWorkItem.summary
+                        .approvedRequired,
+                    )}
+                  />
+                  <Summary
+                    label="Pending"
+                    value={String(
+                      reviewWorkItem.summary
+                        .pendingRequired,
+                    )}
+                  />
+                  <Summary
+                    label="Open Comments"
+                    value={String(
+                      reviewWorkItem.summary
+                        .openComments,
+                    )}
+                  />
+                </div>
 
-                <label className="block">
-                  <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                    Effective End Date
-                  </span>
-                  <input
-                    type="date"
-                    value={approvalEffectiveEndDate}
-                    onChange={(event) => {
-                      setApprovalEffectiveEndDate(
-                        event.target.value,
-                      );
-                      setLifecycleError("");
-                    }}
-                    className={lifecycleInputClassName}
-                  />
-                </label>
+                <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 sm:p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                        Approval Routing
+                      </p>
+                      <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                        Revision {reviewWorkItem.revision.revisionNumber} Reviewers
+                      </h3>
+                    </div>
+
+                    {reviewWorkItem.summary
+                      .allRequiredApproved ? (
+                      <StatusBadge status="Completed" />
+                    ) : reviewWorkItem.summary
+                        .hasBlockingDecision ? (
+                      <StatusBadge status="Revision Needed" />
+                    ) : (
+                      <StatusBadge status="Pending" />
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    {reviewWorkItem.approvals.map(
+                      (approval) => {
+                        const isCurrentReviewer =
+                          approval.id ===
+                          reviewWorkItem.capabilities
+                            .currentReviewerApprovalId;
+
+                        return (
+                          <div
+                            key={approval.id}
+                            className={`rounded-xl border p-4 ${
+                              isCurrentReviewer
+                                ? "border-[rgba(102,87,232,0.28)] bg-[var(--qoreva-violet-faint)]"
+                                : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                            }`}
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    {approval.roleLabel}
+                                  </p>
+
+                                  {approval.isRequired ? (
+                                    <span className="rounded-full border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[#9B6212]">
+                                      Required
+                                    </span>
+                                  ) : null}
+
+                                  {isCurrentReviewer ? (
+                                    <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                      Your Review
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
+                                  {approval.approver.name ||
+                                    approval.approver
+                                      .currentIdentity
+                                      ?.displayName ||
+                                    "Approver not assigned"}
+                                  {approval.approver.email
+                                    ? ` • ${approval.approver.email}`
+                                    : ""}
+                                </p>
+
+                                {approval.decisionComment ? (
+                                  <p className="mt-2 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    Decision note: {approval.decisionComment}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <StatusBadge status={approval.status} />
+                            </div>
+                          </div>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+
+                {reviewWorkItem.capabilities
+                  .reviewerIdentityResolved &&
+                reviewWorkItem.capabilities
+                  .currentReviewerApprovalId &&
+                (reviewWorkItem.capabilities
+                  .canApproveAndSign ||
+                  reviewWorkItem.capabilities
+                    .canReturnForRevision) ? (
+                  <div className="rounded-2xl border border-[rgba(102,87,232,0.22)] bg-white p-4 sm:p-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                      Your Assigned Review
+                    </p>
+                    <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                      {reviewWorkItem.capabilities
+                        .currentReviewerRoleLabel ||
+                        "Assigned Reviewer"}
+                    </h3>
+                    <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                      Review the submitted PTP above. Approve only when the plan is acceptable for the responsibilities assigned to your role. Return it for revision when changes are required.
+                    </p>
+
+                    <label className="mt-4 block">
+                      <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                        Review Comment
+                        <span className="font-semibold text-[var(--qoreva-muted)]">
+                          {" "}— optional for approval, required when returning for revision
+                        </span>
+                      </span>
+                      <textarea
+                        value={reviewerDecisionComment}
+                        onChange={(event) => {
+                          setReviewerDecisionComment(
+                            event.target.value,
+                          );
+                          setReviewerDecisionError("");
+                        }}
+                        rows={4}
+                        placeholder="Add approval notes or clearly describe the changes required..."
+                        className={`${lifecycleInputClassName} min-h-28 py-3`}
+                      />
+                    </label>
+
+                    {reviewWorkItem.capabilities
+                      .canApproveAndSign ? (
+                      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+                        <input
+                          type="checkbox"
+                          checked={approvalAttestationAccepted}
+                          onChange={(event) => {
+                            setApprovalAttestationAccepted(
+                              event.target.checked,
+                            );
+                            setReviewerDecisionError("");
+                          }}
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--qoreva-violet)]"
+                        />
+                        <span className="text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
+                          I have reviewed this PTP for the responsibilities assigned to my role and approve this submitted revision. I understand this electronic approval action constitutes my signature.
+                        </span>
+                      </label>
+                    ) : null}
+
+                    {reviewerDecisionError ? (
+                      <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
+                        {reviewerDecisionError}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                      {reviewWorkItem.capabilities
+                        .canReturnForRevision ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void returnForRevision()
+                          }
+                          disabled={reviewerDecisionSaving}
+                          className={dangerLifecycleButtonClassName}
+                        >
+                          {reviewerDecisionSaving
+                            ? "Saving Decision..."
+                            : "Return for Revision"}
+                        </button>
+                      ) : null}
+
+                      {reviewWorkItem.capabilities
+                        .canApproveAndSign ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void approveAndSign()
+                          }
+                          disabled={
+                            reviewerDecisionSaving ||
+                            !approvalAttestationAccepted
+                          }
+                          className={successLifecycleButtonClassName}
+                        >
+                          {reviewerDecisionSaving
+                            ? "Signing Approval..."
+                            : "Approve & Sign"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4">
+                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Awaiting assigned reviewer action
+                    </p>
+                    <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                      This signed-in user does not currently have a pending approval assignment for this revision. Review authority is controlled by the project approval routing.
+                    </p>
+                  </div>
+                )}
+
+                {reviewWorkItem.summary
+                  .allRequiredApproved ? (
+                  <div className="rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-success)]">
+                    ✓ All required reviewers have approved and signed Revision {record.revisionNumber}. This PTP is ready for the finalization gate.
+                  </div>
+                ) : null}
               </>
+            ) : reviewerDecisionError ? (
+              <div className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
+                {reviewerDecisionError}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {record.status === "Revision Needed" ? (
+          <div className="mt-6 space-y-4">
+            {reviewWorkItem?.approvals.some(
+              (approval) =>
+                approval.status ===
+                "RevisionRequired",
+            ) ? (
+              <div className="rounded-2xl border border-[#F0BDC4] bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-danger)]">
+                  Revision Instructions
+                </p>
+
+                <div className="mt-3 space-y-3">
+                  {reviewWorkItem.approvals
+                    .filter(
+                      (approval) =>
+                        approval.status ===
+                        "RevisionRequired",
+                    )
+                    .map((approval) => (
+                      <div
+                        key={approval.id}
+                        className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-4"
+                      >
+                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                          {approval.roleLabel}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
+                          {approval.decisionComment ||
+                            "Revision was requested without a visible comment."}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
             ) : null}
 
-            <label className="block lg:col-span-2">
+            <div className="rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-4 py-3 text-sm font-black text-[#9B6212]">
+              Revision {record.revisionNumber} remains preserved. Starting Revision {record.revisionNumber + 1} creates a new editable working revision without overwriting prior approvals, signatures, or audit history.
+            </div>
+
+            <label className="block rounded-2xl border border-[var(--qoreva-border)] bg-white p-4">
               <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                Lifecycle Comment
-                {record.status === "Revision Needed"
-                  ? " (required revision reason)"
-                  : record.status === "In Review"
-                    ? " (required for Revision Needed)"
-                    : " (optional)"}
+                New Revision Reason
               </span>
               <textarea
                 value={lifecycleComment}
                 onChange={(event) => {
-                  setLifecycleComment(event.target.value);
+                  setLifecycleComment(
+                    event.target.value,
+                  );
                   setLifecycleError("");
                 }}
                 rows={3}
-                placeholder={
-                  record.status === "Revision Needed"
-                    ? "Describe why the new revision is being started and what must be corrected..."
-                    : record.status === "In Review"
-                      ? "Document approval notes or specific revision instructions..."
-                      : "Optional audit note..."
-                }
+                placeholder="Summarize what will be corrected or updated in the next revision..."
                 className={`${lifecycleInputClassName} min-h-24 py-3`}
               />
             </label>
-          </div>
-        ) : null}
 
-        {lifecycleError ? (
-          <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
-            {lifecycleError}
-          </div>
-        ) : null}
+            {lifecycleError ? (
+              <div className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
+                {lifecycleError}
+              </div>
+            ) : null}
 
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          {record.status === "Submitted" ? (
             <button
               type="button"
               onClick={() =>
-                void transitionLifecycle(
-                  "In Review",
-                )
+                void startRevision()
               }
               disabled={lifecycleSaving}
               className={primaryLifecycleButtonClassName}
             >
               {lifecycleSaving
-                ? "Starting Review..."
-                : "Start Review"}
+                ? "Starting Revision..."
+                : `Start Revision ${record.revisionNumber + 1}`}
             </button>
-          ) : null}
+          </div>
+        ) : null}
 
-          {record.status === "In Review" ? (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  void transitionLifecycle(
-                    "Revision Needed",
-                  )
-                }
-                disabled={lifecycleSaving}
-                className={dangerLifecycleButtonClassName}
-              >
-                {lifecycleSaving
-                  ? "Saving..."
-                  : "Request Revision"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  void transitionLifecycle(
-                    "Approved",
-                  )
-                }
-                disabled={
-                  lifecycleSaving ||
-                  openComments > 0
-                }
-                className={successLifecycleButtonClassName}
-              >
-                {lifecycleSaving
-                  ? "Saving..."
-                  : openComments > 0
-                    ? `Resolve ${openComments} Open Comment${
-                        openComments === 1
-                          ? ""
-                          : "s"
-                      }`
-                    : "Approve Plan"}
-              </button>
-            </>
-          ) : null}
-
-          {record.status === "Approved" ? (
-            <div
-              className={`rounded-xl border px-4 py-3 text-sm font-black ${
-                fieldEligibility(record) === "Effective"
-                  ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
-                  : fieldEligibility(record) === "Expired"
-                    ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
-                    : "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
-              }`}
-            >
-              {fieldEligibility(record) === "Effective"
-                ? `✓ Approved and effective for field use through ${formatDate(
-                    record.effectiveEndDate,
-                  )}. Daily WSEs can now be started from this PTP.`
-                : fieldEligibility(record) === "Upcoming"
-                  ? `Approved. Field use begins ${formatDate(
-                      record.effectiveStartDate,
+        {record.status === "Approved" ? (
+          <div
+            className={`mt-5 rounded-xl border px-4 py-3 text-sm font-black ${
+              fieldEligibility(record) === "Effective"
+                ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                : fieldEligibility(record) === "Expired"
+                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
+                  : "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
+            }`}
+          >
+            {fieldEligibility(record) === "Effective"
+              ? `✓ Approved and effective for field use through ${formatDate(
+                  record.effectiveEndDate,
+                )}. Daily WSEs can now be started from this PTP.`
+              : fieldEligibility(record) === "Upcoming"
+                ? `Approved. Field use begins ${formatDate(
+                    record.effectiveStartDate,
+                  )}.`
+                : fieldEligibility(record) === "Expired"
+                  ? `Expired for field use on ${formatDate(
+                      record.effectiveEndDate,
                     )}.`
-                  : fieldEligibility(record) === "Expired"
-                    ? `Expired for field use on ${formatDate(
-                        record.effectiveEndDate,
-                      )}. Start a controlled revision to extend the plan.`
-                    : "Approved, but effective dates are missing."}
-            </div>
-          ) : null}
+                  : "Approved, but effective dates are missing."}
+          </div>
+        ) : null}
 
-          {record.status === "Draft" &&
-          record.revisionNumber > 1 ? (
+        {record.status === "Draft" &&
+        record.revisionNumber > 1 ? (
+          <div className="mt-5">
             <Link
               href={`/planning/create?planningRecordId=${record.id}`}
               className={primaryLifecycleButtonClassName}
             >
               Edit Revision {record.revisionNumber}
             </Link>
-          ) : null}
-
-          {record.status === "Revision Needed" ? (
-            <>
-              <div className="w-full rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-4 py-3 text-sm font-black text-[#9B6212]">
-                Revision {record.revisionNumber} remains preserved. Starting the next revision creates a new editable working revision without overwriting prior signatures, review history, or audit records.
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  void startRevision()
-                }
-                disabled={lifecycleSaving}
-                className={primaryLifecycleButtonClassName}
-              >
-                {lifecycleSaving
-                  ? "Starting Revision..."
-                  : `Start Revision ${record.revisionNumber + 1}`}
-              </button>
-            </>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );
@@ -1544,44 +1851,6 @@ const successLifecycleButtonClassName = `
   disabled:opacity-60
 `;
 
-function dateInputValue(
-  value: string | null,
-) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date
-    .toISOString()
-    .slice(0, 10);
-}
-
-function formatSimpleDateInput(
-  value: string,
-) {
-  if (!value) {
-    return "the selected date";
-  }
-
-  const date =
-    new Date(`${value}T12:00:00`);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-}
 
 function fieldEligibility(
   record: {
