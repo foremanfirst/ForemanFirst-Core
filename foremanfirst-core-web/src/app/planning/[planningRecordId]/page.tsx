@@ -375,7 +375,8 @@ export default function PlanningRecordPage() {
 
       if (
         data.record.status === "Submitted" ||
-        data.record.status === "Revision Needed"
+        data.record.status === "Revision Needed" ||
+        data.record.status === "Approved"
       ) {
         await loadReviewWorkItem(data.record.id);
       } else {
@@ -1008,7 +1009,19 @@ export default function PlanningRecordPage() {
           <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-violet-dark)]">
             {record.planType}
           </span>
-          <StatusBadge status={record.status} />
+
+          {record.status === "Approved" ? (
+            <>
+              <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                Controlled Digital PTP
+              </span>
+              <StatusBadge status="Approved" />
+              <StatusBadge status={fieldEligibility(record)} />
+            </>
+          ) : (
+            <StatusBadge status={record.status} />
+          )}
+
           <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-muted)]">
             Rev. {record.revisionNumber}
           </span>
@@ -1025,15 +1038,59 @@ export default function PlanningRecordPage() {
           {record.contractor?.name || "Contractor not assigned"}
         </p>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Summary label="Quality" value={`${record.qualityScore}%`} />
-          <Summary label="Work Steps" value={String(record.workSteps.length)} />
-          <Summary label="Signatures" value={String(record.signatures.length)} />
-          <Summary
-            label="Daily WSE"
-            value={String(record.dailyWseRecords.length)}
-          />
-        </div>
+        {record.status === "Approved" ? (
+          <div className="mt-5">
+            <div className="rounded-2xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-success)]">
+                Controlled Record
+              </p>
+              <p className="mt-1 text-sm font-bold leading-6 text-[var(--qoreva-text)]">
+                Revision {record.revisionNumber} is the approved controlled PTP.
+                Changes to the approved work plan require the applicable revision
+                or Management of Change workflow rather than editing this record.
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Summary
+                label="Revision"
+                value={`Rev. ${record.revisionNumber}`}
+              />
+              <Summary
+                label="Effective Period"
+                value={
+                  record.effectiveStartDate && record.effectiveEndDate
+                    ? `${formatDate(record.effectiveStartDate)} → ${formatDate(
+                        record.effectiveEndDate,
+                      )}`
+                    : "Dates not set"
+                }
+              />
+              <Summary
+                label="Verified Signatures"
+                value={
+                  reviewWorkItem
+                    ? `${reviewWorkItem.summary.verifiedSignatures}/${reviewWorkItem.summary.requiredSignatures}`
+                    : String(record.signatures.length)
+                }
+              />
+              <Summary
+                label="Daily WSE"
+                value={String(record.dailyWseRecords.length)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Summary label="Quality" value={`${record.qualityScore}%`} />
+            <Summary label="Work Steps" value={String(record.workSteps.length)} />
+            <Summary label="Signatures" value={String(record.signatures.length)} />
+            <Summary
+              label="Daily WSE"
+              value={String(record.dailyWseRecords.length)}
+            />
+          </div>
+        )}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1168,8 +1225,114 @@ export default function PlanningRecordPage() {
           )}
         </Section>
 
-        <Section eyebrow="Signatures" title="Submission Signatures">
-          {record.signatures.length === 0 ? (
+        <Section
+          eyebrow={record.status === "Approved" ? "Controlled Record" : "Signatures"}
+          title={
+            record.status === "Approved"
+              ? "Approval & Signature Record"
+              : "Submission Signatures"
+          }
+        >
+          {record.status === "Approved" && reviewWorkItem ? (
+            reviewWorkItem.approvals.length === 0 ? (
+              <Empty text="No approval records are attached to this approved revision." />
+            ) : (
+              <div className="space-y-3">
+                {reviewWorkItem.approvals
+                  .slice()
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((approval) => {
+                    const signerName =
+                      approval.decision.decidedByName ||
+                      approval.approver.currentIdentity?.displayName ||
+                      approval.approver.name ||
+                      "Signer identity unavailable";
+
+                    const signerEmail =
+                      approval.approver.currentIdentity?.email ||
+                      approval.approver.email;
+
+                    return (
+                      <div
+                        key={approval.id}
+                        className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
+                      >
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                {approval.roleLabel}
+                              </p>
+
+                              {approval.isRequired ? (
+                                <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                  Required
+                                </span>
+                              ) : (
+                                <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                  Optional
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="mt-2 text-sm font-bold text-[var(--qoreva-text)]">
+                              {signerName}
+                            </p>
+
+                            {signerEmail ? (
+                              <p className="mt-0.5 break-all text-xs font-medium text-[var(--qoreva-muted)]">
+                                {signerEmail}
+                              </p>
+                            ) : null}
+
+                            {approval.decisionComment ? (
+                              <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                Approval note: {approval.decisionComment}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <div className="shrink-0 sm:text-right">
+                            <StatusBadge status={approval.status} />
+
+                            <p className="mt-2 text-xs font-bold text-[var(--qoreva-text)]">
+                              {approval.signature.verified
+                                ? "✓ Verified electronic signature"
+                                : approval.signature.required
+                                  ? "Signature verification unavailable"
+                                  : "Signature not required"}
+                            </p>
+
+                            <p className="mt-1 text-[10px] font-medium text-[var(--qoreva-muted)]">
+                              {formatDateTime(
+                                approval.signature.signedAt ||
+                                  approval.decision.decidedAt,
+                              )}
+                            </p>
+
+                            {approval.signature.signatureType ? (
+                              <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                {formatSignatureType(
+                                  approval.signature.signatureType,
+                                )}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                <div className="rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3">
+                  <p className="text-xs font-black text-[var(--qoreva-success)]">
+                    {reviewWorkItem.summary.verifiedSignatures}/
+                    {reviewWorkItem.summary.requiredSignatures} required signatures verified
+                    for Revision {record.revisionNumber}.
+                  </p>
+                </div>
+              </div>
+            )
+          ) : record.signatures.length === 0 ? (
             <Empty text="No signatures are attached to this planning record." />
           ) : (
             <div className="space-y-3">
@@ -1218,7 +1381,7 @@ export default function PlanningRecordPage() {
                 </p>
               </div>
 
-              <StatusBadge status="Active" />
+              <StatusBadge status="Effective" />
             </div>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -2057,6 +2220,7 @@ function StatusBadge({ status }: { status: string }) {
   } else if (
     status === "Approved" ||
     status === "Active" ||
+    status === "Effective" ||
     status === "Signed" ||
     status === "Completed"
   ) {
@@ -2220,6 +2384,12 @@ function formatDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(date);
+}
+
+function formatSignatureType(value: string) {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ");
 }
 
 function formatDateTime(value: string | null) {
