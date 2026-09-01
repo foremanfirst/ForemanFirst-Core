@@ -62,6 +62,26 @@ type PlanningRecord = {
     responseValue: string | null;
     notes: string | null;
   }>;
+  sourceDocuments: Array<{
+    id: string;
+    tenantId: string;
+    planningRecordId: string;
+    contractorDocumentId: string | null;
+    sourceType: string;
+    label: string | null;
+    fileName: string | null;
+    mimeType: string | null;
+    fileSize: number | null;
+    storageProvider: string | null;
+    storageKey: string | null;
+    storageUrl: string | null;
+    isSelected: boolean;
+    isAiReady: boolean;
+    approvalStatusAtSelection: string | null;
+    reviewStatusAtSelection: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   reviews: Array<{
     id: string;
     reviewerName: string;
@@ -1112,6 +1132,149 @@ export default function PlanningRecordPage() {
           value={`${record.crewSize ?? "—"} • ${record.shift || "Not entered"}`}
         />
       </section>
+
+      <Section eyebrow="Planning Sources" title="Supporting Documents">
+        {record.sourceDocuments.length === 0 ? (
+          <Empty text="No supporting source documents are attached to this Planning record." />
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                Controlled Planning Evidence
+              </p>
+
+              <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                These documents were attached as supporting sources for this Planning record. They provide context and evidence for the plan but do not replace qualified review or professional judgment.
+              </p>
+            </div>
+
+            <div className="grid gap-3">
+              {record.sourceDocuments.map(
+                (document) => (
+                  <article
+                    key={document.id}
+                    className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="break-words font-black text-[var(--qoreva-obsidian)]">
+                            {document.label ||
+                              document.fileName ||
+                              "Supporting Document"}
+                          </h3>
+
+                          <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                            {document.sourceType ===
+                            "PlanUpload"
+                              ? "Plan Upload"
+                              : document.sourceType}
+                          </span>
+
+                          {document.isSelected ? (
+                            <span className="rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-success)]">
+                              Selected Source
+                            </span>
+                          ) : null}
+
+                          {document.isAiReady ? (
+                            <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]">
+                              AI Ready
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {document.label &&
+                        document.fileName ? (
+                          <p className="mt-1 break-words text-xs font-medium text-[var(--qoreva-muted)]">
+                            {document.fileName}
+                          </p>
+                        ) : null}
+
+                        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-[var(--qoreva-muted)]">
+                          <span>
+                            Type:{" "}
+                            <strong className="text-[var(--qoreva-text)]">
+                              {document.mimeType ||
+                                "Unknown"}
+                            </strong>
+                          </span>
+
+                          <span>
+                            Size:{" "}
+                            <strong className="text-[var(--qoreva-text)]">
+                              {document.fileSize !==
+                              null
+                                ? formatFileSize(
+                                    document.fileSize,
+                                  )
+                                : "Unknown"}
+                            </strong>
+                          </span>
+
+                          <span>
+                            Added:{" "}
+                            <strong className="text-[var(--qoreva-text)]">
+                              {formatDate(
+                                document.createdAt,
+                              )}
+                            </strong>
+                          </span>
+                        </div>
+
+                        {document.approvalStatusAtSelection ||
+                        document.reviewStatusAtSelection ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {document.approvalStatusAtSelection ? (
+                              <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[9px] font-black text-[var(--qoreva-muted)]">
+                                Approval:{" "}
+                                {
+                                  document.approvalStatusAtSelection
+                                }
+                              </span>
+                            ) : null}
+
+                            {document.reviewStatusAtSelection ? (
+                              <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[9px] font-black text-[var(--qoreva-muted)]">
+                                Review:{" "}
+                                {
+                                  document.reviewStatusAtSelection
+                                }
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {document.storageProvider ===
+                        "local" &&
+                      document.storageKey ? (
+                        <div className="flex shrink-0 gap-2">
+                          <a
+                            href={`/api/planning/${record.id}/source-documents/${document.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
+                          >
+                            View
+                          </a>
+
+                          <a
+                            href={`/api/planning/${record.id}/source-documents/${document.id}?download=1`}
+                            className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--qoreva-obsidian)] px-4 py-2 text-xs font-black text-white transition hover:opacity-90"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                ),
+              )}
+            </div>
+          </div>
+        )}
+      </Section>
 
       <Section eyebrow="Work Scope" title="Scope & Conditions">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -2372,6 +2535,26 @@ function localDateInputValue() {
   )
     .toISOString()
     .slice(0, 10);
+}
+
+function formatFileSize(
+  bytes: number,
+) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kilobytes =
+    bytes / 1024;
+
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(1)} KB`;
+  }
+
+  const megabytes =
+    kilobytes / 1024;
+
+  return `${megabytes.toFixed(1)} MB`;
 }
 
 function formatDate(value: string | null) {
