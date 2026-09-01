@@ -3806,148 +3806,153 @@ export default function DailyWsePage() {
 
       <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
         <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-          End of Shift Debrief
+          End-of-Shift Learning
         </p>
 
         <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-          Foreman Closeout
+          How Did Today Go?
         </h2>
 
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
-          Complete this short review at the end of the shift. Document anything that occurred, changed, did not work as planned, or should be carried forward to the next workday.
+          Capture what happened in the field, what changed, and anything the
+          next crew should know. Keep this review short and focused on useful
+          field learning.
         </p>
 
-        <div className="mt-5 space-y-3">
-          <YesNoQuestion
-            label="Did any incident, injury, near miss, or property damage occur?"
-            value={
-              endOfShift.incidentsOrNearMisses
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
-              setEndOfShift(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  incidentsOrNearMisses:
-                    value,
-                }),
-              )
-            }
-          />
+        <div className="mt-5 space-y-4">
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <YesNoQuestion
+              label="Did anything happen today?"
+              value={
+                endOfShift.incidentsOrNearMisses
+              }
+              disabled={isCompleted}
+              onChange={(value) =>
+                setEndOfShift(
+                  (current) => ({
+                    ...current,
+                    incidentsOrNearMisses:
+                      value,
+                  }),
+                )
+              }
+            />
 
-          <YesNoQuestion
-            label="Did the work, conditions, crew, equipment, or work method change in a way that affected safety?"
-            value={
-              endOfShift.conditionsChanged
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
-              setEndOfShift(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  conditionsChanged:
-                    value,
-                }),
-              )
-            }
-          />
+            {endOfShift.incidentsOrNearMisses === true ? (
+              <div className="mt-3 rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-3">
+                <p className="text-xs font-black text-[#9B6212]">
+                  Follow-up required
+                </p>
 
-          <YesNoQuestion
-            label="Were the planned controls effective throughout the shift?"
-            value={
-              endOfShift.controlsEffective
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
-              setEndOfShift(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  controlsEffective:
-                    value,
-                }),
-              )
-            }
-          />
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Document the incident, injury, near miss, property damage,
+                  Good Catch, or other event in the appropriate Qoreva record.
+                  Use the follow-up notes below to capture anything that still
+                  needs action.
+                </p>
+              </div>
+            ) : null}
+          </div>
 
-          <YesNoQuestion
-            label="Were any new or previously unidentified hazards found during the shift?"
-            value={
-              endOfShift.additionalHazards
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
-              setEndOfShift(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  additionalHazards:
-                    value,
-                }),
-              )
-            }
-          />
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <YesNoQuestion
+              label="Did conditions or work change?"
+              value={
+                endOfShift.conditionsChanged
+              }
+              disabled={isCompleted}
+              onChange={(value) =>
+                setEndOfShift(
+                  (current) => ({
+                    ...current,
+                    conditionsChanged:
+                      value,
 
-          <YesNoQuestion
-            label="Was the work completed safely and in accordance with the approved plan?"
-            value={
-              endOfShift.workedSafely
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
-              setEndOfShift(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  workedSafely:
-                    value,
-                }),
-              )
-            }
-          />
+                    additionalHazards:
+                      value,
+                  }),
+                )
+              }
+            />
 
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+              Consider scope, location, crew, equipment, work method, site
+              conditions, access, adjacent work, and newly identified hazards.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <YesNoQuestion
+              label="Did any control fail or need improvement?"
+              value={
+                endOfShift.controlsEffective === null
+                  ? null
+                  : !endOfShift.controlsEffective
+              }
+              disabled={isCompleted}
+              onChange={(value) =>
+                setEndOfShift(
+                  (current) => ({
+                    ...current,
+                    controlsEffective:
+                      value === null
+                        ? null
+                        : !value,
+                  }),
+                )
+              }
+            />
+
+            {endOfShift.controlsEffective === false ? (
+              <div className="mt-3 rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-3">
+                <p className="text-xs font-black text-[#9B6212]">
+                  Capture the improvement
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Use the follow-up field below to document the control that
+                  failed, became ineffective, or should be improved before the
+                  work is performed again.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <YesNoQuestion
+              label="Was today's work completed safely and in accordance with the approved plan?"
+              value={
+                endOfShift.workedSafely
+              }
+              disabled={isCompleted}
+              onChange={(value) =>
+                setEndOfShift(
+                  (current) => ({
+                    ...current,
+                    workedSafely:
+                      value,
+                  }),
+                )
+              }
+            />
+
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+              This remains a direct foreman determination and is not inferred
+              by Qoreva.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 sm:p-5">
           <YesNoQuestion
-            label="Is there anything from today that should be communicated or carried forward to the next shift?"
+            label="Is there anything tomorrow's crew should know?"
             value={
               endOfShift.lessonsToShare
             }
-            disabled={
-              isCompleted
-            }
-            onChange={(
-              value,
-            ) =>
+            disabled={isCompleted}
+            onChange={(value) =>
               setEndOfShift(
-                (
-                  current,
-                ) => ({
+                (current) => ({
                   ...current,
                   lessonsToShare:
                     value,
@@ -3955,36 +3960,46 @@ export default function DailyWsePage() {
               )
             }
           />
+
+          {endOfShift.lessonsToShare === true ? (
+            <div className="mt-4">
+              <Field
+                label="Carry Forward to Tomorrow"
+                value={lessonsLearned}
+                disabled={isCompleted}
+                onChange={
+                  setLessonsLearned
+                }
+                placeholder="What should the next crew know before work begins?"
+              />
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <Field
-            label="Lessons Learned / Carry Forward"
-            value={
-              lessonsLearned
-            }
-            disabled={
-              isCompleted
-            }
-            onChange={
-              setLessonsLearned
-            }
-            placeholder="Document lessons learned, changing conditions, or information the next shift should know."
-          />
-
+        <div className="mt-5">
           <Field
             label="Follow-Up Actions / Comments"
             value={
               endOfShiftNotes
             }
-            disabled={
-              isCompleted
-            }
+            disabled={isCompleted}
             onChange={
               setEndOfShiftNotes
             }
-            placeholder="Document corrective actions, follow-up items, responsible parties, or additional comments."
+            placeholder="Document corrective actions, follow-up items, responsible parties, or other important information."
           />
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+            Field Learning
+          </p>
+
+          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+            Qoreva preserves this closeout with the Daily WSE so recurring
+            changes, ineffective controls, incidents, and lessons learned can
+            support future Planning and Qoreva Intelligence.
+          </p>
         </div>
       </section>
 
