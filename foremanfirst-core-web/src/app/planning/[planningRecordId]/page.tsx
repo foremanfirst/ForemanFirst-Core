@@ -130,6 +130,7 @@ type ReviewWorkItem = {
   revision: {
     revisionNumber: number;
     isSubmitted: boolean;
+    isApproved: boolean;
   };
 
   summary: {
@@ -139,8 +140,11 @@ type ReviewWorkItem = {
     pendingRequired: number;
     revisionRequired: number;
     rejected: number;
+    requiredSignatures: number;
+    verifiedSignatures: number;
     openComments: number;
     allRequiredApproved: boolean;
+    allRequiredSignaturesVerified: boolean;
     hasBlockingDecision: boolean;
   };
 
@@ -185,6 +189,9 @@ type ReviewWorkItem = {
     signature: {
       required: boolean;
       planningSignatureId: string | null;
+      verified: boolean;
+      signedAt: string | null;
+      signatureType: string | null;
     };
 
     notification: {
@@ -204,13 +211,37 @@ type ReviewWorkItem = {
     currentReviewerRoleLabel: string | null;
     canApproveAndSign: boolean;
     canReturnForRevision: boolean;
+    canFinalize: boolean;
+    currentFinalizerRoleCodes: string[];
+  };
+
+  finalization: {
+    ready: boolean;
+    canFinalize: boolean;
+    canFinalizeNow: boolean;
+    alreadyFinalized: boolean;
+    active: boolean;
+    effectiveStartDate: string | null;
+    effectiveEndDate: string | null;
+    requiredApprovalCount: number;
+    approvedRequiredCount: number;
+    requiredSignatureCount: number;
+    verifiedSignatureCount: number;
+    openReviewCommentCount: number;
+    blockers: Array<{
+      code: string;
+      message: string;
+    }>;
   };
 
   metadata: {
     workflowVersion: string;
+    finalizationWorkflowVersion: string;
     revisionScoped: boolean;
     advisoryOnly: boolean;
     requiresAuthenticatedReviewerForDecision: boolean;
+    requiresAuthenticatedFinalizerForFinalization: boolean;
+    finalizationAuthority: string;
   };
 };
 
@@ -233,6 +264,17 @@ export default function PlanningRecordPage() {
   const [reviewerDecisionComment, setReviewerDecisionComment] =
     useState("");
   const [approvalAttestationAccepted, setApprovalAttestationAccepted] =
+    useState(false);
+
+  const [finalizationSaving, setFinalizationSaving] =
+    useState(false);
+  const [finalizationError, setFinalizationError] =
+    useState("");
+  const [finalizationSuccess, setFinalizationSuccess] =
+    useState("");
+  const [finalizationComment, setFinalizationComment] =
+    useState("");
+  const [finalizationAttestationAccepted, setFinalizationAttestationAccepted] =
     useState(false);
 
   const [lifecycleSaving, setLifecycleSaving] =
@@ -549,6 +591,101 @@ export default function PlanningRecordPage() {
       );
     } finally {
       setReviewerDecisionSaving(false);
+    }
+  }
+
+  async function finalizePlanningRecord() {
+    if (!record || !reviewWorkItem) {
+      return;
+    }
+
+    if (
+      !reviewWorkItem.finalization.canFinalize ||
+      !reviewWorkItem.finalization.canFinalizeNow
+    ) {
+      setFinalizationError(
+        "This PTP is not currently ready or authorized for finalization.",
+      );
+      return;
+    }
+
+    if (!finalizationAttestationAccepted) {
+      setFinalizationError(
+        "Confirm the finalization attestation before finalizing this PTP.",
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Finalize Revision ${record.revisionNumber} as the approved controlled PTP? This action does not automatically mark the PTP Active.`,
+      )
+    ) {
+      return;
+    }
+
+    setFinalizationSaving(true);
+    setFinalizationError("");
+    setFinalizationSuccess("");
+
+    try {
+      const response = await fetch(
+        `/api/planning/${record.id}/finalize`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            finalizationComment:
+              finalizationComment.trim() ||
+              null,
+          }),
+        },
+      );
+
+      const data =
+        (await response.json()) as {
+          record?: {
+            id: string;
+            status: string;
+            revisionNumber: number;
+            approvedAt: string | null;
+            activeAt: string | null;
+          };
+          finalization?: {
+            finalized: boolean;
+            active: boolean;
+          };
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to finalize this planning record.",
+        );
+      }
+
+      setFinalizationComment("");
+      setFinalizationAttestationAccepted(false);
+
+      setFinalizationSuccess(
+        `Revision ${record.revisionNumber} has been finalized and approved. It has not been automatically marked Active.`,
+      );
+
+      await loadRecord({
+        showLoading: false,
+      });
+    } catch (error) {
+      setFinalizationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to finalize this planning record.",
+      );
+    } finally {
+      setFinalizationSaving(false);
     }
   }
 
@@ -1290,6 +1427,12 @@ export default function PlanningRecordPage() {
             <p className="mt-3 text-xs font-bold text-[var(--qoreva-muted)]">
               Open review comments: {openComments}
             </p>
+
+            {finalizationSuccess ? (
+              <div className="mt-4 rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3 text-sm font-bold leading-6 text-[var(--qoreva-success)]">
+                ✓ {finalizationSuccess}
+              </div>
+            ) : null}
           </div>
 
           <StatusBadge status={record.status} />
@@ -1538,8 +1681,164 @@ export default function PlanningRecordPage() {
 
                 {reviewWorkItem.summary
                   .allRequiredApproved ? (
-                  <div className="rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-success)]">
-                    ✓ All required reviewers have approved and signed Revision {record.revisionNumber}. This PTP is ready for the finalization gate.
+                  <div className="rounded-2xl border border-[rgba(102,87,232,0.22)] bg-white p-4 sm:p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                          Finalization Gate
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                          Revision {record.revisionNumber} Final Approval
+                        </h3>
+                        <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          Finalization converts this fully reviewed submitted revision into the approved controlled PTP. It does not automatically mark the PTP Active.
+                        </p>
+                      </div>
+
+                      <StatusBadge
+                        status={
+                          reviewWorkItem.finalization.ready
+                            ? "Ready"
+                            : "Action Required"
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <Summary
+                        label="Required Approvals"
+                        value={`${reviewWorkItem.finalization.approvedRequiredCount}/${reviewWorkItem.finalization.requiredApprovalCount}`}
+                      />
+                      <Summary
+                        label="Verified Signatures"
+                        value={`${reviewWorkItem.finalization.verifiedSignatureCount}/${reviewWorkItem.finalization.requiredSignatureCount}`}
+                      />
+                      <Summary
+                        label="Open Comments"
+                        value={String(
+                          reviewWorkItem.finalization
+                            .openReviewCommentCount,
+                        )}
+                      />
+                      <Summary
+                        label="Finalization Authority"
+                        value={
+                          reviewWorkItem.finalization
+                            .canFinalize
+                            ? "Authorized"
+                            : "Not Assigned"
+                        }
+                      />
+                    </div>
+
+                    {reviewWorkItem.finalization
+                      .blockers.length > 0 ? (
+                      <div className="mt-4 rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.08em] text-[#9B6212]">
+                          Finalization Requirements
+                        </p>
+
+                        <div className="mt-2 space-y-2">
+                          {reviewWorkItem.finalization.blockers.map(
+                            (blocker) => (
+                              <p
+                                key={blocker.code}
+                                className="text-sm font-semibold leading-6 text-[var(--qoreva-text)]"
+                              >
+                                • {blocker.message}
+                              </p>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-success)]">
+                        ✓ All required approvals, signatures, review comments, and effective-date checks are complete.
+                      </div>
+                    )}
+
+                    {reviewWorkItem.finalization
+                      .canFinalizeNow ? (
+                      <div className="mt-5 border-t border-[var(--qoreva-border)] pt-5">
+                        <label className="block">
+                          <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                            Finalization Note
+                            <span className="font-semibold text-[var(--qoreva-muted)]">
+                              {" "}— optional
+                            </span>
+                          </span>
+
+                          <textarea
+                            value={finalizationComment}
+                            onChange={(event) => {
+                              setFinalizationComment(
+                                event.target.value,
+                              );
+                              setFinalizationError("");
+                            }}
+                            rows={3}
+                            placeholder="Add an optional finalization note..."
+                            className={`${lifecycleInputClassName} min-h-24 py-3`}
+                          />
+                        </label>
+
+                        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+                          <input
+                            type="checkbox"
+                            checked={
+                              finalizationAttestationAccepted
+                            }
+                            onChange={(event) => {
+                              setFinalizationAttestationAccepted(
+                                event.target.checked,
+                              );
+                              setFinalizationError("");
+                            }}
+                            className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--qoreva-violet)]"
+                          />
+
+                          <span className="text-sm font-semibold leading-6 text-[var(--qoreva-text)]">
+                            I confirm that the required review and signature workflow for this revision is complete and authorize Qoreva to finalize this revision as the approved controlled PTP.
+                          </span>
+                        </label>
+
+                        {finalizationError ? (
+                          <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-bold text-[var(--qoreva-danger)]">
+                            {finalizationError}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void finalizePlanningRecord()
+                            }
+                            disabled={
+                              finalizationSaving ||
+                              !finalizationAttestationAccepted
+                            }
+                            className={successLifecycleButtonClassName}
+                          >
+                            {finalizationSaving
+                              ? "Finalizing PTP..."
+                              : "Finalize PTP"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : reviewWorkItem.finalization
+                        .ready &&
+                      !reviewWorkItem.finalization
+                        .canFinalize ? (
+                      <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3">
+                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                          Awaiting authorized finalizer
+                        </p>
+                        <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          All review requirements are complete. An authorized planning manager must perform the finalization action.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </>

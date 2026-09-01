@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+
 import {
   PlanningReviewerAuthorizationError,
   requireAuthorizedPlanningReviewer,
 } from "@/lib/planning/reviewer-authorization";
+
+import {
+  PlanningFinalizerAuthorizationError,
+  requireAuthorizedPlanningFinalizer,
+} from "@/lib/planning/planning-finalizer-authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +17,11 @@ type RouteContext = {
   params: Promise<{
     planningRecordId: string;
   }>;
+};
+
+type FinalizationBlocker = {
+  code: string;
+  message: string;
 };
 
 export async function GET(
@@ -32,11 +43,19 @@ export async function GET(
           id: true,
           tenantId: true,
           projectId: true,
+
           title: true,
           planType: true,
           status: true,
           revisionNumber: true,
+
           submittedAt: true,
+          approvedAt: true,
+          activeAt: true,
+
+          effectiveStartDate: true,
+          effectiveEndDate: true,
+
           qualityScore: true,
 
           project: {
@@ -53,7 +72,6 @@ export async function GET(
               name: true,
             },
           },
-
         },
       });
 
@@ -70,10 +88,8 @@ export async function GET(
     }
 
     /*
-     * Prisma cannot reference the parent revisionNumber from inside
-     * the nested relation filter above. Load the current revision's
-     * approval snapshot explicitly so the reviewer work item is always
-     * scoped to the exact submitted revision.
+     * Load the exact approval snapshot for the
+     * current formal planning revision.
      */
     const approvals =
       await prisma.planningApproval.findMany({
@@ -98,8 +114,10 @@ export async function GET(
         select: {
           id: true,
           revisionNumber: true,
+
           roleCode: true,
           roleLabel: true,
+
           isRequired: true,
           sortOrder: true,
 
@@ -176,14 +194,18 @@ export async function GET(
             where: {
               tenantId:
                 record.tenantId,
+
               projectId:
                 record.projectId,
+
               isActive: true,
 
               tenantMembership: {
                 tenantId:
                   record.tenantId,
+
                 isActive: true,
+
                 userId: {
                   in: approverIds,
                 },
@@ -192,8 +214,10 @@ export async function GET(
 
             select: {
               id: true,
+
               roleCodes: true,
               approvalRoleCodes: true,
+
               canReviewPlanning: true,
               canApprovePlanning: true,
 
@@ -223,13 +247,22 @@ export async function GET(
         where: {
           planningRecordId:
             record.id,
+
           tenantId:
             record.tenantId,
+
           revisionNumber:
             record.revisionNumber,
+
           status: "Open",
         },
       });
+
+    /*
+     * --------------------------------------------------
+     * Approval summary
+     * --------------------------------------------------
+     */
 
     const requiredApprovals =
       approvals.filter(
@@ -265,17 +298,155 @@ export async function GET(
           "Rejected",
       ).length;
 
-    let currentReviewerApprovalId: string | null =
-      null;
+    /*
+     * --------------------------------------------------
+     * Signature verification
+     * --------------------------------------------------
+     *
+     * Finalization readiness must verify the actual
+     * signature records rather than trusting only the
+     * PlanningApproval.planningSignatureId field.
+     */
 
-    let currentReviewerRoleCode: string | null =
-      null;
+    const signatureRequiredApprovals =
+      requiredApprovals.filter(
+        (approval) =>
+          approval.signatureRequired,
+      );
 
-    let currentReviewerRoleLabel: string | null =
-      null;
+    const linkedSignatureIds =
+      Array.from(
+        new Set(
+          signatureRequiredApprovals
+            .map(
+              (approval) =>
+                approval.planningSignatureId,
+            )
+            .filter(
+              (
+                signatureId,
+              ): signatureId is string =>
+                Boolean(signatureId),
+            ),
+        ),
+      );
+
+    const signatures =
+      linkedSignatureIds.length > 0
+        ? await prisma.planningSignature.findMany({
+            where: {
+              id: {
+                in: linkedSignatureIds,
+              },
+
+              tenantId:
+                record.tenantId,
+
+              planningRecordId:
+                record.id,
+
+              revisionNumber:
+                record.revisionNumber,
+            },
+
+            select: {
+              id: true,
+              revisionNumber: true,
+
+              signerId: true,
+              signerName: true,
+              signerEmail: true,
+
+              status: true,
+              signatureType: true,
+              signedAt: true,
+            },
+          })
+        : [];
+
+    const signaturesById =
+      new Map(
+        signatures.map(
+          (signature) => [
+            signature.id,
+            signature,
+          ],
+        ),
+      );
+
+    const verifiedSignatureApprovalIds =
+      new Set<string>();
+
+    for (
+      const approval of
+      signatureRequiredApprovals
+    ) {
+      if (
+        !approval.planningSignatureId
+      ) {
+        continue;
+      }
+
+      const signature =
+        signaturesById.get(
+          approval.planningSignatureId,
+        );
+
+      if (!signature) {
+        continue;
+      }
+
+      if (
+        signature.status !== "Signed" ||
+        !signature.signedAt
+      ) {
+        continue;
+      }
+
+      /*
+       * When both identity references exist they
+       * must agree. This protects against a signature
+       * being linked to the wrong reviewer approval.
+       */
+      if (
+        approval.approverId &&
+        signature.signerId &&
+        approval.approverId !==
+          signature.signerId
+      ) {
+        continue;
+      }
+
+      verifiedSignatureApprovalIds.add(
+        approval.id,
+      );
+    }
+
+    const verifiedSignatureCount =
+      verifiedSignatureApprovalIds.size;
+
+    /*
+     * --------------------------------------------------
+     * Current reviewer capability
+     * --------------------------------------------------
+     */
+
+    let currentReviewerApprovalId:
+      | string
+      | null = null;
+
+    let currentReviewerRoleCode:
+      | string
+      | null = null;
+
+    let currentReviewerRoleLabel:
+      | string
+      | null = null;
 
     for (const approval of approvals) {
-      if (approval.status !== "Pending") {
+      if (
+        approval.status !== "Pending"
+      ) {
         continue;
       }
 
@@ -308,20 +479,212 @@ export async function GET(
       }
     }
 
+    /*
+     * --------------------------------------------------
+     * Current finalizer capability
+     * --------------------------------------------------
+     *
+     * The UI does not infer this from role labels.
+     * Authorization comes from the authenticated user's
+     * active project membership on the server.
+     */
+
+    let canFinalize = false;
+
+    let currentFinalizerRoleCodes:
+      string[] = [];
+
+    try {
+      const authorizedFinalizer =
+        await requireAuthorizedPlanningFinalizer(
+          record.id,
+        );
+
+      canFinalize = true;
+
+      currentFinalizerRoleCodes =
+        authorizedFinalizer
+          .membership
+          .roleCodes;
+    } catch (error) {
+      if (
+        !(
+          error instanceof
+          PlanningFinalizerAuthorizationError
+        )
+      ) {
+        throw error;
+      }
+    }
+
+    /*
+     * --------------------------------------------------
+     * Deterministic finalization readiness
+     * --------------------------------------------------
+     */
+
+    const finalizationBlockers:
+      FinalizationBlocker[] = [];
+
+    if (
+      record.status !== "Submitted"
+    ) {
+      finalizationBlockers.push({
+        code:
+          "PLANNING_RECORD_NOT_SUBMITTED",
+        message:
+          record.status ===
+          "Approved"
+            ? "This PTP has already been finalized and approved."
+            : "The PTP must be submitted before it can be finalized.",
+      });
+    }
+
+    if (
+      requiredApprovals.length === 0
+    ) {
+      finalizationBlockers.push({
+        code:
+          "NO_REQUIRED_APPROVALS",
+        message:
+          "At least one required approval must exist before finalization.",
+      });
+    }
+
+    if (
+      revisionRequiredCount > 0
+    ) {
+      finalizationBlockers.push({
+        code:
+          "REVISION_REQUIRED_DECISION",
+        message:
+          "A reviewer has returned this revision for revision.",
+      });
+    }
+
+    if (rejectedCount > 0) {
+      finalizationBlockers.push({
+        code:
+          "REJECTED_APPROVAL",
+        message:
+          "A reviewer has rejected this revision.",
+      });
+    }
+
+    if (
+      requiredApprovals.length >
+        0 &&
+      approvedRequiredCount !==
+        requiredApprovals.length
+    ) {
+      finalizationBlockers.push({
+        code:
+          "REQUIRED_APPROVALS_INCOMPLETE",
+        message:
+          `${approvedRequiredCount} of ${requiredApprovals.length} required approvals are complete.`,
+      });
+    }
+
+    const missingSignatureLinks =
+      signatureRequiredApprovals.filter(
+        (approval) =>
+          !approval.planningSignatureId,
+      );
+
+    if (
+      missingSignatureLinks.length >
+      0
+    ) {
+      finalizationBlockers.push({
+        code:
+          "REQUIRED_SIGNATURE_LINK_MISSING",
+        message:
+          `${missingSignatureLinks.length} required approval signature${missingSignatureLinks.length === 1 ? " is" : "s are"} not linked.`,
+      });
+    }
+
+    const unverifiedSignatureCount =
+      signatureRequiredApprovals.length -
+      verifiedSignatureCount;
+
+    if (
+      unverifiedSignatureCount > 0
+    ) {
+      finalizationBlockers.push({
+        code:
+          "REQUIRED_SIGNATURE_NOT_VERIFIED",
+        message:
+          `${unverifiedSignatureCount} required signature${unverifiedSignatureCount === 1 ? " has" : "s have"} not been verified.`,
+      });
+    }
+
+    if (
+      openCommentCount > 0
+    ) {
+      finalizationBlockers.push({
+        code:
+          "OPEN_REVIEW_COMMENTS",
+        message:
+          `${openCommentCount} open review comment${openCommentCount === 1 ? " remains" : "s remain"}.`,
+      });
+    }
+
+    if (
+      !record.effectiveStartDate ||
+      !record.effectiveEndDate
+    ) {
+      finalizationBlockers.push({
+        code:
+          "EFFECTIVE_DATES_REQUIRED",
+        message:
+          "Effective start and end dates are required before finalization.",
+      });
+    } else if (
+      record.effectiveEndDate <
+      record.effectiveStartDate
+    ) {
+      finalizationBlockers.push({
+        code:
+          "INVALID_EFFECTIVE_DATE_RANGE",
+        message:
+          "The effective end date must be on or after the effective start date.",
+      });
+    }
+
+    const finalizationReady =
+      finalizationBlockers.length === 0;
+
     const workItem = {
       planningRecord: {
         id: record.id,
         title: record.title,
         planType: record.planType,
+
         status: record.status,
         revisionNumber:
           record.revisionNumber,
+
         submittedAt:
           record.submittedAt,
+
+        approvedAt:
+          record.approvedAt,
+
+        activeAt:
+          record.activeAt,
+
+        effectiveStartDate:
+          record.effectiveStartDate,
+
+        effectiveEndDate:
+          record.effectiveEndDate,
+
         qualityScore:
           record.qualityScore,
 
-        project: record.project,
+        project:
+          record.project,
+
         contractor:
           record.contractor,
       },
@@ -329,24 +692,41 @@ export async function GET(
       revision: {
         revisionNumber:
           record.revisionNumber,
+
         isSubmitted:
           record.status ===
-            "Submitted",
+          "Submitted",
+
+        isApproved:
+          record.status ===
+          "Approved",
       },
 
       summary: {
         totalApprovals:
           approvals.length,
+
         requiredApprovals:
           requiredApprovals.length,
+
         approvedRequired:
           approvedRequiredCount,
+
         pendingRequired:
           pendingRequiredCount,
+
         revisionRequired:
           revisionRequiredCount,
+
         rejected:
           rejectedCount,
+
+        requiredSignatures:
+          signatureRequiredApprovals.length,
+
+        verifiedSignatures:
+          verifiedSignatureCount,
+
         openComments:
           openCommentCount,
 
@@ -355,6 +735,10 @@ export async function GET(
             0 &&
           approvedRequiredCount ===
             requiredApprovals.length,
+
+        allRequiredSignaturesVerified:
+          signatureRequiredApprovals.length ===
+          verifiedSignatureCount,
 
         hasBlockingDecision:
           revisionRequiredCount > 0 ||
@@ -390,25 +774,40 @@ export async function GET(
                     ),
               );
 
+            const linkedSignature =
+              approval
+                .planningSignatureId
+                ? signaturesById.get(
+                    approval
+                      .planningSignatureId,
+                  ) ?? null
+                : null;
+
             return {
               id: approval.id,
+
               revisionNumber:
                 approval.revisionNumber,
 
               roleCode:
                 approval.roleCode,
+
               roleLabel:
                 approval.roleLabel,
+
               isRequired:
                 approval.isRequired,
+
               sortOrder:
                 approval.sortOrder,
 
               approver: {
                 id:
                   approval.approverId,
+
                 name:
                   approval.approverName,
+
                 email:
                   approval.approverEmail,
 
@@ -417,10 +816,13 @@ export async function GET(
                     ? {
                         displayName:
                           user.displayName,
+
                         email:
                           user.email,
+
                         status:
                           user.status,
+
                         isActive:
                           user.isActive,
                       }
@@ -432,55 +834,86 @@ export async function GET(
                   Boolean(
                     membership,
                   ),
+
                 canReviewPlanning:
                   membership
                     ?.canReviewPlanning ??
                   false,
+
                 canApprovePlanning:
                   membership
                     ?.canApprovePlanning ??
                   false,
+
                 approvalRoleCodes:
                   membership
                     ?.approvalRoleCodes ??
                   [],
+
                 assignedRoleIsEligible,
               },
 
               status:
                 approval.status,
+
               decisionComment:
                 approval.decisionComment,
 
               decision: {
                 decidedById:
                   approval.decidedById,
+
                 decidedByName:
                   approval.decidedByName,
+
                 decidedByRole:
                   approval.decidedByRole,
+
                 decidedAt:
                   approval.decidedAt,
               },
 
               signature: {
                 required:
-                  approval.signatureRequired,
+                  approval
+                    .signatureRequired,
+
                 planningSignatureId:
-                  approval.planningSignatureId,
+                  approval
+                    .planningSignatureId,
+
+                verified:
+                  verifiedSignatureApprovalIds.has(
+                    approval.id,
+                  ),
+
+                signedAt:
+                  linkedSignature
+                    ?.signedAt ??
+                  null,
+
+                signatureType:
+                  linkedSignature
+                    ?.signatureType ??
+                  null,
               },
 
               notification: {
                 status:
-                  approval.notificationStatus,
+                  approval
+                    .notificationStatus,
+
                 notifiedAt:
                   approval.notifiedAt,
+
                 reminderSentAt:
-                  approval.reminderSentAt,
+                  approval
+                    .reminderSentAt,
               },
 
               createdAt:
                 approval.createdAt,
+
               updatedAt:
                 approval.updatedAt,
             };
@@ -508,15 +941,79 @@ export async function GET(
           Boolean(
             currentReviewerApprovalId,
           ),
+
+        /*
+         * Finalization authority is intentionally
+         * independent from reviewer authority.
+         */
+        canFinalize,
+
+        currentFinalizerRoleCodes,
+      },
+
+      finalization: {
+        ready:
+          finalizationReady,
+
+        canFinalize,
+
+        canFinalizeNow:
+          finalizationReady &&
+          canFinalize,
+
+        alreadyFinalized:
+          record.status ===
+          "Approved",
+
+        active:
+          Boolean(
+            record.activeAt,
+          ),
+
+        effectiveStartDate:
+          record
+            .effectiveStartDate,
+
+        effectiveEndDate:
+          record
+            .effectiveEndDate,
+
+        requiredApprovalCount:
+          requiredApprovals.length,
+
+        approvedRequiredCount,
+
+        requiredSignatureCount:
+          signatureRequiredApprovals.length,
+
+        verifiedSignatureCount,
+
+        openReviewCommentCount:
+          openCommentCount,
+
+        blockers:
+          finalizationBlockers,
       },
 
       metadata: {
         workflowVersion:
-          "qoreva-planning-review-work-item-v1",
+          "qoreva-planning-review-work-item-v2-finalization",
+
+        finalizationWorkflowVersion:
+          "qoreva-planning-finalization-v1",
+
         revisionScoped: true,
+
         advisoryOnly: false,
+
         requiresAuthenticatedReviewerForDecision:
           true,
+
+        requiresAuthenticatedFinalizerForFinalization:
+          true,
+
+        finalizationAuthority:
+          "PROJECT_CAN_MANAGE_PLANNING",
       },
     };
 
