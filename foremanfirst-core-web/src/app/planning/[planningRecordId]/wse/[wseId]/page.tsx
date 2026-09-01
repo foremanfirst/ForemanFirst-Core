@@ -2056,73 +2056,214 @@ export default function DailyWsePage() {
         </p>
 
         <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-          Has Anything Changed?
+          What&apos;s Different Today?
         </h2>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          {[
-            ["No Changes", "Approved PTP remains applicable."],
-            ["Minor Changes", "Document within the Daily WSE."],
-            ["Major Changes", "MOC approval / PTP revision may be required."],
-          ].map(([value, description]) => (
-            <button
-              key={value}
-              type="button"
-              disabled={isCompleted}
-              onClick={() => {
-                setChangeStatus(value);
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+          Compare today&apos;s work and field conditions to the approved PTP.
+          If something is different, document it before the affected work begins.
+        </p>
 
-                if (value === "Major Changes") {
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <button
+            type="button"
+            disabled={isCompleted}
+            onClick={() => {
+              setChangeStatus("No Changes");
+              setPtpRevisionRecommended(false);
+            }}
+            className={`rounded-2xl border p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              changeStatus === "No Changes"
+                ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)]"
+                : "border-[var(--qoreva-border)] bg-white"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black ${
+                  changeStatus === "No Changes"
+                    ? "bg-white text-[var(--qoreva-success)]"
+                    : "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                }`}
+              >
+                ✓
+              </div>
+
+              <div>
+                <p className="font-black text-[var(--qoreva-obsidian)]">
+                  No Changes
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                  Today&apos;s work, conditions, equipment, and controls match
+                  the approved PTP.
+                </p>
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            disabled={isCompleted}
+            onClick={() => {
+              if (changeStatus === "No Changes") {
+                setChangeStatus("Minor Changes");
+                setPtpRevisionRecommended(false);
+              }
+            }}
+            className={`rounded-2xl border p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              changeStatus !== "No Changes"
+                ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
+                : "border-[var(--qoreva-border)] bg-white"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black ${
+                  changeStatus !== "No Changes"
+                    ? "bg-white text-[#9B6212]"
+                    : "bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                }`}
+              >
+                !
+              </div>
+
+              <div>
+                <p className="font-black text-[var(--qoreva-obsidian)]">
+                  Something Changed
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                  Scope, location, crew, equipment, materials, conditions,
+                  access, or another part of today&apos;s work is different.
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {changeStatus !== "No Changes" ? (
+          <div className="mt-5 rounded-2xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-4 sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-[#9B6212]">
+              Today&apos;s Change
+            </p>
+
+            <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+              How should this change be handled?
+            </h3>
+
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--qoreva-muted)]">
+              Document field adjustments in today&apos;s WSE. If the change
+              may materially affect the approved scope, hazards, controls,
+              equipment, conditions, or work method, route it through
+              Management of Change before the affected work proceeds.
+            </p>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <button
+                type="button"
+                disabled={isCompleted}
+                onClick={() => {
+                  setChangeStatus("Minor Changes");
+                  setPtpRevisionRecommended(false);
+                }}
+                className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  changeStatus === "Minor Changes"
+                    ? "border-[var(--qoreva-violet)] bg-white shadow-sm"
+                    : "border-[var(--qoreva-border)] bg-white/70"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-violet-soft)] text-sm font-black text-[var(--qoreva-violet-dark)]">
+                    +
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Document Today&apos;s Adjustment
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                      The approved PTP still applies. Capture the added or
+                      changed work, hazard, or control in this Daily WSE.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCompleted}
+                onClick={() => {
+                  setChangeStatus("Major Changes");
                   setPtpRevisionRecommended(true);
+
                   setDraftMoc((current) => ({
                     ...current,
                     requiresPtpRevision: true,
                   }));
-                } else {
-                  setPtpRevisionRecommended(false);
-                }
-              }}
-              className={`rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                changeStatus === value
-                  ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)]"
-                  : "border-[var(--qoreva-border)] bg-white"
-              }`}
-            >
-              <p className="font-black text-[var(--qoreva-obsidian)]">
-                {value}
-              </p>
+                }}
+                className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  changeStatus === "Major Changes"
+                    ? "border-[#D99124] bg-white shadow-sm"
+                    : "border-[var(--qoreva-border)] bg-white/70"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-warning-soft)] text-sm font-black text-[#9B6212]">
+                    !
+                  </div>
 
-              <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
-                {description}
-              </p>
-            </button>
-          ))}
-        </div>
+                  <div>
+                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Review as Management of Change
+                    </p>
 
-        {changeStatus === "Minor Changes" ? (
-          <label className="mt-5 flex items-start gap-3 rounded-2xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-4">
-            <input
-              type="checkbox"
-              checked={ptpRevisionRecommended}
-              disabled={isCompleted}
-              onChange={(event) =>
-                setPtpRevisionRecommended(
-                  event.target.checked,
-                )
-              }
-              className="mt-1 h-5 w-5"
-            />
+                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                      Use when the change may materially affect the approved
+                      plan and additional review or approval may be required.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
 
-            <span>
-              <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
-                PTP revision recommended
-              </span>
+            {changeStatus === "Minor Changes" ? (
+              <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-success-soft)] text-sm font-black text-[var(--qoreva-success)]">
+                    ✓
+                  </div>
 
-              <span className="mt-1 block text-xs leading-5 text-[var(--qoreva-muted)]">
-                Escalate the change when it materially affects the approved scope, hazards, controls, equipment, conditions, or work method.
-              </span>
-            </span>
-          </label>
+                  <div>
+                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Daily WSE adjustment
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                      Use the Tasks, Hazards &amp; Controls section below to add
+                      or document today&apos;s changed work. It remains linked
+                      to this Daily WSE and the controlling approved PTP revision.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {changeStatus === "Major Changes" ? (
+              <div className="mt-4 rounded-xl border border-[#F0D5A4] bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-[0.1em] text-[#9B6212]">
+                  MOC Review Selected
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Complete the Management of Change information below. Saving
+                  remains Draft-only. Approvers are not notified until the MOC
+                  is explicitly submitted for approval.
+                </p>
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {changeStatus === "Major Changes" ? (
