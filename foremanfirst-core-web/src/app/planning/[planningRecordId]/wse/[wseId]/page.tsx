@@ -2818,6 +2818,105 @@ export default function DailyWsePage() {
         ) : null}
       </section>
 
+      {tasks.filter(
+        (task) =>
+          task.source === "PTP" &&
+          task.safetyCritical,
+      ).length > 0 ? (
+        <section className="rounded-[1.75rem] border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-danger)]">
+                Today&apos;s Safety-Critical Work
+              </p>
+
+              <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
+                Review Before Work Begins
+              </h2>
+
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+                These work steps are marked Safety Critical in the approved PTP.
+                The foreman should review the associated hazards and controls with
+                the crew before the affected work begins.
+              </p>
+            </div>
+
+            <span className="inline-flex w-fit rounded-full border border-[#F0BDC4] bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
+              {
+                tasks.filter(
+                  (task) =>
+                    task.source === "PTP" &&
+                    task.safetyCritical,
+                ).length
+              }{" "}
+              Safety Critical
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {tasks
+              .filter(
+                (task) =>
+                  task.source === "PTP" &&
+                  task.safetyCritical,
+              )
+              .map((task, index) => (
+                <div
+                  key={task.clientId}
+                  className="rounded-2xl border border-[#F0BDC4] bg-white p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
+                          Safety Critical
+                        </span>
+
+                        <span className="rounded-full border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-violet-dark)]">
+                          Approved PTP
+                        </span>
+                      </div>
+
+                      <p className="mt-3 text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                        Work Step {index + 1}
+                      </p>
+
+                      <p className="mt-1 text-base font-black leading-6 text-[var(--qoreva-obsidian)]">
+                        {task.taskDescription ||
+                          "Approved safety-critical work step"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                        Hazards
+                      </p>
+
+                      <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                        {task.hazards ||
+                          "No hazards documented on the approved PTP."}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                        Controls
+                      </p>
+
+                      <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                        {task.mitigations ||
+                          "No controls documented on the approved PTP."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
