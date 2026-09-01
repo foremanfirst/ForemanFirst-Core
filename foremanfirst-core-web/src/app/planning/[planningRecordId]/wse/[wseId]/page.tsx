@@ -3233,14 +3233,170 @@ export default function DailyWsePage() {
         </p>
 
         <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-          Morning Acknowledgement
+          Crew Review
         </h2>
 
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
-          Complete this acknowledgement after reviewing today&apos;s work with the crew and before work begins.
+          Review today&apos;s approved work, critical controls, field changes,
+          emergency information, and stop-work expectations with the crew before
+          work begins.
         </p>
 
-        <label className="mt-5 flex items-start gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-[var(--qoreva-violet)]">
+                1
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Approved PTP &amp; Today&apos;s Work
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Review the controlling PTP revision and the work planned for
+                  today.
+                </p>
+
+                <p className="mt-2 text-xs font-black text-[var(--qoreva-success)]">
+                  {tasks.filter(
+                    (task) => task.source === "PTP",
+                  ).length}{" "}
+                  approved work step
+                  {tasks.filter(
+                    (task) => task.source === "PTP",
+                  ).length === 1
+                    ? ""
+                    : "s"}{" "}
+                  loaded
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-[var(--qoreva-danger)]">
+                2
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Safety-Critical Work
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Review safety-critical hazards and controls before the affected
+                  work begins.
+                </p>
+
+                <p
+                  className={`mt-2 text-xs font-black ${
+                    tasks.some(
+                      (task) =>
+                        task.source === "PTP" &&
+                        task.safetyCritical,
+                    )
+                      ? "text-[var(--qoreva-danger)]"
+                      : "text-[var(--qoreva-success)]"
+                  }`}
+                >
+                  {
+                    tasks.filter(
+                      (task) =>
+                        task.source === "PTP" &&
+                        task.safetyCritical,
+                    ).length
+                  }{" "}
+                  safety-critical work step
+                  {tasks.filter(
+                    (task) =>
+                      task.source === "PTP" &&
+                      task.safetyCritical,
+                  ).length === 1
+                    ? ""
+                    : "s"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-[#9B6212]">
+                3
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  What&apos;s Different Today?
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Discuss changes from the approved plan and any additional work
+                  being performed today.
+                </p>
+
+                <p
+                  className={`mt-2 text-xs font-black ${
+                    changeStatus === "No Changes"
+                      ? "text-[var(--qoreva-success)]"
+                      : "text-[#9B6212]"
+                  }`}
+                >
+                  {changeStatus === "No Changes"
+                    ? "No changes identified"
+                    : changeStatus === "Minor Changes"
+                      ? "Daily adjustment documented"
+                      : "Management of Change review selected"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-[var(--qoreva-violet)]">
+                4
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Emergency &amp; Stop-Work Expectations
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Confirm the crew knows the project emergency information and
+                  understands their responsibility to stop work when conditions
+                  are unsafe or no longer match the plan.
+                </p>
+
+                <p
+                  className={`mt-2 text-xs font-black ${
+                    emergencyReviewed
+                      ? "text-[var(--qoreva-success)]"
+                      : "text-[#9B6212]"
+                  }`}
+                >
+                  {emergencyReviewed
+                    ? "Emergency information reviewed"
+                    : "Emergency information review required"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label
+          className={`mt-5 flex items-start gap-3 rounded-2xl border p-4 transition ${
+            Boolean(
+              wse.foremanMorningAcknowledgedAt,
+            )
+              ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)]"
+              : "border-[var(--qoreva-border)] bg-white"
+          }`}
+        >
           <input
             type="checkbox"
             checked={
@@ -3255,9 +3411,7 @@ export default function DailyWsePage() {
                 wse.foremanMorningAcknowledgedAt,
               )
             }
-            onChange={(
-              event,
-            ) => {
+            onChange={(event) => {
               if (
                 wse.foremanMorningAcknowledgedAt
               ) {
@@ -3281,20 +3435,21 @@ export default function DailyWsePage() {
 
           <span>
             <span className="block text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
-              I confirm I reviewed today&apos;s work with the crew, including the approved PTP, planned tasks, hazards and controls, project emergency contact information, and any changes identified for today&apos;s work.
+              I confirm I reviewed today&apos;s work with the crew, including
+              the approved PTP, safety-critical work and controls, changes from
+              the approved plan, emergency information, and stop-work
+              expectations.
             </span>
 
             <span className="mt-2 block text-xs font-semibold text-[var(--qoreva-muted)]">
               Foreman / Supervisor:{" "}
-              {
-                wse.foremanName
-              }
+              {wse.foremanName}
             </span>
 
             {wse.foremanMorningAcknowledgedAt ? (
               <>
-                <span className="mt-1 block text-xs font-semibold text-[var(--qoreva-success)]">
-                  Morning review acknowledged and recorded.
+                <span className="mt-2 block text-xs font-black text-[var(--qoreva-success)]">
+                  ✓ Crew review completed and recorded
                 </span>
 
                 <span className="mt-1 block text-xs font-medium text-[var(--qoreva-muted)]">
@@ -3311,7 +3466,7 @@ export default function DailyWsePage() {
         {!isCompleted ? (
           wse.foremanMorningAcknowledgedAt ? (
             <div className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-5 py-3 text-sm font-black text-[var(--qoreva-success)]">
-              ✓ Morning Review Completed
+              ✓ Crew Review Completed
             </div>
           ) : (
             <button
@@ -3326,8 +3481,8 @@ export default function DailyWsePage() {
               className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving
-                ? "Saving Morning Review..."
-                : "Acknowledge Morning Review"}
+                ? "Saving Crew Review..."
+                : "Complete Crew Review"}
             </button>
           )
         ) : null}
