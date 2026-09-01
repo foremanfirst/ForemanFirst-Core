@@ -3490,212 +3490,317 @@ export default function DailyWsePage() {
 
       <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
         <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-          Worker Acknowledgement
+          Crew Acknowledgement
         </p>
 
-        <h2 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-          Crew Signatures
-        </h2>
+        <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xl font-black text-[var(--qoreva-obsidian)]">
+              Worker Sign-In
+            </h2>
 
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
-          Each worker must personally acknowledge today&apos;s Worker Safety Engagement before signing in.
-        </p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
+              Each worker must personally acknowledge today&apos;s Worker Safety
+              Engagement after the crew review and before performing the covered
+              work.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+              {wse.signatures.length}{" "}
+              Worker
+              {wse.signatures.length === 1
+                ? ""
+                : "s"}{" "}
+              Signed In
+            </span>
+
+            {wse.signatures.length > 0 ? (
+              <span className="inline-flex rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-success)]">
+                Crew Acknowledgements Active
+              </span>
+            ) : null}
+          </div>
+        </div>
 
         {!isCompleted ? (
-          <div className="mt-5 grid gap-4 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 md:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                Worker Name
-              </span>
+          <div className="mt-5 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:p-5">
+            <div className="flex flex-col gap-3 border-b border-[var(--qoreva-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                  Manual Crew Sign-In
+                </p>
 
-              <input
-                value={
-                  workerName
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setWorkerName(
-                    event.target.value,
-                  );
-                  setWorkerIdentityMessage("");
-                }}
-                className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
-                placeholder="Worker full name"
-              />
-            </label>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Foreman-assisted acknowledgement
+                </p>
 
-            <label className="block">
-              <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                Email (optional)
-              </span>
-
-              <input
-                type="email"
-                value={
-                  workerEmail
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setWorkerEmail(
-                    event.target.value,
-                  )
-                }
-                className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
-                placeholder="worker@example.com"
-              />
-            </label>
-
-            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 md:col-span-2">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                    Identity Verification
-                  </p>
-
-                  <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                    Verify the worker before the acknowledgement is signed.
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
-                    Identity verification is not required for this project.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!workerName.trim()) {
-                      setWorkerIdentityMessage(
-                        "Enter the worker name before starting identity verification.",
-                      );
-                      return;
-                    }
-
-                    setWorkerIdentityMessage(
-                      "Identity verification is not required for this project. Continue with the worker acknowledgement.",
-                    );
-                  }}
-                  className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-soft)] px-5 py-3 text-sm font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
-                >
-                  Verify Identity
-                </button>
+                <p className="mt-1 max-w-2xl text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Use this field flow when workers are acknowledging directly
+                  with the foreman or supervisor.
+                </p>
               </div>
 
-              {workerIdentityMessage ? (
-                <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
-                  {workerIdentityMessage}
-                </div>
-              ) : null}
+              <span className="inline-flex w-fit rounded-full border border-[var(--qoreva-border)] bg-white px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                MVP
+              </span>
             </div>
 
-            <label className="flex items-start gap-3 md:col-span-2">
-              <input
-                type="checkbox"
-                checked={
-                  workerAcknowledged
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setWorkerAcknowledged(
-                    event.target
-                      .checked,
-                  )
-                }
-                className="mt-1 h-5 w-5"
-              />
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                  Worker Name
+                </span>
 
-              <span className="text-sm font-bold text-[var(--qoreva-obsidian)]">
-                I participated in today&apos;s Worker Safety Engagement, understand the tasks, hazards and controls discussed, and agree to follow the controls and stop work if conditions change.
-              </span>
-            </label>
+                <input
+                  value={workerName}
+                  onChange={(event) => {
+                    setWorkerName(
+                      event.target.value,
+                    );
 
-            <button
-              type="button"
-              onClick={() =>
-                void addWorkerAcknowledgement()
-              }
-              disabled={
-                signingWorker ||
-                !workerName.trim() ||
-                !workerAcknowledged
-              }
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
-            >
-              {signingWorker
-                ? "Recording Worker Acknowledgement..."
-                : "Acknowledge & Sign In"}
-            </button>
+                    setWorkerIdentityMessage(
+                      "",
+                    );
+                  }}
+                  className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
+                  placeholder="Worker full name"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                  Email (optional)
+                </span>
+
+                <input
+                  type="email"
+                  value={workerEmail}
+                  onChange={(event) =>
+                    setWorkerEmail(
+                      event.target.value,
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
+                  placeholder="worker@example.com"
+                />
+              </label>
+
+              <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 md:col-span-2">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                      Identity Verification
+                    </p>
+
+                    <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Verify identity when the project requires it.
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                      Identity verification is not currently required for this
+                      project. The verification step remains visible so the
+                      workflow can support future project requirements without
+                      changing the acknowledgement process.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        !workerName.trim()
+                      ) {
+                        setWorkerIdentityMessage(
+                          "Enter the worker name before starting identity verification.",
+                        );
+
+                        return;
+                      }
+
+                      setWorkerIdentityMessage(
+                        "Identity verification is not required for this project. Continue with the worker acknowledgement.",
+                      );
+                    }}
+                    className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-soft)] px-5 py-3 text-sm font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
+                  >
+                    Verify Identity
+                  </button>
+                </div>
+
+                {workerIdentityMessage ? (
+                  <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                    {workerIdentityMessage}
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="flex items-start gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    workerAcknowledged
+                  }
+                  onChange={(event) =>
+                    setWorkerAcknowledged(
+                      event.target.checked,
+                    )
+                  }
+                  className="mt-1 h-5 w-5"
+                />
+
+                <span>
+                  <span className="block text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
+                    I personally participated in today&apos;s Worker Safety
+                    Engagement.
+                  </span>
+
+                  <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                    I understand the work, hazards, controls, emergency
+                    expectations, and changes discussed. I will follow the
+                    controls and stop work if conditions become unsafe or no
+                    longer match the plan.
+                  </span>
+                </span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() =>
+                  void addWorkerAcknowledgement()
+                }
+                disabled={
+                  signingWorker ||
+                  !workerName.trim() ||
+                  !workerAcknowledged
+                }
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
+              >
+                {signingWorker
+                  ? "Recording Worker Acknowledgement..."
+                  : "Acknowledge & Sign In"}
+              </button>
+            </div>
           </div>
         ) : null}
 
-        <div className="mt-5 space-y-3">
-          {wse.signatures.length ===
-          0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-5">
-              <p className="text-sm font-bold text-[var(--qoreva-muted)]">
-                No worker acknowledgements captured yet.
+        <div className="mt-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                Today&apos;s Crew
+              </p>
+
+              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                Recorded Worker Acknowledgements
               </p>
             </div>
-          ) : (
-            wse.signatures.map(
-              (
-                signature,
-              ) => (
-                <div
-                  key={
-                    signature.id
-                  }
-                  className="flex flex-col gap-3 rounded-2xl border border-[var(--qoreva-border)] p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-black text-[var(--qoreva-obsidian)]">
-                      {
-                        signature.workerName
-                      }
-                    </p>
 
-                    <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
-                      Signed in{" "}
-                      {formatDateTime(
-                        signature.signedInAt,
-                      )}
-                    </p>
+            <p className="text-xs font-semibold text-[var(--qoreva-muted)]">
+              {wse.signatures.length} acknowledgement
+              {wse.signatures.length === 1
+                ? ""
+                : "s"}{" "}
+              recorded
+            </p>
+          </div>
 
-                    {signature.signedOutAt ? (
-                      <p className="mt-1 text-xs text-[var(--qoreva-muted)]">
-                        Signed out{" "}
-                        {formatDateTime(
-                          signature.signedOutAt,
-                        )}{" "}
-                        • Initials:{" "}
-                        {
-                          signature.signOutInitials
+          <div className="mt-3 space-y-3">
+            {wse.signatures.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-5">
+                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                  No workers have acknowledged this WSE yet.
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                  Worker acknowledgements will appear here as each crew member
+                  signs in.
+                </p>
+              </div>
+            ) : (
+              wse.signatures.map(
+                (signature, index) => (
+                  <div
+                    key={signature.id}
+                    className="flex flex-col gap-4 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-success-soft)] text-sm font-black text-[var(--qoreva-success)]">
+                        ✓
+                      </div>
+
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-black text-[var(--qoreva-obsidian)]">
+                            {signature.workerName}
+                          </p>
+
+                          <span className="rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-success)]">
+                            Acknowledged
+                          </span>
+                        </div>
+
+                        <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
+                          Crew Member {index + 1}
+                          {" • "}
+                          Signed in{" "}
+                          {formatDateTime(
+                            signature.signedInAt,
+                          )}
+                        </p>
+
+                        {signature.signedOutAt ? (
+                          <p className="mt-1 text-xs font-semibold text-[var(--qoreva-muted)]">
+                            Signed out{" "}
+                            {formatDateTime(
+                              signature.signedOutAt,
+                            )}
+                            {" • "}
+                            Initials:{" "}
+                            {signature.signOutInitials}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs font-black text-[var(--qoreva-success)]">
+                            Active on today&apos;s WSE
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {!isCompleted &&
+                    !signature.signedOutAt ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void signWorkerOut(
+                            signature,
+                          )
                         }
-                      </p>
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] px-4 py-2 text-xs font-black text-[var(--qoreva-obsidian)]"
+                      >
+                        Sign Out
+                      </button>
                     ) : null}
                   </div>
+                ),
+              )
+            )}
+          </div>
+        </div>
 
-                  {!isCompleted &&
-                  !signature.signedOutAt ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void signWorkerOut(
-                          signature,
-                        )
-                      }
-                      className="rounded-xl border border-[var(--qoreva-border-strong)] px-4 py-2 text-xs font-black text-[var(--qoreva-obsidian)]"
-                    >
-                      Sign Out
-                    </button>
-                  ) : null}
-                </div>
-              ),
-            )
-          )}
+        <div className="mt-5 rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+            Future Crew QR Workflow
+          </p>
+
+          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+            Future versions can allow workers to scan the Daily WSE QR code on
+            their own device, authenticate their Qoreva identity, review the
+            controlling work information, and personally acknowledge the WSE.
+            Manual foreman-assisted sign-in will remain available as a field
+            fallback.
+          </p>
         </div>
       </section>
 
