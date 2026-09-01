@@ -358,6 +358,14 @@ export default function DailyWsePage() {
     >([]);
 
   const [
+    expandedPtpTaskIds,
+    setExpandedPtpTaskIds,
+  ] =
+    useState<Set<string>>(
+      new Set(),
+    );
+
+  const [
     ptpRevisionRecommended,
     setPtpRevisionRecommended,
   ] =
@@ -2850,63 +2858,187 @@ export default function DailyWsePage() {
             const inheritedFromPtp =
               task.source === "PTP";
 
+            const ptpTaskKey =
+              task.id ||
+              task.sourceWorkStepId ||
+              task.clientId;
+
+            const ptpTaskExpanded =
+              expandedPtpTaskIds.has(
+                ptpTaskKey,
+              );
+
+            if (inheritedFromPtp) {
+              return (
+                <div
+                  key={task.clientId}
+                  className="overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white"
+                >
+                  <div className="p-4 sm:p-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-violet-dark)]">
+                            Approved PTP
+                          </span>
+
+                          {task.safetyCritical ? (
+                            <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
+                              Safety Critical
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="mt-3 text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                          Work Step {index + 1}
+                        </p>
+
+                        <h3 className="mt-1 text-base font-black leading-6 text-[var(--qoreva-obsidian)] sm:text-lg">
+                          {task.taskDescription ||
+                            "Approved work step"}
+                        </h3>
+
+                        <p className="mt-2 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                          Inherited from the approved PTP and locked for today&apos;s WSE.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedPtpTaskIds(
+                            (current) => {
+                              const next =
+                                new Set(
+                                  current,
+                                );
+
+                              if (
+                                next.has(
+                                  ptpTaskKey,
+                                )
+                              ) {
+                                next.delete(
+                                  ptpTaskKey,
+                                );
+                              } else {
+                                next.add(
+                                  ptpTaskKey,
+                                );
+                              }
+
+                              return next;
+                            },
+                          );
+                        }}
+                        className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-2 text-xs font-black text-[var(--qoreva-violet)] transition hover:border-[var(--qoreva-violet)]"
+                        aria-expanded={
+                          ptpTaskExpanded
+                        }
+                      >
+                        {ptpTaskExpanded
+                          ? "Hide Hazards & Controls"
+                          : "View Hazards & Controls"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {ptpTaskExpanded ? (
+                    <div className="border-t border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:p-5">
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                            Approved Hazards
+                          </p>
+
+                          <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                            {task.hazards ||
+                              "No hazards documented on the approved PTP."}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                            Approved Controls
+                          </p>
+
+                          <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                            {task.mitigations ||
+                              "No controls documented on the approved PTP."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {task.safetyCritical ? (
+                        <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-danger)]">
+                            Safety-Critical Work Step
+                          </p>
+
+                          <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                            Safety-critical status is controlled by the approved PTP and cannot be changed from the Daily WSE.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            }
+
             return (
               <div
                 key={task.clientId}
-                className="rounded-2xl border border-[var(--qoreva-border)] p-4"
+                className="rounded-2xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]/30 p-4 sm:p-5"
               >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-black text-[var(--qoreva-obsidian)]">
-                      Work Step {index + 1}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[#9B6212]">
+                        Added Today
+                      </span>
+
+                      {task.safetyCritical ? (
+                        <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
+                          Safety Critical
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <p className="mt-2 text-sm font-black text-[var(--qoreva-obsidian)]">
+                      Additional Work Step
                     </p>
 
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${
-                        inheritedFromPtp
-                          ? "border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]"
-                          : "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
-                      }`}
-                    >
-                      {inheritedFromPtp
-                        ? "Approved PTP"
-                        : "Added Today"}
-                    </span>
-
-                    {task.safetyCritical ? (
-                      <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-danger)]">
-                        Safety Critical
-                      </span>
-                    ) : null}
+                    <p className="mt-1 text-xs leading-5 text-[var(--qoreva-muted)]">
+                      Document work being performed today that was not inherited directly from the approved PTP.
+                    </p>
                   </div>
 
-                  {!inheritedFromPtp ? (
-                    <button
-                      type="button"
-                      disabled={isCompleted}
-                      onClick={() =>
-                        setTasks((current) =>
+                  <button
+                    type="button"
+                    disabled={isCompleted}
+                    onClick={() =>
+                      setTasks(
+                        (current) =>
                           current.filter(
                             (item) =>
-                              item.clientId !== task.clientId,
+                              item.clientId !==
+                              task.clientId,
                           ),
-                        )
-                      }
-                      className="text-xs font-black text-[var(--qoreva-danger)] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Remove
-                    </button>
-                  ) : (
-                    <span className="text-xs font-bold text-[var(--qoreva-muted)]">
-                      Required by approved PTP
-                    </span>
-                  )}
+                      )
+                    }
+                    className="text-xs font-black text-[var(--qoreva-danger)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
                 </div>
 
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   <Field
                     label="Task / Work Sequence"
-                    value={task.taskDescription}
+                    value={
+                      task.taskDescription
+                    }
                     disabled={isCompleted}
                     onChange={(value) =>
                       updateTask(
@@ -2916,7 +3048,7 @@ export default function DailyWsePage() {
                         value,
                       )
                     }
-                    placeholder="What are we doing today?"
+                    placeholder="What additional work are we doing today?"
                   />
 
                   <Field
@@ -2931,12 +3063,14 @@ export default function DailyWsePage() {
                         value,
                       )
                     }
-                    placeholder="Identify today's hazards"
+                    placeholder="Identify hazards for this added work"
                   />
 
                   <Field
                     label="Mitigations / Controls"
-                    value={task.mitigations}
+                    value={
+                      task.mitigations
+                    }
                     disabled={isCompleted}
                     onChange={(value) =>
                       updateTask(
@@ -2946,30 +3080,34 @@ export default function DailyWsePage() {
                         value,
                       )
                     }
-                    placeholder="How are we preventing the injury?"
+                    placeholder="How will these hazards be controlled?"
                   />
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="mt-4 flex flex-col gap-3 rounded-xl border border-[var(--qoreva-border)] bg-white p-4 sm:flex-row sm:items-start sm:justify-between">
                   <label className="flex items-center gap-3">
                     <input
                       type="checkbox"
-                      checked={task.safetyCritical}
-                      disabled={
-                        isCompleted ||
-                        inheritedFromPtp
+                      checked={
+                        task.safetyCritical
                       }
+                      disabled={isCompleted}
                       onChange={(event) =>
-                        setTasks((current) =>
-                          current.map((item) =>
-                            item.clientId === task.clientId
-                              ? {
-                                  ...item,
-                                  safetyCritical:
-                                    event.target.checked,
-                                }
-                              : item,
-                          ),
+                        setTasks(
+                          (current) =>
+                            current.map(
+                              (item) =>
+                                item.clientId ===
+                                task.clientId
+                                  ? {
+                                      ...item,
+                                      safetyCritical:
+                                        event
+                                          .target
+                                          .checked,
+                                    }
+                                  : item,
+                            ),
                         )
                       }
                       className="h-5 w-5"
@@ -2980,15 +3118,9 @@ export default function DailyWsePage() {
                     </span>
                   </label>
 
-                  {inheritedFromPtp ? (
-                    <p className="text-xs font-medium text-[var(--qoreva-muted)]">
-                      Safety-critical status is inherited from the approved PTP and cannot be changed here.
-                    </p>
-                  ) : (
-                    <p className="text-xs font-medium text-[var(--qoreva-muted)]">
-                      Added work is documented in today&apos;s WSE and should be escalated to a PTP revision when it materially changes scope, hazards, controls, or work method.
-                    </p>
-                  )}
+                  <p className="max-w-2xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                    Added work stays linked to today&apos;s WSE. If it materially changes the approved scope, hazards, controls, equipment, conditions, or work method, use Management of Change and review whether the PTP requires revision.
+                  </p>
                 </div>
               </div>
             );
