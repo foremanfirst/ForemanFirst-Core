@@ -120,6 +120,26 @@ type PlanningDocument = {
   };
 };
 
+type PersistedPlanningSourceDocument = {
+  id: string;
+  planningRecordId: string;
+  contractorDocumentId: string | null;
+  sourceType: string;
+  label: string | null;
+  fileName: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+  storageProvider: string | null;
+  storageKey: string | null;
+  storageUrl: string | null;
+  isSelected: boolean;
+  isAiReady: boolean;
+  approvalStatusAtSelection: string | null;
+  reviewStatusAtSelection: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type PlanningRequirementsResponse = {
   project: {
     id: string;
@@ -2377,9 +2397,19 @@ export default function CreatePlanningPage() {
   ] = useState<string[]>([]);
 
   const [
-    planSpecificFiles,
-    setPlanSpecificFiles,
-  ] = useState<File[]>([]);
+    planSpecificDocuments,
+    setPlanSpecificDocuments,
+  ] = useState<PersistedPlanningSourceDocument[]>([]);
+
+  const [
+    planSpecificUploadSaving,
+    setPlanSpecificUploadSaving,
+  ] = useState(false);
+
+  const [
+    planSpecificUploadError,
+    setPlanSpecificUploadError,
+  ] = useState("");
 
   const [scopeTitle, setScopeTitle] =
     useState("");
@@ -3879,15 +3909,16 @@ export default function CreatePlanningPage() {
                   ? ""
                   : "s"
               } selected for planning context.`
-            : planSpecificFiles.length > 0
-              ? `${planSpecificFiles.length} plan-specific supporting file${
-                  planSpecificFiles.length === 1
+            : planSpecificDocuments.length > 0
+              ? `${planSpecificDocuments.length} plan-specific supporting document${
+                  planSpecificDocuments.length === 1
                     ? ""
                     : "s"
-                } staged for this plan; no contractor source documents are selected.`
+                } saved to this Planning draft; no contractor source documents are selected.`
               : "No source documents are selected. The plan may continue using user-entered information, but document intelligence will be limited.",
         status:
-          selectedDocumentIds.length > 0
+          selectedDocumentIds.length > 0 ||
+          planSpecificDocuments.length > 0
             ? "Pass"
             : "Warning",
       });
@@ -3897,7 +3928,7 @@ export default function CreatePlanningPage() {
       activeWorkSteps,
       emergencyPlan,
       highRiskSteps,
-      planSpecificFiles.length,
+      planSpecificDocuments.length,
       planningProgress.criticalUnresolved,
       requiredPermits,
       requiredPpe,
@@ -4246,7 +4277,7 @@ export default function CreatePlanningPage() {
 
     setRequirementsData(null);
     setSelectedDocumentIds([]);
-    setPlanSpecificFiles([]);
+    setPlanSpecificDocuments([]);
     setStepError("");
   }
 
@@ -4473,6 +4504,105 @@ export default function CreatePlanningPage() {
     } finally {
       setRequirementsLoading(false);
       setPlanningDraftSaving(false);
+    }
+  }
+
+  async function uploadPlanSpecificDocuments(
+    files: File[],
+  ) {
+    if (files.length === 0) {
+      return;
+    }
+
+    if (!planningRecordId) {
+      setPlanSpecificUploadError(
+        "Save the Planning draft before adding supporting documents.",
+      );
+      return;
+    }
+
+    setPlanSpecificUploadError("");
+    setPlanSpecificUploadSaving(true);
+
+    try {
+      const formData =
+        new FormData();
+
+      for (const file of files) {
+        formData.append(
+          "files",
+          file,
+        );
+      }
+
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/source-documents`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          documents?: PersistedPlanningSourceDocument[];
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to upload the supporting documents.",
+        );
+      }
+
+      if (
+        !data.documents ||
+        data.documents.length === 0
+      ) {
+        throw new Error(
+          "The supporting documents were uploaded without a source-document record.",
+        );
+      }
+
+      setPlanSpecificDocuments(
+        (current) => {
+          const byId =
+            new Map(
+              current.map(
+                (document) => [
+                  document.id,
+                  document,
+                ],
+              ),
+            );
+
+          for (
+            const document of
+            data.documents ?? []
+          ) {
+            byId.set(
+              document.id,
+              document,
+            );
+          }
+
+          return Array.from(
+            byId.values(),
+          );
+        },
+      );
+    } catch (error) {
+      setPlanSpecificUploadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to upload the supporting documents.",
+      );
+    } finally {
+      setPlanSpecificUploadSaving(
+        false,
+      );
     }
   }
 
@@ -5847,20 +5977,38 @@ export default function CreatePlanningPage() {
           selectedContractorDocumentIds:
             selectedDocumentIds,
 
-          planSpecificFiles:
-            planSpecificFiles.map(
-              (file) => ({
-                name:
-                  file.name,
+          planSpecificDocuments:
+            planSpecificDocuments.map(
+              (document) => ({
+                id:
+                  document.id,
 
-                type:
-                  file.type,
+                sourceType:
+                  document.sourceType,
 
-                size:
-                  file.size,
+                label:
+                  document.label,
 
-                lastModified:
-                  file.lastModified,
+                fileName:
+                  document.fileName,
+
+                mimeType:
+                  document.mimeType,
+
+                fileSize:
+                  document.fileSize,
+
+                storageProvider:
+                  document.storageProvider,
+
+                storageKey:
+                  document.storageKey,
+
+                isSelected:
+                  document.isSelected,
+
+                isAiReady:
+                  document.isAiReady,
               }),
             ),
 
@@ -11403,68 +11551,110 @@ export default function CreatePlanningPage() {
                       </h3>
 
                       <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                        Add drawings, procedures, permits, equipment information, or other files that apply only to this plan. These files are staged locally for now; persistent upload will be connected next.
+                        Add drawings, procedures, permits, equipment information, or other files that apply only to this plan. Uploaded files are saved directly to this Planning draft and retained as part of its source-document history.
                       </p>
                     </div>
 
-                    <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] px-6 py-10 text-center transition hover:border-[rgba(102,87,232,0.32)] hover:bg-[var(--qoreva-violet-faint)]">
+                    <label
+                      className={`mt-5 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] px-6 py-10 text-center transition ${
+                        planSpecificUploadSaving
+                          ? "cursor-wait opacity-70"
+                          : "cursor-pointer hover:border-[rgba(102,87,232,0.32)] hover:bg-[var(--qoreva-violet-faint)]"
+                      }`}
+                    >
                       <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet-soft)] text-lg font-black text-[var(--qoreva-violet-dark)]">
                         +
                       </span>
 
                       <span className="mt-3 text-sm font-black text-[var(--qoreva-obsidian)]">
-                        Add supporting documents
+                        {planSpecificUploadSaving
+                          ? "Saving supporting documents..."
+                          : "Add supporting documents"}
                       </span>
 
                       <span className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
-                        PDF, image, spreadsheet, or other project-supporting file
+                        PDF, JPG, JPEG, or PNG · Maximum 20 MB per file
                       </span>
 
                       <input
                         type="file"
                         multiple
+                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                        disabled={
+                          planSpecificUploadSaving ||
+                          !planningRecordId
+                        }
                         className="sr-only"
                         onChange={(event) => {
-                          const files = Array.from(event.target.files ?? []);
-                          setPlanSpecificFiles((current) => [
-                            ...current,
-                            ...files,
-                          ]);
-                          event.currentTarget.value = "";
+                          const files =
+                            Array.from(
+                              event.target.files ??
+                                [],
+                            );
+
+                          event.currentTarget.value =
+                            "";
+
+                          void uploadPlanSpecificDocuments(
+                            files,
+                          );
                         }}
                       />
                     </label>
 
-                    {planSpecificFiles.length > 0 ? (
+                    {!planningRecordId ? (
+                      <p className="mt-3 text-xs font-black text-[#9B6212]">
+                        Save the Planning assignment before adding supporting documents.
+                      </p>
+                    ) : null}
+
+                    {planSpecificUploadError ? (
+                      <div className="mt-4 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 text-sm font-black text-[var(--qoreva-danger)]">
+                        {planSpecificUploadError}
+                      </div>
+                    ) : null}
+
+                    {planSpecificDocuments.length > 0 ? (
                       <div className="mt-4 grid gap-2">
-                        {planSpecificFiles.map((file, index) => (
-                          <div
-                            key={`${file.name}-${file.size}-${index}`}
-                            className="flex items-center justify-between gap-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-black text-[var(--qoreva-obsidian)]">
-                                {file.name}
-                              </p>
-
-                              <p className="mt-0.5 text-xs font-medium text-[var(--qoreva-muted)]">
-                                {formatFileSize(file.size)}
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPlanSpecificFiles((current) =>
-                                  current.filter((_, fileIndex) => fileIndex !== index),
-                                )
-                              }
-                              className="shrink-0 rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
+                        {planSpecificDocuments.map(
+                          (document) => (
+                            <div
+                              key={document.id}
+                              className="flex items-center justify-between gap-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3"
                             >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-black text-[var(--qoreva-obsidian)]">
+                                  {document.fileName ||
+                                    document.label ||
+                                    "Supporting document"}
+                                </p>
+
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-[var(--qoreva-muted)]">
+                                  <span>
+                                    {document.fileSize !==
+                                    null
+                                      ? formatFileSize(
+                                          document.fileSize,
+                                        )
+                                      : "Size unavailable"}
+                                  </span>
+
+                                  <span>
+                                    ·
+                                  </span>
+
+                                  <span className="font-black text-[var(--qoreva-success)]">
+                                    Saved to Draft
+                                  </span>
+                                </div>
+                              </div>
+
+                              <span className="shrink-0 rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-success)]">
+                                Source
+                              </span>
+                            </div>
+                          ),
+                        )}
                       </div>
                     ) : null}
                   </section>
@@ -15213,7 +15403,7 @@ export default function CreatePlanningPage() {
                         <PreviewField
                           label="Plan-Specific Files"
                           value={String(
-                            planSpecificFiles.length,
+                            planSpecificDocuments.length,
                           )}
                         />
                       </div>
