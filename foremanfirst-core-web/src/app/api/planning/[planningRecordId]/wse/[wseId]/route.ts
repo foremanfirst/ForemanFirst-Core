@@ -776,6 +776,59 @@ export async function PATCH(
         );
       }
 
+      const activeSignedWorkers =
+        signedWorkers.filter(
+          (signature) =>
+            !signature.signedOutAt,
+        );
+
+      if (
+        activeSignedWorkers.length >
+        0
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              "All workers must be signed out before the Daily WSE can be completed and locked.",
+          },
+          {
+            status: 409,
+          },
+        );
+      }
+
+      const blockingMoc =
+        currentWse.mocRecords.find(
+          (moc) =>
+            [
+              "PendingApproval",
+              "Rejected",
+              "RevisionRequired",
+            ].includes(
+              moc.status,
+            ),
+        );
+
+      if (blockingMoc) {
+        const message =
+          blockingMoc.status ===
+          "PendingApproval"
+            ? "A submitted Management of Change is still pending approval. Resolve the MOC before completing the Daily WSE."
+            : blockingMoc.status ===
+                "RevisionRequired"
+              ? "A Management of Change requires revision. Resolve the required revision before completing the Daily WSE."
+              : "A Management of Change was rejected. Resolve the rejected change before completing the Daily WSE.";
+
+        return NextResponse.json(
+          {
+            message,
+          },
+          {
+            status: 409,
+          },
+        );
+      }
+
       const endOfShiftFields = [
         body.endOfShiftIncidentsOrNearMisses,
         body.endOfShiftConditionsChanged,

@@ -661,6 +661,82 @@ export default function DailyWsePage() {
     wse?.status ===
     "Completed";
 
+  const signedWorkers =
+    useMemo(
+      () =>
+        wse?.signatures.filter(
+          (signature) =>
+            signature.acknowledgementStatus ===
+              "Signed" &&
+            Boolean(
+              signature.signedAt,
+            ),
+        ) ?? [],
+      [
+        wse,
+      ],
+    );
+
+  const allWorkersSignedOut =
+    signedWorkers.length >
+      0 &&
+    signedWorkers.every(
+      (signature) =>
+        Boolean(
+          signature.signedOutAt,
+        ),
+    );
+
+  const blockingMoc =
+    useMemo(
+      () =>
+        wse?.mocRecords.find(
+          (moc) =>
+            [
+              "PendingApproval",
+              "Rejected",
+              "RevisionRequired",
+            ].includes(
+              moc.status,
+            ),
+        ) ?? null,
+      [
+        wse,
+      ],
+    );
+
+  const endOfShiftComplete =
+    Object.values(
+      endOfShift,
+    ).every(
+      (value) =>
+        value === true ||
+        value === false,
+    );
+
+  const crewReviewComplete =
+    Boolean(
+      wse?.foremanMorningAcknowledgedAt,
+    );
+
+  const workerAcknowledgementComplete =
+    signedWorkers.length >
+    0;
+
+  const changeReviewComplete =
+    !blockingMoc &&
+    !(
+      wse?.ptpRevisionRecommended ===
+      true
+    );
+
+  const wseReadyForFinalization =
+    crewReviewComplete &&
+    workerAcknowledgementComplete &&
+    allWorkersSignedOut &&
+    changeReviewComplete &&
+    endOfShiftComplete;
+
   async function saveMorningReview() {
     if (!wse) {
       return;
@@ -1721,6 +1797,55 @@ export default function DailyWsePage() {
     ) {
       setError(
         "Answer every end-of-shift debrief question.",
+      );
+      return;
+    }
+
+    if (
+      !crewReviewComplete
+    ) {
+      setError(
+        "Complete the Crew Review before finalizing the Daily WSE.",
+      );
+      return;
+    }
+
+    if (
+      !workerAcknowledgementComplete
+    ) {
+      setError(
+        "At least one worker acknowledgement is required before finalizing the Daily WSE.",
+      );
+      return;
+    }
+
+    if (
+      !allWorkersSignedOut
+    ) {
+      setError(
+        "Sign out all workers before completing and locking the Daily WSE.",
+      );
+      return;
+    }
+
+    if (blockingMoc) {
+      setError(
+        blockingMoc.status ===
+          "PendingApproval"
+          ? "A Management of Change is still pending approval."
+          : blockingMoc.status ===
+              "RevisionRequired"
+            ? "A Management of Change requires revision before this WSE can be completed."
+            : "A rejected Management of Change must be resolved before this WSE can be completed.",
+      );
+      return;
+    }
+
+    if (
+      wse.ptpRevisionRecommended
+    ) {
+      setError(
+        "A controlled PTP revision is required before this Daily WSE can be completed.",
       );
       return;
     }
@@ -4013,8 +4138,132 @@ export default function DailyWsePage() {
         </h2>
 
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--qoreva-muted)]">
-          Finalize the Daily WSE only after the crew acknowledgement, end-of-shift review, and any required follow-up or change documentation are complete.
+          Finalize the Daily WSE only after the crew acknowledgement,
+          end-of-shift review, and any required follow-up or change
+          documentation are complete.
         </p>
+
+        {!isCompleted ? (
+          <div className="mt-5 rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 sm:p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                  WSE Readiness
+                </p>
+
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  Ready to complete and lock?
+                </p>
+              </div>
+
+              <span
+                className={
+                  wseReadyForFinalization
+                    ? "inline-flex w-fit rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-success)]"
+                    : "inline-flex w-fit rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]"
+                }
+              >
+                {wseReadyForFinalization
+                  ? "Ready for Final Sign-Off"
+                  : "Action Required"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {[
+                {
+                  label:
+                    "Crew Review",
+                  detail:
+                    crewReviewComplete
+                      ? "Completed"
+                      : "Complete the Crew Review",
+                  ready:
+                    crewReviewComplete,
+                },
+                {
+                  label:
+                    "Worker Acknowledgement",
+                  detail:
+                    workerAcknowledgementComplete
+                      ? `${signedWorkers.length} worker acknowledgement${signedWorkers.length === 1 ? "" : "s"} recorded`
+                      : "At least one worker acknowledgement required",
+                  ready:
+                    workerAcknowledgementComplete,
+                },
+                {
+                  label:
+                    "Crew Sign-Out",
+                  detail:
+                    allWorkersSignedOut
+                      ? "All acknowledged workers signed out"
+                      : workerAcknowledgementComplete
+                        ? "One or more workers are still active"
+                        : "Waiting for worker acknowledgement",
+                  ready:
+                    allWorkersSignedOut,
+                },
+                {
+                  label:
+                    "Change / MOC Review",
+                  detail:
+                    blockingMoc
+                      ? blockingMoc.status ===
+                          "PendingApproval"
+                        ? "MOC approval pending"
+                        : blockingMoc.status ===
+                            "RevisionRequired"
+                          ? "MOC revision required"
+                          : "Rejected MOC requires resolution"
+                      : wse.ptpRevisionRecommended
+                        ? "Controlled PTP revision required"
+                        : "No blocking change workflow",
+                  ready:
+                    changeReviewComplete,
+                },
+                {
+                  label:
+                    "End-of-Shift Learning",
+                  detail:
+                    endOfShiftComplete
+                      ? "Closeout questions complete"
+                      : "Complete the end-of-shift review",
+                  ready:
+                    endOfShiftComplete,
+                },
+              ].map(
+                (item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-start gap-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3"
+                  >
+                    <div
+                      className={
+                        item.ready
+                          ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-success-soft)] text-xs font-black text-[var(--qoreva-success)]"
+                          : "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--qoreva-border-strong)] bg-white text-xs font-black text-[var(--qoreva-muted)]"
+                      }
+                    >
+                      {item.ready
+                        ? "✓"
+                        : "!"}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                        {item.label}
+                      </p>
+
+                      <p className="mt-1 text-xs font-semibold leading-5 text-[var(--qoreva-muted)]">
+                        {item.detail}
+                      </p>
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {isCompleted ? (
           <div className="mt-5 rounded-2xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] p-4">
@@ -4036,6 +4285,9 @@ export default function DailyWsePage() {
                 type="checkbox"
                 checked={
                   finalAcknowledged
+                }
+                disabled={
+                  !wseReadyForFinalization
                 }
                 onChange={(
                   event,
@@ -4069,6 +4321,7 @@ export default function DailyWsePage() {
               }
               disabled={
                 saving ||
+                !wseReadyForFinalization ||
                 !finalAcknowledged
               }
               className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
