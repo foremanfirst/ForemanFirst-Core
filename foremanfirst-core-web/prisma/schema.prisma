@@ -581,19 +581,20 @@ model PlanningRecord {
   project    Project     @relation(fields: [projectId], references: [id])
   contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
 
-  workSteps              PlanningWorkStep[]
-  activities             PlanningActivity[]
-  questionResponses      PlanningQuestionResponse[]
-  sourceDocuments        PlanningSourceDocument[]
-  revisions              PlanningRevision[]
-  reviews                PlanningReview[]
-  reviewComments         PlanningReviewComment[]
-  approvals              PlanningApproval[]
-  signatures             PlanningSignature[]
-  events                 PlanningEvent[]
-  dailyWseRecords        DailyWorkerSafetyEngagement[]
-  hazardControlDecisions PlanningHazardControlDecision[]
-  hazardControlOverrides PlanningHazardControlOverride[]
+  workSteps               PlanningWorkStep[]
+  activities              PlanningActivity[]
+  questionResponses       PlanningQuestionResponse[]
+  sourceDocuments         PlanningSourceDocument[]
+  revisions               PlanningRevision[]
+  revisionSourceDocuments PlanningRevisionSourceDocument[]
+  reviews                 PlanningReview[]
+  reviewComments          PlanningReviewComment[]
+  approvals               PlanningApproval[]
+  signatures              PlanningSignature[]
+  events                  PlanningEvent[]
+  dailyWseRecords         DailyWorkerSafetyEngagement[]
+  hazardControlDecisions  PlanningHazardControlDecision[]
+  hazardControlOverrides  PlanningHazardControlOverride[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -833,13 +834,67 @@ model PlanningRevision {
 
   createdAt DateTime @default(now())
 
-  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  planningRecord  PlanningRecord                   @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  sourceDocuments PlanningRevisionSourceDocument[]
 
   @@unique([planningRecordId, revisionNumber])
   @@index([tenantId])
   @@index([planningRecordId])
   @@index([revisionNumber])
   @@index([createdAt])
+}
+
+model PlanningRevisionSourceDocument {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId   String
+  planningRevisionId String
+  revisionNumber     Int
+
+  // Snapshot identifiers only.
+  //
+  // These intentionally are not foreign keys back to the
+  // mutable working-document records. Historical evidence
+  // must remain intact if a working source is later replaced,
+  // archived, or removed.
+  sourceDocumentId     String
+  contractorDocumentId String?
+
+  sourceType String
+  label      String?
+
+  fileName        String?
+  mimeType        String?
+  fileSize        Int?
+  storageProvider String?
+  storageKey      String?
+  storageUrl      String?
+
+  // SHA-256 of the file bytes captured at submission.
+  // Used to verify that historical revision evidence
+  // still matches the originally submitted document.
+  contentSha256 String?
+
+  isAiReady Boolean @default(false)
+
+  approvalStatusAtSelection String?
+  reviewStatusAtSelection   String?
+
+  capturedAt DateTime @default(now())
+
+  planningRecord   PlanningRecord   @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  planningRevision PlanningRevision @relation(fields: [planningRevisionId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRevisionId, sourceDocumentId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRevisionId])
+  @@index([revisionNumber])
+  @@index([sourceDocumentId])
+  @@index([contractorDocumentId])
+  @@index([sourceType])
+  @@index([capturedAt])
 }
 
 model PlanningReview {

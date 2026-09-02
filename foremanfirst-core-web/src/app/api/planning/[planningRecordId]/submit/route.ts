@@ -1,9 +1,14 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { resolvePlanningApprovalRouting } from "@/lib/planning/approval-routing";
 import { evaluatePlanningSubmissionReadiness } from "@/lib/planning/submission-readiness";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -1194,6 +1199,323 @@ export async function POST(
             );
           }
 
+          /*
+           * Step 8B.8D — Revision & Audit Protection
+           *
+           * The PlanningRecord has now crossed the controlled
+           * Draft -> Submitted boundary inside this transaction.
+           *
+           * Keep the corresponding PlanningRevision lifecycle
+           * aligned with that same boundary.
+           */
+          const revisionTransition =
+            await tx
+              .planningRevision
+              .updateMany({
+                where: {
+                  id:
+                    revision.id,
+
+                  planningRecordId,
+
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  revisionNumber,
+
+                  status:
+                    "Draft",
+                },
+
+                data: {
+                  status:
+                    "Submitted",
+                },
+              });
+
+          if (
+            revisionTransition.count !==
+            1
+          ) {
+            throw new Error(
+              "SUBMISSION_REVISION_STATE_CONFLICT",
+            );
+          }
+
+          /*
+           * Submitted revision evidence is immutable.
+           *
+           * A snapshot must never silently be replaced once
+           * captured for this controlled revision.
+           */
+          const existingRevisionEvidenceCount =
+            await tx
+              .planningRevisionSourceDocument
+              .count({
+                where: {
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  planningRecordId,
+
+                  planningRevisionId:
+                    revision.id,
+
+                  revisionNumber,
+                },
+              });
+
+          if (
+            existingRevisionEvidenceCount >
+            0
+          ) {
+            throw new Error(
+              "SUBMISSION_REVISION_EVIDENCE_CONFLICT",
+            );
+          }
+
+          /*
+           * Read the authoritative selected-source records from
+           * the database rather than trusting source metadata
+           * supplied by the browser revision snapshot.
+           */
+          const selectedSourceDocuments =
+            await tx
+              .planningSourceDocument
+              .findMany({
+                where: {
+                  tenantId:
+                    existingRecord
+                      .tenantId,
+
+                  planningRecordId,
+
+                  isSelected:
+                    true,
+                },
+
+                orderBy: {
+                  createdAt:
+                    "asc",
+                },
+
+                select: {
+                  id: true,
+                  contractorDocumentId:
+                    true,
+
+                  sourceType:
+                    true,
+                  label:
+                    true,
+
+                  fileName:
+                    true,
+                  mimeType:
+                    true,
+                  fileSize:
+                    true,
+
+                  storageProvider:
+                    true,
+                  storageKey:
+                    true,
+                  storageUrl:
+                    true,
+
+                  isAiReady:
+                    true,
+
+                  approvalStatusAtSelection:
+                    true,
+                  reviewStatusAtSelection:
+                    true,
+                },
+              });
+
+          const storageRoot =
+            path.resolve(
+              process.cwd(),
+              "storage",
+            );
+
+          const revisionEvidence =
+            await Promise.all(
+              selectedSourceDocuments.map(
+                async (
+                  sourceDocument,
+                ) => {
+                  let contentSha256:
+                    | string
+                    | null =
+                    null;
+
+                  /*
+                   * Local evidence can be cryptographically
+                   * verified at submission.
+                   *
+                   * If a local source claims to have a stored
+                   * file, that file must exist and remain inside
+                   * the configured storage root. Otherwise the
+                   * PTP must not become an official submitted
+                   * revision with unverifiable evidence.
+                   */
+                  if (
+                    sourceDocument
+                      .storageProvider ===
+                    "local"
+                  ) {
+                    if (
+                      !sourceDocument
+                        .storageKey
+                    ) {
+                      throw new Error(
+                        "SUBMISSION_SOURCE_DOCUMENT_STORAGE_KEY_MISSING",
+                      );
+                    }
+
+                    const absoluteFilePath =
+                      path.resolve(
+                        storageRoot,
+                        sourceDocument
+                          .storageKey,
+                      );
+
+                    const relativePath =
+                      path.relative(
+                        storageRoot,
+                        absoluteFilePath,
+                      );
+
+                    const pointsOutsideStorage =
+                      relativePath
+                        .startsWith(
+                          "..",
+                        ) ||
+                      path.isAbsolute(
+                        relativePath,
+                      );
+
+                    if (
+                      pointsOutsideStorage
+                    ) {
+                      throw new Error(
+                        "SUBMISSION_SOURCE_DOCUMENT_STORAGE_PATH_INVALID",
+                      );
+                    }
+
+                    let fileBuffer:
+                      Buffer;
+
+                    try {
+                      fileBuffer =
+                        await readFile(
+                          absoluteFilePath,
+                        );
+                    } catch {
+                      throw new Error(
+                        "SUBMISSION_SOURCE_DOCUMENT_FILE_MISSING",
+                      );
+                    }
+
+                    contentSha256 =
+                      createHash(
+                        "sha256",
+                      )
+                        .update(
+                          fileBuffer,
+                        )
+                        .digest(
+                          "hex",
+                        );
+                  }
+
+                  return {
+                    tenantId:
+                      existingRecord
+                        .tenantId,
+
+                    planningRecordId,
+
+                    planningRevisionId:
+                      revision.id,
+
+                    revisionNumber,
+
+                    sourceDocumentId:
+                      sourceDocument.id,
+
+                    contractorDocumentId:
+                      sourceDocument
+                        .contractorDocumentId,
+
+                    sourceType:
+                      sourceDocument
+                        .sourceType,
+
+                    label:
+                      sourceDocument
+                        .label,
+
+                    fileName:
+                      sourceDocument
+                        .fileName,
+
+                    mimeType:
+                      sourceDocument
+                        .mimeType,
+
+                    fileSize:
+                      sourceDocument
+                        .fileSize,
+
+                    storageProvider:
+                      sourceDocument
+                        .storageProvider,
+
+                    storageKey:
+                      sourceDocument
+                        .storageKey,
+
+                    storageUrl:
+                      sourceDocument
+                        .storageUrl,
+
+                    contentSha256,
+
+                    isAiReady:
+                      sourceDocument
+                        .isAiReady,
+
+                    approvalStatusAtSelection:
+                      sourceDocument
+                        .approvalStatusAtSelection,
+
+                    reviewStatusAtSelection:
+                      sourceDocument
+                        .reviewStatusAtSelection,
+
+                    capturedAt:
+                      submittedAt,
+                  };
+                },
+              ),
+            );
+
+          if (
+            revisionEvidence.length >
+            0
+          ) {
+            await tx
+              .planningRevisionSourceDocument
+              .createMany({
+                data:
+                  revisionEvidence,
+              });
+          }
+
           const record =
             await tx
               .planningRecord
@@ -1382,6 +1704,75 @@ export async function POST(
                         }),
                       ),
 
+                  revisionEvidenceCount:
+                    revisionEvidence
+                      .length,
+
+                  revisionEvidenceCapturedAt:
+                    submittedAt,
+
+                  revisionEvidence:
+                    revisionEvidence
+                      .map(
+                        (
+                          evidence,
+                        ) => ({
+                          sourceDocumentId:
+                            evidence
+                              .sourceDocumentId,
+
+                          contractorDocumentId:
+                            evidence
+                              .contractorDocumentId,
+
+                          sourceType:
+                            evidence
+                              .sourceType,
+
+                          label:
+                            evidence
+                              .label,
+
+                          fileName:
+                            evidence
+                              .fileName,
+
+                          mimeType:
+                            evidence
+                              .mimeType,
+
+                          fileSize:
+                            evidence
+                              .fileSize,
+
+                          storageProvider:
+                            evidence
+                              .storageProvider,
+
+                          contentSha256:
+                            evidence
+                              .contentSha256,
+
+                          hasContentHash:
+                            Boolean(
+                              evidence
+                                .contentSha256,
+                            ),
+
+                          approvalStatusAtSelection:
+                            evidence
+                              .approvalStatusAtSelection,
+
+                          reviewStatusAtSelection:
+                            evidence
+                              .reviewStatusAtSelection,
+
+                          capturedAt:
+                            evidence
+                              .capturedAt,
+                        }),
+                      ),
+
                   applicableRequirementPackCount:
                     approvalRouting
                       .applicablePacks
@@ -1458,6 +1849,10 @@ export async function POST(
             approvals,
           };
         },
+        {
+          maxWait: 5_000,
+          timeout: 15_000,
+        },
       );
 
     return NextResponse.json({
@@ -1493,6 +1888,59 @@ export async function POST(
         {
           message:
             "The planning record changed while it was being submitted. Refresh and try again.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "SUBMISSION_REVISION_STATE_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The active planning revision changed while the record was being submitted. Refresh and try again.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "SUBMISSION_REVISION_EVIDENCE_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Immutable evidence has already been captured for this planning revision.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      [
+        "SUBMISSION_SOURCE_DOCUMENT_STORAGE_KEY_MISSING",
+        "SUBMISSION_SOURCE_DOCUMENT_STORAGE_PATH_INVALID",
+        "SUBMISSION_SOURCE_DOCUMENT_FILE_MISSING",
+      ].includes(
+        error.message,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "One or more selected planning source documents could not be verified. Confirm the supporting documents are available before submitting.",
         },
         {
           status: 409,
