@@ -131,6 +131,16 @@ export async function GET(
           storageUrl: true,
 
           isSelected: true,
+
+          aiProcessingStatus:
+            true,
+
+          aiDocumentType:
+            true,
+
+          aiConfidence:
+            true,
+
           isAiReady: true,
 
           approvalStatusAtSelection:
@@ -473,9 +483,26 @@ export async function POST(
 
                   /*
                    * Upload persistence does not
-                   * imply AI extraction or
+                   * imply AI extraction,
+                   * human confirmation, or
                    * requirements ingestion has
                    * occurred.
+                   */
+                  aiProcessingStatus:
+                    "Not Started",
+
+                  aiDocumentType:
+                    null,
+
+                  aiConfidence:
+                    null,
+
+                  /*
+                   * extractedData and confirmedData
+                   * intentionally remain unset until
+                   * document intelligence processing
+                   * and qualified-user confirmation
+                   * occur.
                    */
                   isAiReady:
                     false,
@@ -485,6 +512,49 @@ export async function POST(
 
                   reviewStatusAtSelection:
                     null,
+                },
+
+                /*
+                 * Generic upload responses expose document
+                 * lifecycle metadata only. AI extraction and
+                 * confirmed intelligence require a dedicated
+                 * controlled review endpoint.
+                 */
+                select: {
+                  id: true,
+                  planningRecordId: true,
+                  contractorDocumentId:
+                    true,
+
+                  sourceType: true,
+                  label: true,
+
+                  fileName: true,
+                  mimeType: true,
+                  fileSize: true,
+
+                  storageProvider:
+                    true,
+                  storageKey: true,
+                  storageUrl: true,
+
+                  isSelected: true,
+
+                  aiProcessingStatus:
+                    true,
+                  aiDocumentType:
+                    true,
+                  aiConfidence:
+                    true,
+                  isAiReady: true,
+
+                  approvalStatusAtSelection:
+                    true,
+                  reviewStatusAtSelection:
+                    true,
+
+                  createdAt: true,
+                  updatedAt: true,
                 },
               });
 
@@ -544,6 +614,12 @@ export async function POST(
 
                   storageProvider:
                     document.storageProvider,
+
+                  aiProcessingStatus:
+                    document.aiProcessingStatus,
+
+                  isAiReady:
+                    document.isAiReady,
                 },
               },
             });

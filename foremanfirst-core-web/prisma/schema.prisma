@@ -800,7 +800,21 @@ model PlanningSourceDocument {
   storageUrl      String?
 
   isSelected Boolean @default(true)
-  isAiReady  Boolean @default(false)
+
+  /**
+   * Document-intelligence lifecycle.
+   * AI extraction is advisory only. extractedData may contain
+   * machine-generated candidates, while confirmedData represents
+   * information explicitly reviewed/confirmed by a qualified user.
+   * isAiReady remains the simple downstream eligibility flag for
+   * Planning, Requirements Intelligence, and future Assistant use.
+   */
+  aiProcessingStatus String   @default("Not Started")
+  aiDocumentType     String?
+  aiConfidence       Decimal? @db.Decimal(5, 4)
+  extractedData      Json?
+  confirmedData      Json?
+  isAiReady          Boolean  @default(false)
 
   approvalStatusAtSelection String?
   reviewStatusAtSelection   String?

@@ -1759,6 +1759,10 @@ export async function POST(
                                 .contentSha256,
                             ),
 
+                          isAiReady:
+                            evidence
+                              .isAiReady,
+
                           approvalStatusAtSelection:
                             evidence
                               .approvalStatusAtSelection,

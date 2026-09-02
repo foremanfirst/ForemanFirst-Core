@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 
 import {
+  isAiProcessingReady,
+} from "@/lib/planning/document-intelligence";
+
+import {
   resolveApplicablePlanningRequirements,
 } from "@/lib/planning/requirement-resolver";
 
@@ -525,48 +529,103 @@ export async function buildPlanningGenerationContext(
     requirements,
 
     sourceDocuments:
-      record.sourceDocuments
-        .filter(
-          (source) =>
-            Boolean(
-              source.contractorDocument,
-            ),
-        )
-        .map((source) => {
-          const document =
-            source.contractorDocument!;
+      record.sourceDocuments.map(
+        (source) => {
+          const contractorDocument =
+            source.contractorDocument;
 
+          /*
+           * PlanningSourceDocument is the authoritative
+           * Planning-level source reference.
+           *
+           * Contractor documents retain their own document-
+           * intelligence lifecycle. Direct Planning uploads
+           * use the lifecycle stored directly on the
+           * PlanningSourceDocument.
+           *
+           * AI-generated extraction is never treated as
+           * confirmed safety information merely because a
+           * document is present in this context.
+           */
           return {
             id:
-              document.id,
+              source.id,
+
+            sourceType:
+              source.sourceType,
+
+            label:
+              source.label,
+
+            contractorDocumentId:
+              source.contractorDocumentId,
 
             documentType:
-              document.documentType,
+              contractorDocument
+                ?.documentType ??
+              source.aiDocumentType ??
+              null,
 
             documentName:
-              document.documentName,
+              contractorDocument
+                ?.documentName ??
+              source.label ??
+              source.fileName ??
+              null,
 
             fileName:
-              document.fileName,
+              source.fileName ??
+              contractorDocument
+                ?.fileName ??
+              null,
+
+            mimeType:
+              source.mimeType ??
+              contractorDocument
+                ?.mimeType ??
+              null,
 
             approvalStatus:
-              document.approvalStatus,
+              contractorDocument
+                ?.approvalStatus ??
+              source
+                .approvalStatusAtSelection ??
+              null,
 
             reviewStatus:
-              document.reviewStatus,
+              contractorDocument
+                ?.reviewStatus ??
+              source
+                .reviewStatusAtSelection ??
+              null,
 
             aiProcessingStatus:
-              document.aiProcessingStatus,
+              contractorDocument
+                ?.aiProcessingStatus ??
+              source.aiProcessingStatus,
 
             aiDocumentType:
-              document.aiDocumentType,
+              contractorDocument
+                ?.aiDocumentType ??
+              source.aiDocumentType,
 
             aiConfidence:
               decimalToNumber(
-                document.aiConfidence,
+                contractorDocument
+                  ?.aiConfidence ??
+                source.aiConfidence,
               ),
+
+            isAiReady:
+              contractorDocument
+                ? isAiProcessingReady(
+                    contractorDocument
+                      .aiProcessingStatus,
+                  )
+                : source.isAiReady,
           };
-        }),
+        },
+      ),
 
     hazardControlDecisions:
       activeHazardControlDecisions.map(

@@ -5201,7 +5201,7 @@ function buildReviewFlags(
         "No selected planning source documents",
 
       detail:
-        "No selected contractor source documents are currently attached to the generation context.",
+        "No selected planning source documents are currently attached to the generation context.",
 
       severity:
         "Info",

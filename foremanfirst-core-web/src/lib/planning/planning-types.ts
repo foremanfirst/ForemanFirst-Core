@@ -45,14 +45,25 @@ export type PlanningRequirementContext = {
 
 export type PlanningSourceDocumentContext = {
   id: string;
-  documentType: string;
-  documentName: string;
-  fileName: string;
-  approvalStatus: string;
-  reviewStatus: string;
+  sourceType: string;
+  label: string | null;
+
+  contractorDocumentId: string | null;
+
+  documentType: string | null;
+  documentName: string | null;
+
+  fileName: string | null;
+  mimeType: string | null;
+
+  approvalStatus: string | null;
+  reviewStatus: string | null;
+
   aiProcessingStatus: string;
   aiDocumentType: string | null;
   aiConfidence: number | null;
+
+  isAiReady: boolean;
 };
 
 export type PlanningHazardControlDecisionType =
