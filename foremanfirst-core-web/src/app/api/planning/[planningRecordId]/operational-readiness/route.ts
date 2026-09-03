@@ -6,6 +6,11 @@ import {
   evaluatePlanningOperationalReadiness,
 } from "@/lib/planning/operational-readiness";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
 export const dynamic =
   "force-dynamic";
 
@@ -24,6 +29,10 @@ export async function GET(
       planningRecordId,
     } = await context.params;
 
+    await requireAuthorizedPlanningReader(
+      planningRecordId,
+    );
+
     const readiness =
       await evaluatePlanningOperationalReadiness(
         planningRecordId,
@@ -33,6 +42,22 @@ export async function GET(
       readiness,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     if (
       error instanceof Error &&
       error.message ===
