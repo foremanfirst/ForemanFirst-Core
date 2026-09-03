@@ -127,6 +127,69 @@ type PlanningRecord = {
 };
 
 
+type OperationalReadiness = {
+  state:
+    | "PlanningIncomplete"
+    | "SubmissionSetupRequired"
+    | "AwaitingApproval"
+    | "RevisionRequired"
+    | "ReadyForFinalization"
+    | "ApprovedNotYetEffective"
+    | "ReadyForFieldUse"
+    | "Expired"
+    | "Closed";
+
+  severity:
+    | "Ready"
+    | "Attention"
+    | "Blocked"
+    | "Informational";
+
+  headline: string;
+  message: string;
+
+  blockers: Array<{
+    code: string;
+    message: string;
+  }>;
+
+  nextAction: {
+    code:
+      | "CONTINUE_PLANNING"
+      | "COMPLETE_PRE_SUBMISSION_REVIEW"
+      | "CONFIGURE_APPROVALS"
+      | "SUBMIT_FOR_REVIEW"
+      | "VIEW_APPROVALS"
+      | "START_REVISION"
+      | "WAIT_FOR_EFFECTIVE_DATE"
+      | "FINALIZE_PTP"
+      | "START_DAILY_WSE"
+      | "NONE";
+
+    label: string;
+  };
+
+  submission: {
+    compliance: {
+      evaluated: boolean;
+      ready: boolean | null;
+      blockerCount: number | null;
+    };
+    ready: boolean;
+    setupRequired: boolean;
+  };
+
+  fieldUse: {
+    ready: boolean;
+    effectiveToday: boolean;
+  };
+
+  metadata: {
+    workflowVersion: string;
+    serverAuthoritative: boolean;
+  };
+};
+
 type ReviewWorkItem = {
   planningRecord: {
     id: string;
@@ -273,6 +336,13 @@ export default function PlanningRecordPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  const [operationalReadiness, setOperationalReadiness] =
+    useState<OperationalReadiness | null>(null);
+  const [operationalReadinessLoading, setOperationalReadinessLoading] =
+    useState(false);
+  const [operationalReadinessError, setOperationalReadinessError] =
+    useState("");
+
   const [reviewWorkItem, setReviewWorkItem] =
     useState<ReviewWorkItem | null>(null);
   const [reviewWorkItemLoading, setReviewWorkItemLoading] =
@@ -319,6 +389,49 @@ export default function PlanningRecordPage() {
   const [wseWorkLocation, setWseWorkLocation] =
     useState("");
 
+
+  async function loadOperationalReadiness(
+    recordId: string,
+  ) {
+    setOperationalReadinessLoading(true);
+    setOperationalReadinessError("");
+
+    try {
+      const response = await fetch(
+        `/api/planning/${recordId}/operational-readiness`,
+        { cache: "no-store" },
+      );
+
+      const data =
+        (await response.json()) as {
+          readiness?: OperationalReadiness;
+          message?: string;
+        };
+
+      if (
+        !response.ok ||
+        !data.readiness
+      ) {
+        throw new Error(
+          data.message ||
+            "Unable to load operational readiness.",
+        );
+      }
+
+      setOperationalReadiness(
+        data.readiness,
+      );
+    } catch (error) {
+      setOperationalReadiness(null);
+      setOperationalReadinessError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load operational readiness.",
+      );
+    } finally {
+      setOperationalReadinessLoading(false);
+    }
+  }
 
   async function loadReviewWorkItem(
     recordId: string,
@@ -392,6 +505,10 @@ export default function PlanningRecordPage() {
       }
 
       setRecord(data.record);
+
+      await loadOperationalReadiness(
+        data.record.id,
+      );
 
       if (
         data.record.status === "Submitted" ||
@@ -1111,6 +1228,89 @@ export default function PlanningRecordPage() {
             />
           </div>
         )}
+      </section>
+
+      <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+              Planning Readiness
+            </p>
+
+            {operationalReadinessLoading ? (
+              <>
+                <h2 className="mt-2 text-xl font-black text-[var(--qoreva-obsidian)]">
+                  Checking readiness…
+                </h2>
+                <p className="mt-1 text-sm font-medium text-[var(--qoreva-muted)]">
+                  Qoreva is checking the current Planning workflow state.
+                </p>
+              </>
+            ) : operationalReadiness ? (
+              <>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-black text-[var(--qoreva-obsidian)]">
+                    {operationalReadiness.headline}
+                  </h2>
+
+                  <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                    {operationalReadiness.severity}
+                  </span>
+                </div>
+
+                <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                  {operationalReadiness.message}
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="mt-2 text-xl font-black text-[var(--qoreva-obsidian)]">
+                  Readiness unavailable
+                </h2>
+                <p className="mt-1 text-sm font-medium text-[var(--qoreva-muted)]">
+                  {operationalReadinessError ||
+                    "Unable to determine the current Planning readiness state."}
+                </p>
+              </>
+            )}
+          </div>
+
+          {operationalReadiness &&
+          operationalReadiness.nextAction.code !== "NONE" ? (
+            <div className="shrink-0 rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                Next Action
+              </p>
+              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                {operationalReadiness.nextAction.label}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {operationalReadiness &&
+        operationalReadiness.blockers.length > 0 ? (
+          <div className="mt-5 border-t border-[var(--qoreva-border)] pt-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
+              Needs Attention
+            </p>
+
+            <div className="mt-3 grid gap-2">
+              {operationalReadiness.blockers.map(
+                (blocker) => (
+                  <div
+                    key={blocker.code}
+                    className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3"
+                  >
+                    <p className="text-sm font-bold leading-6 text-[var(--qoreva-text)]">
+                      {blocker.message}
+                    </p>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
