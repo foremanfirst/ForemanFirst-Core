@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 
 import {
+  QorevaAuthenticationError,
   requireCurrentUser,
   type QorevaCurrentUser,
 } from "@/lib/auth/current-user";
@@ -44,8 +45,24 @@ export type AuthorizedPlanningEditor = {
 export async function requireAuthorizedPlanningEditor(
   planningRecordId: string,
 ): Promise<AuthorizedPlanningEditor> {
-  const user =
-    await requireCurrentUser();
+  let user: QorevaCurrentUser;
+
+  try {
+    user =
+      await requireCurrentUser();
+  } catch (error) {
+    if (
+      error instanceof
+        QorevaAuthenticationError
+    ) {
+      throw new PlanningEditorAuthorizationError(
+        error.message,
+        401,
+      );
+    }
+
+    throw error;
+  }
 
   const record =
     await prisma.planningRecord.findFirst({

@@ -6,6 +6,11 @@ import {
   requireAuthorizedPlanningReader,
 } from "@/lib/planning/planning-reader-authorization";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -285,6 +290,11 @@ export async function PATCH(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -292,6 +302,10 @@ export async function PATCH(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
 
@@ -324,11 +338,17 @@ export async function PATCH(
     }
 
     const tenantId =
+      authorization.planningRecord.tenantId;
+
+    const requestedTenantId =
       toNullableString(
         body.tenantId,
-      ) ?? existing.tenantId;
+      );
 
-    if (tenantId !== existing.tenantId) {
+    if (
+      requestedTenantId &&
+      requestedTenantId !== tenantId
+    ) {
       return NextResponse.json(
         {
           message:
@@ -425,6 +445,45 @@ export async function PATCH(
           status: 404,
         },
       );
+    }
+
+    if (
+      projectId !==
+        authorization.planningRecord.projectId
+    ) {
+      const targetProjectMembership =
+        await prisma.projectMembership.findFirst({
+          where: {
+            tenantId,
+            projectId,
+            tenantMembershipId:
+              authorization.membership.tenantMembershipId,
+            isActive: true,
+          },
+
+          select: {
+            canCreatePlanning: true,
+            canManagePlanning: true,
+          },
+        });
+
+      if (
+        !targetProjectMembership ||
+        (
+          !targetProjectMembership.canCreatePlanning &&
+          !targetProjectMembership.canManagePlanning
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              "You are not authorized to create or manage planning records on the selected project.",
+          },
+          {
+            status: 403,
+          },
+        );
+      }
     }
 
     if (contractorId && !contractor) {
@@ -573,6 +632,14 @@ export async function PATCH(
     const statusChanged =
       nextStatus !== existing.status;
 
+    const actorName =
+      authorization.user.displayName;
+
+    const actorRole =
+      authorization.membership.roleCodes.join(
+        ", ",
+      ) || "Planning Editor";
+
     if (statusChanged) {
       const allowedNextStatuses =
         allowedLifecycleTransitions[
@@ -591,28 +658,6 @@ export async function PATCH(
           },
           {
             status: 409,
-          },
-        );
-      }
-
-      const actorName =
-        toNullableString(
-          body.updatedByName,
-        );
-
-      const actorRole =
-        toNullableString(
-          body.updatedByRole,
-        );
-
-      if (!actorName || !actorRole) {
-        return NextResponse.json(
-          {
-            message:
-              "Reviewer/actor name and role are required for lifecycle status changes.",
-          },
-          {
-            status: 400,
           },
         );
       }
@@ -763,6 +808,7 @@ export async function PATCH(
             await tx.planningRecord.update({
               where: {
                 id: planningRecordId,
+                tenantId,
               },
 
               data: {
@@ -957,12 +1003,7 @@ export async function PATCH(
                     : undefined,
 
                 updatedBy:
-                  body.updatedBy !==
-                  undefined
-                    ? toNullableString(
-                        body.updatedBy,
-                      )
-                    : undefined,
+                  authorization.user.id,
               },
 
               include: {
@@ -1013,19 +1054,11 @@ export async function PATCH(
                   existing.revisionNumber,
 
                 actorId:
-                  toNullableString(
-                    body.updatedBy,
-                  ),
+                  authorization.user.id,
 
-                actorName:
-                  toNullableString(
-                    body.updatedByName,
-                  ),
+                actorName,
 
-                actorRole:
-                  toNullableString(
-                    body.updatedByRole,
-                  ),
+                actorRole,
 
                 comment:
                   toNullableString(
@@ -1058,6 +1091,22 @@ export async function PATCH(
       record,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to update planning record:",
       error,
