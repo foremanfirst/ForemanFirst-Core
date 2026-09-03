@@ -10,6 +10,10 @@ import {
   requireAuthorizedPlanningFinalizer,
 } from "@/lib/planning/planning-finalizer-authorization";
 
+import {
+  evaluatePlanningFinalizationReadiness,
+} from "@/lib/planning/finalization-readiness";
+
 export const dynamic =
   "force-dynamic";
 
@@ -166,356 +170,57 @@ export async function POST(
           }
 
           /*
-           * Confirm the formal revision record
-           * exists for the exact revision being
-           * finalized.
-           */
-          const revision =
-            await tx.planningRevision.findUnique(
-              {
-                where: {
-                  planningRecordId_revisionNumber:
-                    {
-                      planningRecordId:
-                        currentRecord.id,
-
-                      revisionNumber:
-                        currentRecord
-                          .revisionNumber,
-                    },
-                },
-
-                select: {
-                  id: true,
-                  tenantId: true,
-                  planningRecordId:
-                    true,
-                  revisionNumber:
-                    true,
-                  status: true,
-                },
-              },
-            );
-
-          if (!revision) {
-            return finalizationError(
-              409,
-              "The current planning revision snapshot could not be found.",
-            );
-          }
-
-          if (
-            revision.tenantId !==
-            currentRecord.tenantId
-          ) {
-            return finalizationError(
-              409,
-              "The planning revision does not belong to the current tenant.",
-            );
-          }
-
-          /*
-           * Effective dates are part of the
-           * controlled planning record.
+           * Evaluate the exact current revision
+           * using the canonical server-side
+           * finalization readiness service.
            *
-           * A finalized PTP must have both
-           * boundaries defined.
+           * Passing tx keeps every readiness
+           * query inside this same transaction.
+           *
+           * Authorization and revision-race
+           * protection remain separate above.
            */
+          const finalizationReadiness =
+            await evaluatePlanningFinalizationReadiness(
+              currentRecord.id,
+              tx,
+            );
+
           if (
-            !currentRecord
-              .effectiveStartDate ||
-            !currentRecord
-              .effectiveEndDate
+            !finalizationReadiness.ready
           ) {
+            const blocker =
+              finalizationReadiness
+                .blockers[0];
+
             return finalizationError(
               409,
-              "Effective start and end dates are required before this PTP can be finalized.",
+              blocker?.message ??
+                "This PTP is not ready for finalization.",
             );
           }
 
-          if (
+          /*
+           * Readiness guarantees both effective
+           * dates exist. Keep a local invariant
+           * assertion so TypeScript and future
+           * refactors cannot accidentally use
+           * nullable dates in the success path.
+           */
+          const effectiveStartDate =
             currentRecord
-              .effectiveEndDate <
+              .effectiveStartDate;
+
+          const effectiveEndDate =
             currentRecord
-              .effectiveStartDate
-          ) {
-            return finalizationError(
-              409,
-              "The effective end date cannot be earlier than the effective start date.",
-            );
-          }
-
-          /*
-           * Load every approval belonging to
-           * this exact submitted revision.
-           */
-          const approvals =
-            await tx.planningApproval.findMany(
-              {
-                where: {
-                  tenantId:
-                    currentRecord
-                      .tenantId,
-
-                  planningRecordId:
-                    currentRecord.id,
-
-                  revisionNumber:
-                    currentRecord
-                      .revisionNumber,
-                },
-
-                orderBy: [
-                  {
-                    sortOrder:
-                      "asc",
-                  },
-                  {
-                    createdAt:
-                      "asc",
-                  },
-                ],
-              },
-            );
-
-          const requiredApprovals =
-            approvals.filter(
-              (approval) =>
-                approval.isRequired,
-            );
+              .effectiveEndDate;
 
           if (
-            requiredApprovals.length ===
-            0
+            !effectiveStartDate ||
+            !effectiveEndDate
           ) {
-            return finalizationError(
-              409,
-              "At least one required approval must exist before this PTP can be finalized.",
-            );
-          }
-
-          /*
-           * Any blocking decision on the
-           * current revision prevents
-           * finalization.
-           */
-          const blockingApproval =
-            approvals.find(
-              (approval) =>
-                approval.status ===
-                  "RevisionRequired" ||
-                approval.status ===
-                  "Rejected",
-            );
-
-          if (blockingApproval) {
-            return finalizationError(
-              409,
-              `This PTP cannot be finalized because ${blockingApproval.roleLabel} has a blocking review decision.`,
-            );
-          }
-
-          const incompleteApproval =
-            requiredApprovals.find(
-              (approval) =>
-                approval.status !==
-                "Approved",
-            );
-
-          if (incompleteApproval) {
-            return finalizationError(
-              409,
-              `Required approval from ${incompleteApproval.roleLabel} is not complete.`,
-            );
-          }
-
-          /*
-           * Every approval that requires a
-           * signature must reference captured
-           * signature evidence.
-           */
-          const missingSignatureLink =
-            requiredApprovals.find(
-              (approval) =>
-                approval
-                  .signatureRequired &&
-                !approval
-                  .planningSignatureId,
-            );
-
-          if (missingSignatureLink) {
-            return finalizationError(
-              409,
-              `Required signature evidence is missing for ${missingSignatureLink.roleLabel}.`,
-            );
-          }
-
-          const signatureIds =
-            requiredApprovals
-              .filter(
-                (approval) =>
-                  approval
-                    .signatureRequired,
-              )
-              .map(
-                (approval) =>
-                  approval
-                    .planningSignatureId,
-              )
-              .filter(
-                (
-                  signatureId,
-                ): signatureId is string =>
-                  Boolean(
-                    signatureId,
-                  ),
-              );
-
-          /*
-           * Validate the actual signature rows,
-           * not merely the foreign-key-like ID
-           * stored on PlanningApproval.
-           */
-          const signatures =
-            signatureIds.length > 0
-              ? await tx.planningSignature.findMany(
-                  {
-                    where: {
-                      id: {
-                        in:
-                          signatureIds,
-                      },
-
-                      tenantId:
-                        currentRecord
-                          .tenantId,
-
-                      planningRecordId:
-                        currentRecord.id,
-
-                      revisionNumber:
-                        currentRecord
-                          .revisionNumber,
-                    },
-
-                    select: {
-                      id: true,
-                      status: true,
-                      signedAt: true,
-                      signerId: true,
-                      signerName: true,
-                      role: true,
-                      revisionNumber:
-                        true,
-                    },
-                  },
-                )
-              : [];
-
-          const signatureById =
-            new Map(
-              signatures.map(
-                (signature) => [
-                  signature.id,
-                  signature,
-                ],
-              ),
-            );
-
-          for (
-            const approval of
-            requiredApprovals
-          ) {
-            if (
-              !approval
-                .signatureRequired
-            ) {
-              continue;
-            }
-
-            const signatureId =
-              approval
-                .planningSignatureId;
-
-            if (!signatureId) {
-              return finalizationError(
-                409,
-                `Required signature evidence is missing for ${approval.roleLabel}.`,
-              );
-            }
-
-            const signature =
-              signatureById.get(
-                signatureId,
-              );
-
-            if (!signature) {
-              return finalizationError(
-                409,
-                `The linked signature for ${approval.roleLabel} could not be verified.`,
-              );
-            }
-
-            if (
-              signature.status !==
-                "Signed" ||
-              !signature.signedAt
-            ) {
-              return finalizationError(
-                409,
-                `The signature for ${approval.roleLabel} is not complete.`,
-              );
-            }
-
-            /*
-             * When both sides contain a user
-             * identity, they must agree.
-             */
-            if (
-              approval.approverId &&
-              signature.signerId &&
-              approval.approverId !==
-                signature.signerId
-            ) {
-              return finalizationError(
-                409,
-                `The signature identity for ${approval.roleLabel} does not match the assigned approver.`,
-              );
-            }
-          }
-
-          /*
-           * No unresolved reviewer comments
-           * may remain on the current revision.
-           */
-          const openReviewCommentCount =
-            await tx.planningReviewComment.count(
-              {
-                where: {
-                  tenantId:
-                    currentRecord
-                      .tenantId,
-
-                  planningRecordId:
-                    currentRecord.id,
-
-                  revisionNumber:
-                    currentRecord
-                      .revisionNumber,
-
-                  status:
-                    "Open",
-                },
-              },
-            );
-
-          if (
-            openReviewCommentCount >
-            0
-          ) {
-            return finalizationError(
-              409,
-              `${openReviewCommentCount} open review comment${openReviewCommentCount === 1 ? "" : "s"} must be resolved before this PTP can be finalized.`,
+            throw new Error(
+              "Finalization readiness invariant failed: effective dates are missing.",
             );
           }
 
@@ -583,8 +288,15 @@ export async function POST(
           await tx.planningRevision.update(
             {
               where: {
-                id:
-                  revision.id,
+                planningRecordId_revisionNumber:
+                  {
+                    planningRecordId:
+                      currentRecord.id,
+
+                    revisionNumber:
+                      currentRecord
+                        .revisionNumber,
+                  },
               },
 
               data: {
@@ -639,31 +351,38 @@ export async function POST(
                     "qoreva-planning-finalization-v1",
 
                   requiredApprovalCount:
-                    requiredApprovals.length,
+                    finalizationReadiness
+                      .approvals
+                      .requiredCount,
 
                   approvedRequiredCount:
-                    requiredApprovals.length,
+                    finalizationReadiness
+                      .approvals
+                      .approvedRequiredCount,
 
                   requiredSignatureCount:
-                    signatureIds.length,
+                    finalizationReadiness
+                      .signatures
+                      .requiredCount,
 
                   verifiedSignatureCount:
-                    signatures.length,
+                    finalizationReadiness
+                      .signatures
+                      .verifiedCount,
 
                   openReviewCommentCount:
-                    0,
+                    finalizationReadiness
+                      .openReviewCommentCount,
 
                   finalizedAt:
                     finalizedAt.toISOString(),
 
                   effectiveStartDate:
-                    currentRecord
-                      .effectiveStartDate
+                    effectiveStartDate
                       .toISOString(),
 
                   effectiveEndDate:
-                    currentRecord
-                      .effectiveEndDate
+                    effectiveEndDate
                       .toISOString(),
 
                   activeAtSet:
@@ -736,16 +455,23 @@ export async function POST(
               },
 
               requiredApprovalCount:
-                requiredApprovals.length,
+                finalizationReadiness
+                  .approvals
+                  .requiredCount,
 
               requiredSignatureCount:
-                signatureIds.length,
+                finalizationReadiness
+                  .signatures
+                  .requiredCount,
 
               verifiedSignatureCount:
-                signatures.length,
+                finalizationReadiness
+                  .signatures
+                  .verifiedCount,
 
               openReviewCommentCount:
-                0,
+                finalizationReadiness
+                  .openReviewCommentCount,
 
               readyForFieldEffectiveness:
                 true,

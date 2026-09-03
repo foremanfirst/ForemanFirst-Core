@@ -8,10 +8,15 @@ import {
   resolvePlanningApprovalRouting,
 } from "@/lib/planning/approval-routing";
 
+import {
+  evaluatePlanningFinalizationReadiness,
+} from "@/lib/planning/finalization-readiness";
+
 export type PlanningOperationalState =
   | "PlanningIncomplete"
   | "SubmissionSetupRequired"
   | "AwaitingApproval"
+  | "ReadyForFinalization"
   | "RevisionRequired"
   | "ApprovedNotYetEffective"
   | "ReadyForFieldUse"
@@ -30,6 +35,7 @@ export type PlanningOperationalActionCode =
   | "CONFIGURE_APPROVALS"
   | "SUBMIT_FOR_REVIEW"
   | "VIEW_APPROVALS"
+  | "FINALIZE_PTP"
   | "START_REVISION"
   | "WAIT_FOR_EFFECTIVE_DATE"
   | "START_DAILY_WSE"
@@ -478,24 +484,56 @@ export async function evaluatePlanningOperationalReadiness(
     record.status ===
       "In Review"
   ) {
-    state =
-      "AwaitingApproval";
+    const finalizationReadiness =
+      await evaluatePlanningFinalizationReadiness(
+        record.id,
+      );
 
-    severity =
-      "Attention";
+    if (
+      finalizationReadiness.ready
+    ) {
+      state =
+        "ReadyForFinalization";
 
-    headline =
-      "Awaiting Approval";
+      severity =
+        "Ready";
 
-    message =
-      `Revision ${record.revisionNumber} is in the controlled review and approval workflow.`;
+      headline =
+        "Ready for Finalization";
 
-    nextAction = {
-      code:
-        "VIEW_APPROVALS",
-      label:
-        "View Approvals",
-    };
+      message =
+        `Revision ${record.revisionNumber} has completed the required approval, signature, review-comment, revision-snapshot, and effective-date gates.`;
+
+      nextAction = {
+        code:
+          "FINALIZE_PTP",
+        label:
+          "Finalize PTP",
+      };
+    } else {
+      state =
+        "AwaitingApproval";
+
+      severity =
+        "Attention";
+
+      headline =
+        "Awaiting Approval";
+
+      message =
+        `Revision ${record.revisionNumber} remains in the controlled review and approval workflow.`;
+
+      blockers =
+        finalizationReadiness
+          .blockers;
+
+      nextAction = {
+        code:
+          "VIEW_APPROVALS",
+        label:
+          "View Approvals",
+      };
+    }
   } else if (
     record.status ===
     "Approved"

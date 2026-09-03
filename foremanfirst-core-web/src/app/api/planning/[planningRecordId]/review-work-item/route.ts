@@ -11,17 +11,16 @@ import {
   requireAuthorizedPlanningFinalizer,
 } from "@/lib/planning/planning-finalizer-authorization";
 
+import {
+  evaluatePlanningFinalizationReadiness,
+} from "@/lib/planning/finalization-readiness";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{
     planningRecordId: string;
   }>;
-};
-
-type FinalizationBlocker = {
-  code: string;
-  message: string;
 };
 
 export async function GET(
@@ -521,138 +520,28 @@ export async function GET(
      * --------------------------------------------------
      * Deterministic finalization readiness
      * --------------------------------------------------
+     *
+     * The shared domain evaluator is the
+     * authoritative source for whether the
+     * current revision may be finalized.
+     *
+     * User authorization remains separate:
+     * readiness answers whether the record
+     * is ready; canFinalize answers whether
+     * the authenticated user may perform
+     * the finalization action.
      */
 
-    const finalizationBlockers:
-      FinalizationBlocker[] = [];
-
-    if (
-      record.status !== "Submitted"
-    ) {
-      finalizationBlockers.push({
-        code:
-          "PLANNING_RECORD_NOT_SUBMITTED",
-        message:
-          record.status ===
-          "Approved"
-            ? "This PTP has already been finalized and approved."
-            : "The PTP must be submitted before it can be finalized.",
-      });
-    }
-
-    if (
-      requiredApprovals.length === 0
-    ) {
-      finalizationBlockers.push({
-        code:
-          "NO_REQUIRED_APPROVALS",
-        message:
-          "At least one required approval must exist before finalization.",
-      });
-    }
-
-    if (
-      revisionRequiredCount > 0
-    ) {
-      finalizationBlockers.push({
-        code:
-          "REVISION_REQUIRED_DECISION",
-        message:
-          "A reviewer has returned this revision for revision.",
-      });
-    }
-
-    if (rejectedCount > 0) {
-      finalizationBlockers.push({
-        code:
-          "REJECTED_APPROVAL",
-        message:
-          "A reviewer has rejected this revision.",
-      });
-    }
-
-    if (
-      requiredApprovals.length >
-        0 &&
-      approvedRequiredCount !==
-        requiredApprovals.length
-    ) {
-      finalizationBlockers.push({
-        code:
-          "REQUIRED_APPROVALS_INCOMPLETE",
-        message:
-          `${approvedRequiredCount} of ${requiredApprovals.length} required approvals are complete.`,
-      });
-    }
-
-    const missingSignatureLinks =
-      signatureRequiredApprovals.filter(
-        (approval) =>
-          !approval.planningSignatureId,
+    const finalizationReadiness =
+      await evaluatePlanningFinalizationReadiness(
+        record.id,
       );
 
-    if (
-      missingSignatureLinks.length >
-      0
-    ) {
-      finalizationBlockers.push({
-        code:
-          "REQUIRED_SIGNATURE_LINK_MISSING",
-        message:
-          `${missingSignatureLinks.length} required approval signature${missingSignatureLinks.length === 1 ? " is" : "s are"} not linked.`,
-      });
-    }
-
-    const unverifiedSignatureCount =
-      signatureRequiredApprovals.length -
-      verifiedSignatureCount;
-
-    if (
-      unverifiedSignatureCount > 0
-    ) {
-      finalizationBlockers.push({
-        code:
-          "REQUIRED_SIGNATURE_NOT_VERIFIED",
-        message:
-          `${unverifiedSignatureCount} required signature${unverifiedSignatureCount === 1 ? " has" : "s have"} not been verified.`,
-      });
-    }
-
-    if (
-      openCommentCount > 0
-    ) {
-      finalizationBlockers.push({
-        code:
-          "OPEN_REVIEW_COMMENTS",
-        message:
-          `${openCommentCount} open review comment${openCommentCount === 1 ? " remains" : "s remain"}.`,
-      });
-    }
-
-    if (
-      !record.effectiveStartDate ||
-      !record.effectiveEndDate
-    ) {
-      finalizationBlockers.push({
-        code:
-          "EFFECTIVE_DATES_REQUIRED",
-        message:
-          "Effective start and end dates are required before finalization.",
-      });
-    } else if (
-      record.effectiveEndDate <
-      record.effectiveStartDate
-    ) {
-      finalizationBlockers.push({
-        code:
-          "INVALID_EFFECTIVE_DATE_RANGE",
-        message:
-          "The effective end date must be on or after the effective start date.",
-      });
-    }
+    const finalizationBlockers =
+      finalizationReadiness.blockers;
 
     const finalizationReady =
-      finalizationBlockers.length === 0;
+      finalizationReadiness.ready;
 
     const workItem = {
       planningRecord: {
