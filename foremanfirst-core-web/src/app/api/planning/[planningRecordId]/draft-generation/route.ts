@@ -8,6 +8,11 @@ import {
   generatePlanningDraft,
 } from "@/lib/planning/draft-generator";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -23,6 +28,10 @@ export async function POST(
   try {
     const { planningRecordId } =
       await context.params;
+
+    await requireAuthorizedPlanningEditor(
+      planningRecordId,
+    );
 
     const planningContext =
       await buildPlanningGenerationContext(
@@ -54,6 +63,22 @@ export async function POST(
       draft,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to generate planning draft:",
       error,

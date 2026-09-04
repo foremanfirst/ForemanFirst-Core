@@ -15,6 +15,11 @@ import {
   evaluatePlanningFinalizationReadiness,
 } from "@/lib/planning/finalization-readiness";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -31,10 +36,21 @@ export async function GET(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningReader(
+        planningRecordId,
+      );
+
     const record =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord
+              .tenantId,
+          projectId:
+            authorization.planningRecord
+              .projectId,
           isArchived: false,
         },
 
@@ -910,6 +926,22 @@ export async function GET(
       workItem,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load planning reviewer work item:",
       error,

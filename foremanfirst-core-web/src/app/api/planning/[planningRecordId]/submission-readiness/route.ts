@@ -6,6 +6,11 @@ import {
   evaluatePlanningSubmissionReadiness,
 } from "@/lib/planning/submission-readiness";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
 export const dynamic =
   "force-dynamic";
 
@@ -23,6 +28,10 @@ export async function GET(
     const {
       planningRecordId,
     } = await context.params;
+
+    await requireAuthorizedPlanningReader(
+      planningRecordId,
+    );
 
     const readiness =
       await evaluatePlanningSubmissionReadiness(
@@ -76,6 +85,22 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to evaluate Planning submission readiness:",
       error,

@@ -4,6 +4,11 @@ import {
   recommendCanonicalControlsForHazard,
 } from "@/lib/planning/hazard-control-library";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -50,12 +55,23 @@ export async function POST(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body = await request.json();
 
     const existingRecord =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord
+              .tenantId,
+          projectId:
+            authorization.planningRecord
+              .projectId,
           isArchived: false,
         },
         select: {
@@ -217,6 +233,22 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to generate recommended controls:",
       error,

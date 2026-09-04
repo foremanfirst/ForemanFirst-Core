@@ -5,6 +5,11 @@ import {
   resolvePlanningApprovalRouting,
 } from "@/lib/planning/approval-routing";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -96,10 +101,22 @@ export async function GET(
       planningRecordId,
     } = await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const planningRecord =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord
+              .tenantId,
+          projectId:
+            authorization.planningRecord
+              .projectId,
+          isArchived: false,
         },
         select: {
           id: true,
@@ -441,6 +458,22 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load eligible Planning approval users:",
       error,
