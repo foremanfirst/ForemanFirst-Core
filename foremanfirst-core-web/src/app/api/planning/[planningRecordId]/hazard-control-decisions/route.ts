@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -131,6 +136,11 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -138,6 +148,10 @@ export async function PUT(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
         select: {
@@ -215,19 +229,15 @@ export async function PUT(
       );
 
     const decidedById =
-      toNullableString(
-        body.decidedById,
-      );
+      authorization.user.id;
 
     const decidedByName =
-      toNullableString(
-        body.decidedByName,
-      );
+      authorization.user.displayName;
 
     const decidedByRole =
-      toNullableString(
-        body.decidedByRole,
-      );
+      authorization.membership.roleCodes.join(
+        ", ",
+      ) || "Planning Editor";
 
     if (!recommendationId) {
       return NextResponse.json(
@@ -544,6 +554,22 @@ export async function PUT(
       decision: result,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to persist hazard/control decision:",
       error,
