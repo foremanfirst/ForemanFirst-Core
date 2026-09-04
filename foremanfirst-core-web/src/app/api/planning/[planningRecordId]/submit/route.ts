@@ -7,6 +7,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolvePlanningApprovalRouting } from "@/lib/planning/approval-routing";
 import { evaluatePlanningSubmissionReadiness } from "@/lib/planning/submission-readiness";
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -205,6 +209,20 @@ export async function POST(
       planningRecordId,
     } = await context.params;
 
+    /*
+     * Submission is an authoring/lifecycle action.
+     *
+     * The submitter must be an authenticated active project
+     * member with either Planning creation or management
+     * permission.
+     *
+     * Authenticate before parsing or trusting request data.
+     */
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -228,6 +246,16 @@ export async function POST(
         where: {
           id:
             planningRecordId,
+
+          tenantId:
+            authorization
+              .planningRecord
+              .tenantId,
+
+          projectId:
+            authorization
+              .planningRecord
+              .projectId,
 
           isArchived:
             false,
@@ -1606,19 +1634,24 @@ export async function POST(
                 revisionNumber,
 
                 actorId:
-                  toNullableString(
-                    body.submittedById,
-                  ),
+                  authorization
+                    .user.id,
 
                 actorName:
-                  toNullableString(
-                    body.submittedByName,
-                  ),
+                  authorization
+                    .user
+                    .displayName,
 
                 actorRole:
-                  toNullableString(
-                    body.submittedByRole,
-                  ),
+                  authorization
+                    .membership
+                    .roleCodes
+                    .length > 0
+                    ? authorization
+                        .membership
+                        .roleCodes
+                        .join(", ")
+                    : "Planning Editor",
 
                 comment:
                   "Planning record submitted for downstream review and required approval signatures.",
@@ -1882,6 +1915,22 @@ export async function POST(
       "Unable to submit planning record for review:",
       error,
     );
+
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
 
     if (
       error instanceof Error &&
