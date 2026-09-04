@@ -386,14 +386,22 @@ export default function DailyWsePage() {
     );
 
   const [
-    workerName,
-    setWorkerName,
+    eligibleWorkers,
+    setEligibleWorkers,
   ] =
-    useState("");
+    useState<
+      {
+        id: string;
+        displayName: string;
+        trade: string | null;
+        crew: string | null;
+        badgeNumber: string | null;
+      }[]
+    >([]);
 
   const [
-    workerEmail,
-    setWorkerEmail,
+    selectedWorkerId,
+    setSelectedWorkerId,
   ] =
     useState("");
 
@@ -477,6 +485,39 @@ export default function DailyWsePage() {
 
       setWse(
         data.wse,
+      );
+
+      const workerResponse =
+        await fetch(
+          `/api/planning/${planningRecordId}/wse/${wseId}/signatures`,
+          {
+            cache:
+              "no-store",
+          },
+        );
+
+      const workerData =
+        (await workerResponse.json()) as {
+          eligibleWorkers?: {
+            id: string;
+            displayName: string;
+            trade: string | null;
+            crew: string | null;
+            badgeNumber: string | null;
+          }[];
+          message?: string;
+        };
+
+      if (!workerResponse.ok) {
+        throw new Error(
+          workerData.message ||
+            "Unable to load eligible project workers.",
+        );
+      }
+
+      setEligibleWorkers(
+        workerData.eligibleWorkers ??
+          [],
       );
 
       setChangeStatus(
@@ -1584,10 +1625,10 @@ export default function DailyWsePage() {
     }
 
     if (
-      !workerName.trim()
+      !selectedWorkerId
     ) {
       setError(
-        "Enter the worker's name.",
+        "Select a project worker.",
       );
       return;
     }
@@ -1622,21 +1663,11 @@ export default function DailyWsePage() {
 
             body:
               JSON.stringify({
-                workerName:
-                  workerName.trim(),
-
-                workerEmail:
-                  workerEmail.trim() ||
-                  null,
+                workerId:
+                  selectedWorkerId,
 
                 acknowledged:
                   true,
-
-                userAgent:
-                  typeof navigator !==
-                  "undefined"
-                    ? navigator.userAgent
-                    : null,
               }),
           },
         );
@@ -1656,8 +1687,7 @@ export default function DailyWsePage() {
         );
       }
 
-      setWorkerName("");
-      setWorkerEmail("");
+      setSelectedWorkerId("");
       setWorkerIdentityMessage("");
       setWorkerAcknowledged(
         false,
@@ -3651,43 +3681,62 @@ export default function DailyWsePage() {
             </div>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
+              <label className="block md:col-span-2">
                 <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                  Worker Name
+                  Worker
                 </span>
 
-                <input
-                  value={workerName}
+                <select
+                  value={
+                    selectedWorkerId
+                  }
                   onChange={(event) => {
-                    setWorkerName(
+                    setSelectedWorkerId(
                       event.target.value,
                     );
 
                     setWorkerIdentityMessage(
                       "",
                     );
+
+                    setWorkerAcknowledged(
+                      false,
+                    );
                   }}
                   className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
-                  placeholder="Worker full name"
-                />
-              </label>
+                >
+                  <option value="">
+                    Select an active project worker
+                  </option>
 
-              <label className="block">
-                <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                  Email (optional)
-                </span>
+                  {eligibleWorkers.map(
+                    (worker) => (
+                      <option
+                        key={
+                          worker.id
+                        }
+                        value={
+                          worker.id
+                        }
+                      >
+                        {worker.displayName}
+                        {worker.trade
+                          ? ` — ${worker.trade}`
+                          : ""}
+                        {worker.crew
+                          ? ` • ${worker.crew}`
+                          : ""}
+                      </option>
+                    ),
+                  )}
+                </select>
 
-                <input
-                  type="email"
-                  value={workerEmail}
-                  onChange={(event) =>
-                    setWorkerEmail(
-                      event.target.value,
-                    )
-                  }
-                  className="mt-2 w-full rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-3 text-sm font-semibold"
-                  placeholder="worker@example.com"
-                />
+                {eligibleWorkers.length ===
+                0 ? (
+                  <p className="mt-2 text-xs font-semibold text-[var(--qoreva-muted)]">
+                    No active workers are currently assigned to this project.
+                  </p>
+                ) : null}
               </label>
 
               <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4 md:col-span-2">
@@ -3713,10 +3762,10 @@ export default function DailyWsePage() {
                     type="button"
                     onClick={() => {
                       if (
-                        !workerName.trim()
+                        !selectedWorkerId
                       ) {
                         setWorkerIdentityMessage(
-                          "Enter the worker name before starting identity verification.",
+                          "Select the worker before starting identity verification.",
                         );
 
                         return;
@@ -3775,7 +3824,7 @@ export default function DailyWsePage() {
                 }
                 disabled={
                   signingWorker ||
-                  !workerName.trim() ||
+                  !selectedWorkerId ||
                   !workerAcknowledged
                 }
                 className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
@@ -3925,7 +3974,7 @@ export default function DailyWsePage() {
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
             <YesNoQuestion
-              label="Did anything happen today?"
+              label="Did any safety event occur today?"
               value={
                 endOfShift.incidentsOrNearMisses
               }

@@ -111,8 +111,79 @@ export async function GET(
         },
       });
 
+    const eligibleWorkers =
+      await prisma.worker.findMany({
+        where: {
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
+          isActive:
+            true,
+
+          isArchived:
+            false,
+        },
+
+        orderBy: [
+          {
+            lastName:
+              "asc",
+          },
+          {
+            firstName:
+              "asc",
+          },
+        ],
+
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          suffix: true,
+          trade: true,
+          crew: true,
+          badgeNumber: true,
+        },
+      });
+
     return NextResponse.json({
       signatures,
+
+      eligibleWorkers:
+        eligibleWorkers.map(
+          (worker) => ({
+            id:
+              worker.id,
+
+            displayName: [
+              worker.firstName,
+              worker.middleName,
+              worker.lastName,
+              worker.suffix,
+            ]
+              .filter(
+                (value) =>
+                  typeof value ===
+                    "string" &&
+                  value.trim().length >
+                    0,
+              )
+              .join(" "),
+
+            trade:
+              worker.trade,
+
+            crew:
+              worker.crew,
+
+            badgeNumber:
+              worker.badgeNumber,
+          }),
+        ),
     });
   } catch (error) {
     if (
