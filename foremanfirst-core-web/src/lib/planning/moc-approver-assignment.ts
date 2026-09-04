@@ -27,7 +27,26 @@ export type ResolvedMocApprover = {
   roleLabel: string;
 };
 
-export async function resolveDesignatedMocApprover({
+export type ResolvedMocApproverPool = {
+  roleCode: string;
+  roleLabel: string;
+
+  /*
+   * Qoreva MVP MOC policy:
+   *
+   * Multiple designated approvers form an eligible
+   * approver pool. They are NOT multiple required
+   * approvals.
+   *
+   * Any one eligible approver may satisfy the
+   * approval requirement.
+   */
+  minimumApprovalsRequired: 1;
+
+  approvers: ResolvedMocApprover[];
+};
+
+export async function resolveDesignatedMocApprovers({
   tenantId,
   projectId,
   roleCode,
@@ -37,7 +56,7 @@ export async function resolveDesignatedMocApprover({
   projectId: string;
   roleCode: string;
   roleLabel: string;
-}): Promise<ResolvedMocApprover> {
+}): Promise<ResolvedMocApproverPool> {
   const memberships =
     await prisma.projectMembership.findMany({
       where: {
@@ -97,31 +116,32 @@ export async function resolveDesignatedMocApprover({
     );
   }
 
-  if (memberships.length > 1) {
-    throw new MocApproverAssignmentError(
-      `More than one active project member is assigned to the ${roleLabel} MOC approval role. Qoreva MVP requires exactly one designated MOC approver.`,
-      409,
-    );
-  }
-
-  const membership =
-    memberships[0];
-
   return {
-    userId:
-      membership.tenantMembership.user.id,
-
-    displayName:
-      membership.tenantMembership.user.displayName,
-
-    email:
-      membership.tenantMembership.user.email,
-
-    projectMembershipId:
-      membership.id,
-
     roleCode,
-
     roleLabel,
+
+    minimumApprovalsRequired:
+      1,
+
+    approvers:
+      memberships.map(
+        (membership) => ({
+          userId:
+            membership.tenantMembership.user.id,
+
+          displayName:
+            membership.tenantMembership.user.displayName,
+
+          email:
+            membership.tenantMembership.user.email,
+
+          projectMembershipId:
+            membership.id,
+
+          roleCode,
+
+          roleLabel,
+        }),
+      ),
   };
 }

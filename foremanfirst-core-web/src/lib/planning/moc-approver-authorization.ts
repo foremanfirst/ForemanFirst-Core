@@ -51,6 +51,139 @@ export type AuthorizedMocApprover = {
   };
 };
 
+type EligibleApproverSnapshot = {
+  userId: string;
+  projectMembershipId?: string;
+};
+
+type MocApprovalPolicySnapshot = {
+  type?: string;
+  minimumApprovalsRequired?: number;
+  roleCode?: string;
+  eligibleApprovers?: EligibleApproverSnapshot[];
+};
+
+function readApprovalPolicy(
+  approvalRouting: unknown,
+): MocApprovalPolicySnapshot | null {
+  if (
+    !approvalRouting ||
+    typeof approvalRouting !==
+      "object" ||
+    Array.isArray(
+      approvalRouting,
+    )
+  ) {
+    return null;
+  }
+
+  const routing =
+    approvalRouting as Record<
+      string,
+      unknown
+    >;
+
+  const rawPolicy =
+    routing.approvalPolicy;
+
+  if (
+    !rawPolicy ||
+    typeof rawPolicy !==
+      "object" ||
+    Array.isArray(
+      rawPolicy,
+    )
+  ) {
+    return null;
+  }
+
+  const policy =
+    rawPolicy as Record<
+      string,
+      unknown
+    >;
+
+  const rawEligibleApprovers =
+    policy.eligibleApprovers;
+
+  const eligibleApprovers =
+    Array.isArray(
+      rawEligibleApprovers,
+    )
+      ? rawEligibleApprovers
+          .filter(
+            (
+              item,
+            ): item is Record<
+              string,
+              unknown
+            > =>
+              Boolean(
+                item,
+              ) &&
+              typeof item ===
+                "object" &&
+              !Array.isArray(
+                item,
+              ),
+          )
+          .map(
+            (
+              item,
+            ): EligibleApproverSnapshot | null => {
+              const userId =
+                typeof item.userId ===
+                "string"
+                  ? item.userId
+                  : null;
+
+              if (!userId) {
+                return null;
+              }
+
+              return {
+                userId,
+
+                projectMembershipId:
+                  typeof item.projectMembershipId ===
+                  "string"
+                    ? item.projectMembershipId
+                    : undefined,
+              };
+            },
+          )
+          .filter(
+            (
+              item,
+            ): item is EligibleApproverSnapshot =>
+              item !==
+              null,
+          )
+      : [];
+
+  return {
+    type:
+      typeof policy.type ===
+      "string"
+        ? policy.type
+        : undefined,
+
+    minimumApprovalsRequired:
+      typeof policy.minimumApprovalsRequired ===
+      "number"
+        ? policy.minimumApprovalsRequired
+        : undefined,
+
+    roleCode:
+      typeof policy.roleCode ===
+      "string"
+        ? policy.roleCode
+        : undefined,
+
+    eligibleApprovers,
+  };
+}
+
 export async function requireAuthorizedMocApprover(
   planningRecordId: string,
   wseId: string,
@@ -144,6 +277,13 @@ export async function requireAuthorizedMocApprover(
           true,
         signatureRequired:
           true,
+
+        moc: {
+          select: {
+            approvalRouting:
+              true,
+          },
+        },
       },
     });
 
@@ -151,23 +291,6 @@ export async function requireAuthorizedMocApprover(
     throw new MocApproverAuthorizationError(
       "MOC approval assignment was not found.",
       404,
-    );
-  }
-
-  if (!approval.approverId) {
-    throw new MocApproverAuthorizationError(
-      "This MOC approval requirement does not have an assigned approver.",
-      409,
-    );
-  }
-
-  if (
-    approval.approverId !==
-    user.id
-  ) {
-    throw new MocApproverAuthorizationError(
-      "You are not the assigned approver for this MOC.",
-      403,
     );
   }
 
@@ -179,6 +302,66 @@ export async function requireAuthorizedMocApprover(
       `This MOC approval has already been resolved with status ${approval.status}.`,
       409,
     );
+  }
+
+  /*
+   * Backward compatibility:
+   *
+   * Existing MOCs created before the
+   * Any-One approver-pool policy may
+   * already contain one assigned approver.
+   */
+  if (
+    approval.approverId
+  ) {
+    if (
+      approval.approverId !==
+      user.id
+    ) {
+      throw new MocApproverAuthorizationError(
+        "You are not the assigned approver for this MOC.",
+        403,
+      );
+    }
+  } else {
+    const policy =
+      readApprovalPolicy(
+        approval.moc.approvalRouting,
+      );
+
+    if (
+      !policy ||
+      policy.type !==
+        "AnyOneOfEligibleApprovers" ||
+      policy.minimumApprovalsRequired !==
+        1 ||
+      policy.roleCode !==
+        approval.roleCode
+    ) {
+      throw new MocApproverAuthorizationError(
+        "This MOC approval requirement does not contain a valid eligible approver policy.",
+        409,
+      );
+    }
+
+    const isEligible =
+      policy.eligibleApprovers?.some(
+        (
+          approver,
+        ) =>
+          approver.userId ===
+          user.id,
+      ) ??
+      false;
+
+    if (
+      !isEligible
+    ) {
+      throw new MocApproverAuthorizationError(
+        "You are not an eligible approver for this MOC.",
+        403,
+      );
+    }
   }
 
   const tenantMembership =
@@ -249,6 +432,16 @@ export async function requireAuthorizedMocApprover(
     );
   }
 
+  /*
+   * Having planning-management authority
+   * does not make somebody part of the
+   * submitted MOC approver pool.
+   *
+   * Pool membership was checked above.
+   * This capability check only confirms
+   * that the snapshotted approver remains
+   * currently qualified to act.
+   */
   if (
     !projectMembership.approvalRoleCodes.includes(
       approval.roleCode,

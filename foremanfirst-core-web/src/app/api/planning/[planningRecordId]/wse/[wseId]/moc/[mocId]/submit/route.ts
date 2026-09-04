@@ -9,7 +9,7 @@ import {
 } from "@/lib/planning/approval-routing";
 import {
   MocApproverAssignmentError,
-  resolveDesignatedMocApprover,
+  resolveDesignatedMocApprovers,
 } from "@/lib/planning/moc-approver-assignment";
 
 export const dynamic = "force-dynamic";
@@ -266,8 +266,8 @@ export async function POST(
     const requiredRole =
       requiredRoles[0];
 
-    const designatedApprover =
-      await resolveDesignatedMocApprover({
+    const designatedApproverPool =
+      await resolveDesignatedMocApprovers({
         tenantId:
           authorization.planningRecord.tenantId,
 
@@ -352,19 +352,19 @@ export async function POST(
                         signerId:
                           role.code ===
                           requiredRole.code
-                            ? designatedApprover.userId
+                            ? null
                             : role.signerId,
 
                         signerName:
                           role.code ===
                           requiredRole.code
-                            ? designatedApprover.displayName
+                            ? null
                             : role.signerName,
 
                         signerEmail:
                           role.code ===
                           requiredRole.code
-                            ? designatedApprover.email
+                            ? null
                             : role.signerEmail,
 
                         sourceType:
@@ -380,6 +380,39 @@ export async function POST(
 
                   metadata:
                     routing.metadata,
+
+                  approvalPolicy: {
+                    type:
+                      "AnyOneOfEligibleApprovers",
+
+                    minimumApprovalsRequired:
+                      designatedApproverPool.minimumApprovalsRequired,
+
+                    roleCode:
+                      designatedApproverPool.roleCode,
+
+                    roleLabel:
+                      designatedApproverPool.roleLabel,
+
+                    eligibleApprovers:
+                      designatedApproverPool.approvers.map(
+                        (
+                          approver,
+                        ) => ({
+                          userId:
+                            approver.userId,
+
+                          displayName:
+                            approver.displayName,
+
+                          email:
+                            approver.email,
+
+                          projectMembershipId:
+                            approver.projectMembershipId,
+                        }),
+                      ),
+                  },
                 },
               },
             });
@@ -411,19 +444,19 @@ export async function POST(
                   approverId:
                     role.code ===
                     requiredRole.code
-                      ? designatedApprover.userId
+                      ? null
                       : role.signerId,
 
                   approverName:
                     role.code ===
                     requiredRole.code
-                      ? designatedApprover.displayName
+                      ? null
                       : role.signerName,
 
                   approverEmail:
                     role.code ===
                     requiredRole.code
-                      ? designatedApprover.email
+                      ? null
                       : role.signerEmail,
 
                   status:

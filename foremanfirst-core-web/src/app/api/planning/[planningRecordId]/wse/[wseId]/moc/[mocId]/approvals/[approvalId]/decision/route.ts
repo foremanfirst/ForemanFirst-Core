@@ -362,14 +362,45 @@ export async function POST(
         async (
           tx,
         ) => {
-          const updatedApproval =
-            await tx.dailyWorkerSafetyEngagementMocApproval.update({
+          /*
+           * ANY-ONE APPROVER POLICY
+           *
+           * The approval row represents one approval
+           * requirement with an eligible approver pool.
+           *
+           * Only the first eligible approver may claim
+           * and resolve the Pending approval.
+           *
+           * updateMany + status=Pending makes this
+           * atomic: if another eligible approver wins
+           * the race first, this update affects 0 rows.
+           */
+          const claim =
+            await tx.dailyWorkerSafetyEngagementMocApproval.updateMany({
               where: {
                 id:
                   approvalId,
+
+                tenantId:
+                  authorization.planningRecord.tenantId,
+
+                mocId:
+                  mocId,
+
+                status:
+                  "Pending",
               },
 
               data: {
+                approverId:
+                  decidedById,
+
+                approverName:
+                  decidedByName,
+
+                approverEmail:
+                  authorization.user.email,
+
                 status:
                   decision,
 
@@ -415,6 +446,24 @@ export async function POST(
                 signatureIpAddress,
 
                 signatureUserAgent,
+              },
+            });
+
+          if (
+            claim.count !==
+            1
+          ) {
+            throw new MocApproverAuthorizationError(
+              "This approval decision has already been recorded.",
+              409,
+            );
+          }
+
+          const updatedApproval =
+            await tx.dailyWorkerSafetyEngagementMocApproval.findUniqueOrThrow({
+              where: {
+                id:
+                  approvalId,
               },
             });
 
