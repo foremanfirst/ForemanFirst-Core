@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+
+import {
+  PlanningQualifiedReviewerAuthorizationError,
+  requireAuthorizedPlanningQualifiedReviewer,
+} from "@/lib/planning/planning-qualified-reviewer-authorization";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +21,6 @@ type ReviewCommentInput = {
   label?: string;
   comment?: string;
   status?: string;
-  createdByName?: string | null;
   createdAt?: string | null;
   resolvedAt?: string | null;
 };
@@ -169,18 +173,28 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
-    const body =
-      await request.json();
+    const authorization =
+      await requireAuthorizedPlanningQualifiedReviewer(
+        planningRecordId,
+      );
 
     const existingRecord =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
           isArchived: false,
         },
         select: {
           id: true,
           tenantId: true,
+          projectId: true,
           status: true,
           revisionNumber: true,
         },
@@ -211,6 +225,9 @@ export async function PUT(
         },
       );
     }
+
+    const body =
+      await request.json();
 
     const revisionNumber =
       toPositiveInt(
@@ -341,39 +358,19 @@ export async function PUT(
       );
     }
 
+    const reviewerId =
+      authorization.user.id;
+
     const reviewerName =
-      toNullableString(
-        body.reviewerName,
-      );
+      authorization.user.displayName;
 
     const reviewerRole =
-      toNullableString(
-        body.reviewerRole,
-      );
-
-    if (!reviewerName) {
-      return NextResponse.json(
-        {
-          message:
-            "Qualified reviewer name is required.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    if (!reviewerRole) {
-      return NextResponse.json(
-        {
-          message:
-            "Qualified reviewer role is required.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
+      authorization.membership.roleCodes.length >
+      0
+        ? authorization.membership.roleCodes.join(
+            ", ",
+          )
+        : "Qualified Planning Reviewer";
 
     if (
       !isConfirmationObject(
@@ -516,10 +513,7 @@ export async function PUT(
                       existingReview.id,
                   },
                   data: {
-                    reviewerId:
-                      toNullableString(
-                        body.reviewerId,
-                      ),
+                    reviewerId,
                     reviewerName,
                     reviewerRole,
                     status: "Completed",
@@ -538,10 +532,7 @@ export async function PUT(
                       existingRecord.tenantId,
                     planningRecordId,
                     revisionNumber,
-                    reviewerId:
-                      toNullableString(
-                        body.reviewerId,
-                      ),
+                    reviewerId,
                     reviewerName,
                     reviewerRole,
                     status: "Completed",
@@ -604,20 +595,13 @@ export async function PUT(
                         )!,
                       status,
                       createdById:
-                        toNullableString(
-                          body.reviewerId,
-                        ),
+                        reviewerId,
                       createdByName:
-                        toNullableString(
-                          comment.createdByName,
-                        ) ??
                         reviewerName,
                       resolvedById:
                         status ===
                         "Resolved"
-                          ? toNullableString(
-                              body.reviewerId,
-                            )
+                          ? reviewerId
                           : null,
                       resolvedByName:
                         status ===
@@ -658,9 +642,7 @@ export async function PUT(
                 existingRecord.status,
               revisionNumber,
               actorId:
-                toNullableString(
-                  body.reviewerId,
-                ),
+                reviewerId,
               actorName:
                 reviewerName,
               actorRole:
@@ -691,6 +673,22 @@ export async function PUT(
       review: result,
     });
   } catch (error) {
+    if (
+      error instanceof
+      PlanningQualifiedReviewerAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to persist qualified review:",
       error,
