@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -159,6 +164,11 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -171,6 +181,10 @@ export async function PUT(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
 
@@ -178,7 +192,6 @@ export async function PUT(
           id: true,
           tenantId: true,
           status: true,
-          responsibleSupervisor: true,
         },
       });
 
@@ -209,12 +222,12 @@ export async function PUT(
     }
 
     const confirmedBy =
-      nullableString(
-        body.confirmedBy,
-      ) ??
-      nullableString(
-        existing.responsibleSupervisor,
-      );
+      authorization.user.displayName;
+
+    const actorRole =
+      authorization.membership.roleCodes.join(
+        ", ",
+      ) || "Planning Editor";
 
     const saved =
       await prisma.$transaction(
@@ -391,13 +404,13 @@ export async function PUT(
               revisionNumber:
                 null,
 
-              actorName:
-                confirmedBy,
+              actorId:
+                authorization.user.id,
 
-              actorRole:
-                confirmedBy
-                  ? "Responsible Supervisor"
-                  : null,
+              actorName:
+                authorization.user.displayName,
+
+              actorRole,
 
               comment:
                 "Detected planning activities were checkpointed before Guided Planning.",
@@ -441,6 +454,22 @@ export async function PUT(
         saved.removedActivityCodes,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to save detected planning activities:",
       error,
