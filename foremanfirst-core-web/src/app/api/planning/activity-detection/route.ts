@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { detectPlanningActivities } from "@/lib/planning/activity-detection";
+import {
+  PlanningCreatorAuthorizationError,
+  requireAuthorizedPlanningCreator,
+} from "@/lib/planning/planning-creator-authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -17,19 +21,24 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const tenantId = nullableString(body.tenantId);
+    const projectId = nullableString(body.projectId);
     const scopeText = nullableString(body.scopeText);
 
-    if (!tenantId) {
+    if (!projectId) {
       return NextResponse.json(
         {
-          message: "Tenant ID is required.",
+          message: "Project ID is required.",
         },
         {
           status: 400,
         },
       );
     }
+
+    const authorization =
+      await requireAuthorizedPlanningCreator(
+        projectId,
+      );
 
     if (!scopeText) {
       return NextResponse.json(
@@ -43,7 +52,8 @@ export async function POST(request: Request) {
     }
 
     const activities = await detectPlanningActivities({
-      tenantId,
+      tenantId:
+        authorization.project.tenantId,
       scopeText,
     });
 
@@ -53,6 +63,20 @@ export async function POST(request: Request) {
       count: activities.length,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningCreatorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message: error.message,
+        },
+        {
+          status: error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to detect planning activities:",
       error,

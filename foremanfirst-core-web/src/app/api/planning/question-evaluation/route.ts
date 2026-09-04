@@ -9,6 +9,10 @@ import {
 import {
   resolveApplicablePlanningRequirements,
 } from "@/lib/planning/requirement-resolver";
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
 
 export const dynamic =
   "force-dynamic";
@@ -56,6 +60,11 @@ export async function POST(
       );
     }
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const activityCodes =
       Array.isArray(
         body.activityCodes,
@@ -100,6 +109,14 @@ export async function POST(
         where: {
           id:
             planningRecordId,
+
+          tenantId:
+            authorization.planningRecord
+              .tenantId,
+
+          projectId:
+            authorization.planningRecord
+              .projectId,
 
           isArchived:
             false,
@@ -201,6 +218,22 @@ export async function POST(
   } catch (
     error
   ) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to evaluate planning questions:",
       error,

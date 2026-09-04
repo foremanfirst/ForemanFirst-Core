@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 import {
   isAiProcessingReady,
 } from "@/lib/planning/document-intelligence";
+import {
+  PlanningCreatorAuthorizationError,
+  requireAuthorizedPlanningCreator,
+} from "@/lib/planning/planning-creator-authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +40,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const authorization =
+      await requireAuthorizedPlanningCreator(
+        projectId,
+      );
+
     /*
      * Confirm that the selected project and contractor exist.
      *
@@ -46,6 +55,8 @@ export async function GET(request: NextRequest) {
       prisma.project.findFirst({
         where: {
           id: projectId,
+          tenantId:
+            authorization.project.tenantId,
           isArchived: false,
           isActive: true,
         },
@@ -68,6 +79,10 @@ export async function GET(request: NextRequest) {
       prisma.contractor.findFirst({
         where: {
           id: contractorId,
+          tenantId:
+            authorization.project.tenantId,
+          projectId:
+            authorization.project.id,
           isArchived: false,
           isActive: true,
         },
@@ -385,6 +400,22 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningCreatorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Planning requirements load failed:",
       error,

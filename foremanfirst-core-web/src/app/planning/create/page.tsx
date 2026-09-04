@@ -5023,8 +5023,8 @@ export default function CreatePlanningPage() {
                 "application/json",
             },
             body: JSON.stringify({
-              tenantId:
-                selectedProject.tenantId,
+              projectId:
+                selectedProject.id,
               scopeText:
                 activityScopeText,
             }),
