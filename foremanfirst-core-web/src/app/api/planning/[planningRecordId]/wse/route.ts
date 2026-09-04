@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
+import {
+  WseFieldActorAuthorizationError,
+  requireAuthorizedWseFieldActor,
+} from "@/lib/planning/wse-field-actor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -90,10 +100,22 @@ export async function GET(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningReader(
+        planningRecordId,
+      );
+
     const planningRecord =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
           isArchived: false,
         },
 
@@ -159,6 +181,22 @@ export async function GET(
       wseRecords,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load Daily WSE records:",
       error,
@@ -186,30 +224,29 @@ export async function POST(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedWseFieldActor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
     const foremanName =
-      toNullableString(
-        body.foremanName,
-      );
+      authorization.user.displayName;
 
     const foremanId =
-      toNullableString(
-        body.foremanId,
-      );
+      authorization.user.id;
 
-    if (!foremanName) {
-      return NextResponse.json(
-        {
-          message:
-            "Foreman / supervisor name is required.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
+    const actorRole =
+      authorization.membership.roleCodes.length >
+      0
+        ? authorization.membership.roleCodes.join(
+            ", ",
+          )
+        : authorization.membership.canManagePlanning
+          ? "Planning Manager"
+          : "WSE Field Actor";
 
     const requestedDate =
       toNullableDate(
@@ -221,6 +258,13 @@ export async function POST(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
           isArchived: false,
         },
 
@@ -555,16 +599,10 @@ export async function POST(
                   "Open",
 
                 createdBy:
-                  toNullableString(
-                    body.createdBy,
-                  ) ??
-                  foremanId,
+                  authorization.user.id,
 
                 updatedBy:
-                  toNullableString(
-                    body.createdBy,
-                  ) ??
-                  foremanId,
+                  authorization.user.id,
               },
             });
 
@@ -637,11 +675,7 @@ export async function POST(
               actorName:
                 foremanName,
 
-              actorRole:
-                toNullableString(
-                  body.foremanRole,
-                ) ??
-                "Foreman / Supervisor",
+              actorRole,
 
               comment:
                 "Daily Worker Safety Engagement started from the approved and effective planning revision.",
@@ -742,6 +776,22 @@ export async function POST(
       },
     );
   } catch (error) {
+    if (
+      error instanceof
+        WseFieldActorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to start Daily WSE:",
       error,

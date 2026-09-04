@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
+import {
+  WseFieldActorAuthorizationError,
+  requireAuthorizedWseFieldActor,
+} from "@/lib/planning/wse-field-actor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -65,11 +75,13 @@ async function loadWseWithClient(
   },
   planningRecordId: string,
   wseId: string,
+  tenantId: string,
 ) {
   return client.dailyWorkerSafetyEngagement.findFirst({
     where: {
       id: wseId,
       planningRecordId,
+      tenantId,
     },
 
     include: {
@@ -146,11 +158,13 @@ async function loadWseWithClient(
 async function loadWse(
   planningRecordId: string,
   wseId: string,
+  tenantId: string,
 ) {
   return loadWseWithClient(
     prisma,
     planningRecordId,
     wseId,
+    tenantId,
   );
 }
 
@@ -165,10 +179,16 @@ export async function GET(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningReader(
+        planningRecordId,
+      );
+
     const wse =
       await loadWse(
         planningRecordId,
         wseId,
+        authorization.planningRecord.tenantId,
       );
 
     if (!wse) {
@@ -187,6 +207,22 @@ export async function GET(
       wse,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load Daily WSE:",
       error,
@@ -215,6 +251,11 @@ export async function PATCH(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedWseFieldActor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -223,6 +264,9 @@ export async function PATCH(
         where: {
           id: wseId,
           planningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
         },
 
         select: {
@@ -665,6 +709,7 @@ export async function PATCH(
         await loadWse(
           planningRecordId,
           wseId,
+          authorization.planningRecord.tenantId,
         );
 
       if (!currentWse) {
@@ -881,14 +926,13 @@ export async function PATCH(
             },
 
             data: {
+              /*
+               * Foreman identity is established from the
+               * authenticated Qoreva user when the WSE is created.
+               * Ordinary WSE updates cannot rewrite that identity.
+               */
               foremanName:
-                body.foremanName !==
-                undefined
-                  ? toNullableString(
-                      body.foremanName,
-                    ) ??
-                    undefined
-                  : undefined,
+                undefined,
 
               shift:
                 body.shift !==
@@ -1035,12 +1079,7 @@ export async function PATCH(
                   : undefined,
 
               updatedBy:
-                body.updatedBy !==
-                undefined
-                  ? toNullableString(
-                      body.updatedBy,
-                    )
-                  : undefined,
+                authorization.user.id,
             },
           });
 
@@ -1334,6 +1373,7 @@ export async function PATCH(
             tx,
             planningRecordId,
             wseId,
+            authorization.planningRecord.tenantId,
           );
         },
       );
@@ -1355,6 +1395,22 @@ export async function PATCH(
         updated,
     });
   } catch (error) {
+    if (
+      error instanceof
+        WseFieldActorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to update Daily WSE:",
       error,
