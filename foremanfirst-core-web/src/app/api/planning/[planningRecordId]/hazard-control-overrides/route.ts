@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -157,6 +162,11 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -164,6 +174,10 @@ export async function PUT(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
         select: {
@@ -266,19 +280,15 @@ export async function PUT(
       );
 
     const changedById =
-      toNullableString(
-        body.changedById,
-      );
+      authorization.user.id;
 
     const changedByName =
-      toNullableString(
-        body.changedByName,
-      );
+      authorization.user.displayName;
 
     const changedByRole =
-      toNullableString(
-        body.changedByRole,
-      );
+      authorization.membership.roleCodes.join(
+        ", ",
+      ) || "Planning Editor";
 
     if (!operationKey) {
       return NextResponse.json(
@@ -670,6 +680,22 @@ export async function PUT(
       override: result,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to persist hazard/control override:",
       error,
