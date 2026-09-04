@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
+import {
+  WseFieldActorAuthorizationError,
+  requireAuthorizedWseFieldActor,
+} from "@/lib/planning/wse-field-actor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -31,12 +41,14 @@ function toNullableString(
 async function findWse(
   planningRecordId: string,
   wseId: string,
+  tenantId: string,
 ) {
   return prisma.dailyWorkerSafetyEngagement.findFirst({
     where: {
       id:
         wseId,
       planningRecordId,
+      tenantId,
     },
 
     select: {
@@ -60,10 +72,16 @@ export async function GET(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningReader(
+        planningRecordId,
+      );
+
     const wse =
       await findWse(
         planningRecordId,
         wseId,
+        authorization.planningRecord.tenantId,
       );
 
     if (!wse) {
@@ -97,6 +115,22 @@ export async function GET(
       signatures,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load Daily WSE worker acknowledgements:",
       error,
@@ -125,6 +159,11 @@ export async function POST(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedWseFieldActor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -132,6 +171,7 @@ export async function POST(
       await findWse(
         planningRecordId,
         wseId,
+        authorization.planningRecord.tenantId,
       );
 
     if (!wse) {
@@ -161,19 +201,93 @@ export async function POST(
       );
     }
 
-    const workerName =
+    const workerId =
       toNullableString(
-        body.workerName,
+        body.workerId,
       );
+
+    if (!workerId) {
+      return NextResponse.json(
+        {
+          message:
+            "Worker ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    /*
+     * Resolve the worker exclusively from the authenticated
+     * WSE tenant/project boundary.
+     *
+     * The browser may identify which Worker is signing, but
+     * it cannot establish that Worker’s identity by supplying
+     * arbitrary name/email values.
+     */
+    const worker =
+      await prisma.worker.findFirst({
+        where: {
+          id:
+            workerId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
+          isActive:
+            true,
+
+          isArchived:
+            false,
+        },
+
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          suffix: true,
+          email: true,
+        },
+      });
+
+    if (!worker) {
+      return NextResponse.json(
+        {
+          message:
+            "The selected worker is not an active worker assigned to this project.",
+        },
+        {
+          status: 403,
+        },
+      );
+    }
+
+    const workerName = [
+      worker.firstName,
+      worker.middleName,
+      worker.lastName,
+      worker.suffix,
+    ]
+      .filter(
+        (value) =>
+          typeof value === "string" &&
+          value.trim().length > 0,
+      )
+      .join(" ");
 
     if (!workerName) {
       return NextResponse.json(
         {
           message:
-            "Worker name is required.",
+            "The selected worker does not have a valid name.",
         },
         {
-          status: 400,
+          status: 409,
         },
       );
     }
@@ -208,17 +322,29 @@ export async function POST(
                 dailyWseId:
                   wseId,
 
+                /*
+                 * Worker profiles do not require Qoreva
+                 * authentication for MVP field adoption.
+                 *
+                 * The authenticated field actor controls the
+                 * WSE operation, while the selected Worker
+                 * remains the person represented by the
+                 * acknowledgement.
+                 *
+                 * Future identity verification will bind this
+                 * acknowledgement to a verified worker identity.
+                 */
+                /*
+                 * Identity comes from the server-resolved Worker
+                 * record, never from browser-supplied name/email.
+                 */
                 workerId:
-                  toNullableString(
-                    body.workerId,
-                  ),
+                  worker.id,
 
                 workerName,
 
                 workerEmail:
-                  toNullableString(
-                    body.workerEmail,
-                  ),
+                  worker.email,
 
                 acknowledgementStatus:
                   "Signed",
@@ -267,16 +393,26 @@ export async function POST(
               revisionNumber:
                 wse.revisionNumber,
 
+              /*
+               * The planning event records the authenticated
+               * Qoreva actor. Worker identity remains part of
+               * the signature evidence itself.
+               */
               actorId:
-                toNullableString(
-                  body.workerId,
-                ),
+                authorization.user.id,
 
               actorName:
-                workerName,
+                authorization.user.displayName,
 
               actorRole:
-                "Worker",
+                authorization.membership.roleCodes.length >
+                0
+                  ? authorization.membership.roleCodes.join(
+                      ", ",
+                    )
+                  : authorization.membership.canManagePlanning
+                    ? "Planning Manager"
+                    : "WSE Field Actor",
 
               comment:
                 "Worker acknowledged the Daily Worker Safety Engagement.",
@@ -307,6 +443,22 @@ export async function POST(
       },
     );
   } catch (error) {
+    if (
+      error instanceof
+        WseFieldActorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to capture Daily WSE worker acknowledgement:",
       error,
@@ -337,6 +489,11 @@ export async function PATCH(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedWseFieldActor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -344,6 +501,7 @@ export async function PATCH(
       await findWse(
         planningRecordId,
         wseId,
+        authorization.planningRecord.tenantId,
       );
 
     if (!wse) {
@@ -452,6 +610,22 @@ export async function PATCH(
         updated,
     });
   } catch (error) {
+    if (
+      error instanceof
+        WseFieldActorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to sign worker out of Daily WSE:",
       error,
