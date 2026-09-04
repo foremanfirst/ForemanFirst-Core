@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -37,21 +42,40 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
-    const body =
-      await request.json();
+    /*
+     * Authorization is intentionally resolved before
+     * request-body parsing or any mutation work.
+     *
+     * Draft-authoring access requires:
+     * - authenticated user
+     * - active tenant membership
+     * - active project membership
+     * - canCreatePlanning OR canManagePlanning
+     */
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
 
     const existing =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          projectId:
+            authorization.planningRecord.projectId,
+
           isArchived: false,
         },
 
         select: {
           id: true,
           tenantId: true,
+          projectId: true,
           status: true,
-          responsibleSupervisor: true,
         },
       });
 
@@ -78,6 +102,9 @@ export async function PUT(
         },
       );
     }
+
+    const body =
+      await request.json();
 
     const workSteps =
       Array.isArray(body.workSteps)
@@ -134,6 +161,14 @@ export async function PUT(
       }
     }
 
+    const actorRole =
+      authorization.membership.roleCodes.length >
+      0
+        ? authorization.membership.roleCodes.join(
+            ", ",
+          )
+        : "Planning Editor";
+
     const saved =
       await prisma.$transaction(
         async (tx) => {
@@ -149,6 +184,7 @@ export async function PUT(
           await tx.planningWorkStep.deleteMany({
             where: {
               planningRecordId,
+
               tenantId:
                 existing.tenantId,
             },
@@ -200,13 +236,13 @@ export async function PUT(
               revisionNumber:
                 null,
 
-              actorName:
-                existing.responsibleSupervisor,
+              actorId:
+                authorization.user.id,
 
-              actorRole:
-                existing.responsibleSupervisor
-                  ? "Responsible Supervisor"
-                  : null,
+              actorName:
+                authorization.user.displayName,
+
+              actorRole,
 
               comment:
                 "Preliminary work sequence was saved during scope planning.",
@@ -221,6 +257,7 @@ export async function PUT(
           return tx.planningWorkStep.findMany({
             where: {
               planningRecordId,
+
               tenantId:
                 existing.tenantId,
             },
@@ -241,6 +278,22 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (
+      error instanceof
+      PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to save planning work sequence:",
       error,
