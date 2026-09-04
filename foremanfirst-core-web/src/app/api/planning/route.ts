@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningCreatorAuthorizationError,
+  requireAuthorizedPlanningCreator,
+} from "@/lib/planning/planning-creator-authorization";
+
 export const dynamic = "force-dynamic";
 
 function toNullableString(value: unknown) {
@@ -147,7 +152,7 @@ export async function POST(
   try {
     const body = await request.json();
 
-    const tenantId =
+    const requestedTenantId =
       toNullableString(
         body.tenantId,
       );
@@ -176,18 +181,6 @@ export async function POST(
       toNullableString(
         body.title,
       );
-
-    if (!tenantId) {
-      return NextResponse.json(
-        {
-          message:
-            "Tenant ID is required.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
 
     if (!companyId) {
       return NextResponse.json(
@@ -237,29 +230,52 @@ export async function POST(
       );
     }
 
+    const authorization =
+      await requireAuthorizedPlanningCreator(
+        projectId,
+      );
+
+    const tenantId =
+      authorization.project.tenantId;
+
+    if (
+      requestedTenantId &&
+      requestedTenantId !== tenantId
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Selected tenant does not match the authorized project.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      companyId !==
+      authorization.project.companyId
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Selected company does not match the authorized project.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const [
       company,
-      project,
       contractor,
     ] = await Promise.all([
       prisma.company.findFirst({
         where: {
           id: companyId,
           tenantId,
-          isArchived: false,
-          isActive: true,
-        },
-
-        select: {
-          id: true,
-        },
-      }),
-
-      prisma.project.findFirst({
-        where: {
-          id: projectId,
-          tenantId,
-          companyId,
           isArchived: false,
           isActive: true,
         },
@@ -292,18 +308,6 @@ export async function POST(
         {
           message:
             "Selected company was not found for this tenant.",
-        },
-        {
-          status: 404,
-        },
-      );
-    }
-
-    if (!project) {
-      return NextResponse.json(
-        {
-          message:
-            "Selected project was not found for this tenant and company.",
         },
         {
           status: 404,
@@ -429,14 +433,10 @@ export async function POST(
                   ) ?? 0,
 
                 createdBy:
-                  toNullableString(
-                    body.createdBy,
-                  ),
+                  authorization.user.id,
 
                 updatedBy:
-                  toNullableString(
-                    body.updatedBy,
-                  ),
+                  authorization.user.id,
               },
 
               include: {
@@ -481,19 +481,17 @@ export async function POST(
               revisionNumber: 1,
 
               actorId:
-                toNullableString(
-                  body.createdBy,
-                ),
+                authorization.user.id,
 
               actorName:
-                toNullableString(
-                  body.createdByName,
-                ),
+                authorization.user.displayName,
 
               actorRole:
-                toNullableString(
-                  body.createdByRole,
-                ),
+                authorization.membership.roleCodes.length > 0
+                  ? authorization.membership.roleCodes.join(
+                      ", ",
+                    )
+                  : "Planning Creator",
 
               comment:
                 "Planning draft created.",
@@ -513,6 +511,22 @@ export async function POST(
       },
     );
   } catch (error) {
+    if (
+      error instanceof
+        PlanningCreatorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to create planning record:",
       error,
