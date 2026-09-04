@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+import {
+  PlanningEditorAuthorizationError,
+  requireAuthorizedPlanningEditor,
+} from "@/lib/planning/planning-editor-authorization";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -55,6 +60,11 @@ export async function PUT(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        planningRecordId,
+      );
+
     const body =
       await request.json();
 
@@ -62,6 +72,10 @@ export async function PUT(
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
         select: {
@@ -180,9 +194,7 @@ export async function PUT(
                     snapshot:
                       body.snapshot,
                     createdBy:
-                      toNullableString(
-                        body.createdBy,
-                      ),
+                      authorization.user.id,
                   },
                 })
               : await tx.planningRevision.create({
@@ -199,9 +211,7 @@ export async function PUT(
                     snapshot:
                       body.snapshot,
                     createdBy:
-                      toNullableString(
-                        body.createdBy,
-                      ),
+                      authorization.user.id,
                   },
                 });
 
@@ -299,17 +309,13 @@ export async function PUT(
                     existingRecord.status,
                   revisionNumber,
                   actorId:
-                    toNullableString(
-                      body.createdBy,
-                    ),
+                    authorization.user.id,
                   actorName:
-                    toNullableString(
-                      body.createdByName,
-                    ),
+                    authorization.user.displayName,
                   actorRole:
-                    toNullableString(
-                      body.createdByRole,
-                    ),
+                    authorization.membership.roleCodes.join(
+                      ", ",
+                    ) || "Planning Editor",
                   comment:
                     "Draft planning content changed after pre-submission review. Reconfirmation is required before the record can proceed to submission.",
                   metadata: {
@@ -339,17 +345,13 @@ export async function PUT(
                 existingRecord.status,
               revisionNumber,
               actorId:
-                toNullableString(
-                  body.createdBy,
-                ),
+                authorization.user.id,
               actorName:
-                toNullableString(
-                  body.createdByName,
-                ),
+                authorization.user.displayName,
               actorRole:
-                toNullableString(
-                  body.createdByRole,
-                ),
+                authorization.membership.roleCodes.join(
+                  ", ",
+                ) || "Planning Editor",
               comment:
                 existingRevision
                   ? "Draft planning revision refreshed before pre-submission review."
@@ -379,6 +381,22 @@ export async function PUT(
         result.invalidatedSignatureCount,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to persist planning revision:",
       error,
