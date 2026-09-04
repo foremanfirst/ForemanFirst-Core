@@ -838,12 +838,6 @@ export default function DailyWsePage() {
                     }),
                   ),
 
-                updatedByName:
-                  wse.foremanName,
-
-                updatedByRole:
-                  "Foreman / Supervisor",
-
                 updateComment:
                   "Daily WSE morning review saved.",
               }),
@@ -948,10 +942,6 @@ export default function DailyWsePage() {
                       draftMoc.requiresPtpRevision,
                   },
                 ],
-                updatedByName:
-                  wse.foremanName,
-                updatedByRole:
-                  "Foreman / Supervisor",
                 updateComment:
                   "Daily WSE Draft MOC saved.",
               }),
@@ -1073,12 +1063,6 @@ export default function DailyWsePage() {
                       draftMoc.requiresPtpRevision,
                   },
                 ],
-
-                updatedByName:
-                  wse.foremanName,
-
-                updatedByRole:
-                  "Foreman / Supervisor",
 
                 updateComment:
                   "Daily WSE Draft MOC saved before submission.",
@@ -1919,12 +1903,6 @@ export default function DailyWsePage() {
 
                 foremanFinalAcknowledged:
                   true,
-
-                updatedByName:
-                  wse.foremanName,
-
-                updatedByRole:
-                  "Foreman / Supervisor",
 
                 updateComment:
                   "Daily WSE completed and locked.",

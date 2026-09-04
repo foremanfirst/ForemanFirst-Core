@@ -1312,16 +1312,24 @@ export async function PATCH(
                 existing.revisionNumber,
 
               actorName:
-                toNullableString(
-                  body.updatedByName,
-                ) ??
-                existing.foremanName,
+                authorization.user.displayName,
 
               actorRole:
-                toNullableString(
-                  body.updatedByRole,
-                ) ??
-                "Foreman / Supervisor",
+                authorization.membership.roleCodes.includes(
+                  "FOREMAN",
+                )
+                  ? "Foreman"
+                  : authorization.membership.roleCodes.includes(
+                        "SUPERINTENDENT",
+                      )
+                    ? "Superintendent"
+                    : authorization.membership.roleCodes.includes(
+                          "SAFETY_MANAGER",
+                        )
+                      ? "Safety Manager"
+                      : authorization.membership.canManagePlanning
+                        ? "Planning Manager"
+                        : "WSE Field Actor",
 
               comment:
                 toNullableString(
