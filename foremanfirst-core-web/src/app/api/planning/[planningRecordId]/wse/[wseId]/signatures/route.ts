@@ -378,6 +378,45 @@ export async function POST(
       );
     }
 
+    /*
+     * A worker may acknowledge a specific Daily WSE only once.
+     *
+     * This application-level guard protects the MVP workflow
+     * from duplicate acknowledgements and inflated crew counts.
+     * A database-level composite uniqueness constraint should
+     * become the final concurrency-safe guarantee when the
+     * signature schema is deliberately evolved.
+     */
+    const existingAcknowledgement =
+      await prisma.dailyWorkerSafetyEngagementSignature.findFirst({
+        where: {
+          tenantId:
+            wse.tenantId,
+
+          dailyWseId:
+            wseId,
+
+          workerId:
+            worker.id,
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (existingAcknowledgement) {
+      return NextResponse.json(
+        {
+          message:
+            "This worker has already acknowledged this Daily WSE.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     const now =
       new Date();
 
