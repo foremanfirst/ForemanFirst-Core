@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
+  requireAuthorizedWseFieldActor,
+  WseFieldActorAuthorizationError,
+} from "@/lib/planning/wse-field-actor-authorization";
+import {
   resolveMocApprovalRouting,
 } from "@/lib/planning/approval-routing";
+import {
+  MocApproverAssignmentError,
+  resolveDesignatedMocApprover,
+} from "@/lib/planning/moc-approver-assignment";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +52,10 @@ export async function POST(
     } =
       await context.params;
 
-    const body =
-      await request.json();
+    const authorization =
+      await requireAuthorizedWseFieldActor(
+        planningRecordId,
+      );
 
     const moc =
       await prisma.dailyWorkerSafetyEngagementMoc.findFirst({
@@ -56,9 +66,15 @@ export async function POST(
           dailyWseId:
             wseId,
 
+          tenantId:
+            authorization.planningRecord.tenantId,
+
           dailyWse: {
             planningRecordId:
               planningRecordId,
+
+            tenantId:
+              authorization.planningRecord.tenantId,
           },
         },
 
@@ -247,25 +263,49 @@ export async function POST(
       );
     }
 
+    const requiredRole =
+      requiredRoles[0];
+
+    const designatedApprover =
+      await resolveDesignatedMocApprover({
+        tenantId:
+          authorization.planningRecord.tenantId,
+
+        projectId:
+          authorization.planningRecord.projectId,
+
+        roleCode:
+          requiredRole.code,
+
+        roleLabel:
+          requiredRole.label,
+      });
+
     const submittedAt =
       new Date();
 
     const submittedById =
-      toNullableString(
-        body.submittedById,
-      );
+      authorization.user.id;
 
     const submittedByName =
-      toNullableString(
-        body.submittedByName,
-      ) ??
-      moc.dailyWse.foremanName;
+      authorization.user.displayName;
 
     const submittedByRole =
-      toNullableString(
-        body.submittedByRole,
-      ) ??
-      "Foreman / Supervisor";
+      authorization.membership.roleCodes.includes(
+        "SAFETY_MANAGER",
+      )
+        ? "Safety Manager"
+        : authorization.membership.roleCodes.includes(
+              "SUPERINTENDENT",
+            )
+          ? "Superintendent"
+          : authorization.membership.roleCodes.includes(
+                "FOREMAN",
+              )
+            ? "Foreman"
+            : authorization.membership.canManagePlanning
+              ? "Planning Manager"
+              : "Authorized WSE Field Actor";
 
     const result =
       await prisma.$transaction(
@@ -310,13 +350,22 @@ export async function POST(
                           role.order,
 
                         signerId:
-                          role.signerId,
+                          role.code ===
+                          requiredRole.code
+                            ? designatedApprover.userId
+                            : role.signerId,
 
                         signerName:
-                          role.signerName,
+                          role.code ===
+                          requiredRole.code
+                            ? designatedApprover.displayName
+                            : role.signerName,
 
                         signerEmail:
-                          role.signerEmail,
+                          role.code ===
+                          requiredRole.code
+                            ? designatedApprover.email
+                            : role.signerEmail,
 
                         sourceType:
                           role.sourceType,
@@ -360,13 +409,22 @@ export async function POST(
                     role.order,
 
                   approverId:
-                    role.signerId,
+                    role.code ===
+                    requiredRole.code
+                      ? designatedApprover.userId
+                      : role.signerId,
 
                   approverName:
-                    role.signerName,
+                    role.code ===
+                    requiredRole.code
+                      ? designatedApprover.displayName
+                      : role.signerName,
 
                   approverEmail:
-                    role.signerEmail,
+                    role.code ===
+                    requiredRole.code
+                      ? designatedApprover.email
+                      : role.signerEmail,
 
                   status:
                     "Pending",
@@ -504,6 +562,24 @@ export async function POST(
   } catch (
     error
   ) {
+    if (
+      error instanceof
+        WseFieldActorAuthorizationError ||
+      error instanceof
+        MocApproverAssignmentError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to submit Daily WSE MOC:",
       error,

@@ -3,6 +3,10 @@ import type {
   Prisma,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  MocApproverAuthorizationError,
+  requireAuthorizedMocApprover,
+} from "@/lib/planning/moc-approver-authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +90,14 @@ export async function POST(
     } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedMocApprover(
+        planningRecordId,
+        wseId,
+        mocId,
+        approvalId,
+      );
+
     const body =
       await request.json();
 
@@ -134,32 +146,13 @@ export async function POST(
     }
 
     const decidedById =
-      toNullableString(
-        body.decidedById,
-      );
+      authorization.user.id;
 
     const decidedByName =
-      toNullableString(
-        body.decidedByName,
-      );
+      authorization.user.displayName;
 
     const decidedByRole =
-      toNullableString(
-        body.decidedByRole,
-      );
-
-    if (!decidedByName) {
-      return NextResponse.json(
-        {
-          message:
-            "Approver name is required.",
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
+      authorization.approval.roleLabel;
 
     const signatureType =
       toNullableString(
@@ -236,14 +229,23 @@ export async function POST(
           id:
             approvalId,
 
+          tenantId:
+            authorization.planningRecord.tenantId,
+
           mocId:
             mocId,
 
           moc: {
+            tenantId:
+              authorization.planningRecord.tenantId,
+
             dailyWseId:
               wseId,
 
             dailyWse: {
+              tenantId:
+                authorization.planningRecord.tenantId,
+
               planningRecordId:
                 planningRecordId,
             },
@@ -708,6 +710,22 @@ export async function POST(
   } catch (
     error
   ) {
+    if (
+      error instanceof
+        MocApproverAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to record Daily WSE MOC approval decision:",
       error,
