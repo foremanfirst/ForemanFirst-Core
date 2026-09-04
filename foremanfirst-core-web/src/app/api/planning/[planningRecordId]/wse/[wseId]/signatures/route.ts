@@ -433,20 +433,23 @@ export async function POST(
                 signedInAt:
                   now,
 
+                /*
+                 * Evidence metadata is server controlled.
+                 * IP capture remains disabled until Qoreva has
+                 * an explicitly configured trusted-proxy strategy.
+                 */
                 ipAddress:
-                  toNullableString(
-                    body.ipAddress,
-                  ),
+                  null,
 
                 userAgent:
                   toNullableString(
-                    body.userAgent,
+                    request.headers.get(
+                      "user-agent",
+                    ),
                   ),
 
                 deviceInfo:
-                  toNullableString(
-                    body.deviceInfo,
-                  ),
+                  null,
               },
             });
 
