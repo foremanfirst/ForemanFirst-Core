@@ -623,7 +623,16 @@ model PlanningWorkStep {
   controls String?
 
   safetyCritical Boolean @default(false)
-  riskLevel      String?
+
+  // Legacy work-step risk field retained temporarily for compatibility
+  // while Qoreva transitions to the inherent -> controlled risk model.
+  riskLevel String?
+
+  // Risk before controls are credited.
+  inherentRiskLevel String?
+
+  // Risk after selected/verified controls are credited.
+  controlledRiskLevel String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -634,6 +643,8 @@ model PlanningWorkStep {
   @@index([tenantId])
   @@index([planningRecordId])
   @@index([riskLevel])
+  @@index([inherentRiskLevel])
+  @@index([controlledRiskLevel])
   @@index([safetyCritical])
 }
 
