@@ -2215,15 +2215,15 @@ const wizardSteps = [
   },
   {
     number: 6,
-    shortTitle: "Build",
+    shortTitle: "Hazards & Controls",
   },
   {
     number: 7,
-    shortTitle: "Pre-Submit",
+    shortTitle: "Risk & Readiness",
   },
   {
     number: 8,
-    shortTitle: "Submit",
+    shortTitle: "Review & Submit",
   },
 ];
 
@@ -8890,10 +8890,11 @@ export default function CreatePlanningPage() {
     }
   }
 
-  async function markVisibleControlNotApplicable(
+  async function saveVisibleControlDecision(
     step: GeneratedDraftWorkStep,
     group: GeneratedHazardControlGroup,
     control: GeneratedHazardControlItem,
+    decision: "Accept" | "NotApplicable",
   ) {
     if (!planningRecordId) {
       setHazardControlDecisionError(
@@ -8903,11 +8904,28 @@ export default function CreatePlanningPage() {
     }
 
     if (
+      decision === "NotApplicable" &&
       control.source === "User" &&
       !control.required
     ) {
       setHazardControlDecisionError(
         "This is user-authored draft content. Use Remove for a control you no longer want in the plan; Not Applicable is reserved for generated or requirement-backed recommendations.",
+      );
+      return;
+    }
+
+    if (
+      decision === "Accept" &&
+      !hasMeaningfulPlanningText(
+        control.text,
+        {
+          minimumCharacters: 8,
+          minimumWords: 2,
+        },
+      )
+    ) {
+      setHazardControlDecisionError(
+        "Clarify or modify this control before accepting it. Placeholder or incomplete controls cannot be accepted.",
       );
       return;
     }
@@ -8935,8 +8953,7 @@ export default function CreatePlanningPage() {
                 "Control",
               originalText:
                 control.text,
-              decision:
-                "NotApplicable",
+              decision,
               modifiedText:
                 null,
               targetHazardId:
@@ -8994,7 +9011,7 @@ export default function CreatePlanningPage() {
       ) {
         throw new Error(
           data.message ||
-            "Unable to save the Not Applicable decision.",
+            "Unable to save the control decision.",
         );
       }
 
@@ -9015,20 +9032,46 @@ export default function CreatePlanningPage() {
 
       if (!draftSynchronized) {
         setHazardControlDecisionError(
-          "The Not Applicable decision was saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.",
+          "The control decision was saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.",
         );
       }
     } catch (error) {
       setHazardControlDecisionError(
         error instanceof Error
           ? error.message
-          : "Unable to save the Not Applicable decision.",
+          : "Unable to save the control decision.",
       );
     } finally {
       setHazardControlDecisionSavingId(
         null,
       );
     }
+  }
+
+  async function acceptVisibleControl(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+    control: GeneratedHazardControlItem,
+  ) {
+    await saveVisibleControlDecision(
+      step,
+      group,
+      control,
+      "Accept",
+    );
+  }
+
+  async function markVisibleControlNotApplicable(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+    control: GeneratedHazardControlItem,
+  ) {
+    await saveVisibleControlDecision(
+      step,
+      group,
+      control,
+      "NotApplicable",
+    );
   }
 
   function isMaterialHandlingResolutionCandidate(
@@ -13740,9 +13783,9 @@ export default function CreatePlanningPage() {
             >
               <StepHeading
                 number="06"
-                eyebrow="Build Plan"
-                title="Assemble the Draft Planning Record"
-                description="Qoreva assembles the information entered in Steps 1–5 into a structured draft and performs a planning quality check. Missing or weak items are surfaced for human review instead of being silently invented."
+                eyebrow="Qoreva Work-Step Intelligence"
+                title="Hazards & Controls"
+                description="Review each work step, confirm its hazards and controls, resolve missing intelligence, and document how critical controls will be verified. Qoreva assists with structure and analysis; qualified people make the safety decisions."
               />
             </div>
 
@@ -13754,7 +13797,9 @@ export default function CreatePlanningPage() {
                 sm:p-6
               "
             >
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_21rem] xl:items-start">
+                <div className="min-w-0 space-y-6">
+                  <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <StepMetric
                   label="Quality Score"
                   value={planningQualitySummary.score}
@@ -13864,9 +13909,11 @@ export default function CreatePlanningPage() {
                         />
 
                         <DocumentStatusBadge
-                          label={`${unassignedUserControlReviewItems.length} Need Review`}
+                          label={`${Math.max(controlReadinessSummary.total - controlReadinessSummary.readyForQualifiedRiskReview, 0)} Need Safety Review`}
                           tone={
-                            unassignedUserControlReviewItems.length > 0
+                            controlReadinessSummary.total -
+                              controlReadinessSummary.readyForQualifiedRiskReview >
+                            0
                               ? "warning"
                               : "success"
                           }
@@ -13875,7 +13922,7 @@ export default function CreatePlanningPage() {
                     </div>
                   </div>
 
-                  <div className="border-b border-[var(--qoreva-border)] bg-white p-4 sm:p-5">
+                  <div className="border-b border-[var(--qoreva-border)] bg-white p-4 sm:p-5 xl:hidden">
                     <div className="rounded-2xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] p-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex items-start gap-3">
@@ -15524,6 +15571,17 @@ export default function CreatePlanningPage() {
                                                               "Unresolved",
                                                         );
 
+                                                      const savedControlDecision =
+                                                        hazardControlDecisions.find(
+                                                          (decision) =>
+                                                            decision.recommendationId ===
+                                                            control.id,
+                                                        );
+
+                                                      const controlAccepted =
+                                                        savedControlDecision?.decision ===
+                                                        "Accept";
+
                                                       return (
                                                       <div
                                                         key={control.id}
@@ -15593,6 +15651,38 @@ export default function CreatePlanningPage() {
                                                               <button
                                                                 type="button"
                                                                 onClick={() =>
+                                                                  void acceptVisibleControl(
+                                                                    step,
+                                                                    group,
+                                                                    control,
+                                                                  )
+                                                                }
+                                                                disabled={
+                                                                  hazardControlDecisionSavingId !==
+                                                                    null ||
+                                                                  hazardControlOverrideSavingId !==
+                                                                    null
+                                                                }
+                                                                aria-pressed={
+                                                                  controlAccepted
+                                                                }
+                                                                className={`inline-flex min-h-9 items-center justify-center rounded-lg border px-3 py-1.5 text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                                  controlAccepted
+                                                                    ? "border-[var(--qoreva-success)] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                                                    : "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white hover:bg-[var(--qoreva-violet-dark)]"
+                                                                }`}
+                                                              >
+                                                                {hazardControlDecisionSavingId ===
+                                                                control.id
+                                                                  ? "Saving..."
+                                                                  : controlAccepted
+                                                                    ? "✓ Accepted"
+                                                                    : "✓ Accept"}
+                                                              </button>
+
+                                                              <button
+                                                                type="button"
+                                                                onClick={() =>
                                                                   openEditControlEditor(
                                                                     step,
                                                                     group,
@@ -15607,7 +15697,7 @@ export default function CreatePlanningPage() {
                                                                 }
                                                                 className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
                                                               >
-                                                                Edit Control
+                                                                Modify
                                                               </button>
 
                                                               {control.source ===
@@ -16456,6 +16546,106 @@ export default function CreatePlanningPage() {
                   </div>
                 </section>
               )}
+                </div>
+
+                <aside className="hidden xl:sticky xl:top-5 xl:block">
+                  <div className="overflow-hidden rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                    <div className="border-b border-[var(--qoreva-border)] p-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
+                            Readiness
+                          </p>
+
+                          <p className="mt-1 text-3xl font-black text-[var(--qoreva-obsidian)]">
+                            {controlReadinessSummary.score}%
+                          </p>
+                        </div>
+
+                        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--qoreva-violet-soft)] text-lg font-black text-[var(--qoreva-violet-dark)]">
+                          Q
+                        </span>
+                      </div>
+
+                      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[var(--qoreva-surface-muted)]">
+                        <div
+                          className={`h-full rounded-full transition-[width] duration-300 ${
+                            controlReadinessSummary.status ===
+                            "Ready for Qualified Review"
+                              ? "bg-[var(--qoreva-success)]"
+                              : "bg-[#E49A16]"
+                          }`}
+                          style={{
+                            width: `${controlReadinessSummary.score}%`,
+                          }}
+                        />
+                      </div>
+
+                      <p className="mt-2 text-xs font-black text-[#8A5A12]">
+                        {controlReadinessSummary.status}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 p-4">
+                      <ReadinessItem
+                        label="Critical-control candidates"
+                        value={controlReadinessSummary.criticalCandidates}
+                        detail="Require qualified review"
+                        tone="danger"
+                      />
+
+                      <ReadinessItem
+                        label="Verification missing"
+                        value={controlReadinessSummary.missingVerification}
+                        detail="Evidence or method required"
+                        tone="warning"
+                      />
+
+                      <ReadinessItem
+                        label="Intelligence unresolved"
+                        value={controlReadinessSummary.insufficientIntelligence}
+                        detail="Protective function needs detail"
+                        tone="neutral"
+                      />
+
+                      <ReadinessItem
+                        label="Ready for qualified review"
+                        value={controlReadinessSummary.readyForQualifiedRiskReview}
+                        detail={`of ${controlReadinessSummary.total} evaluated controls`}
+                        tone="success"
+                      />
+                    </div>
+
+                    <div className="border-t border-[var(--qoreva-border)] bg-[var(--qoreva-warning-soft)] p-4">
+                      <p className="text-xs font-black text-[#8A5A12]">
+                        Qualified review is still required
+                      </p>
+
+                      <p className="mt-1 text-[11px] font-medium leading-5 text-[var(--qoreva-muted)]">
+                        Readiness does not approve the plan, lower Controlled Risk, or authorize field work.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2 p-4">
+                      <button
+                        type="button"
+                        onClick={continueFromBuildPlan}
+                        className={primaryButtonClassName}
+                      >
+                        Continue to Risk & Readiness →
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={goBackOneStep}
+                        className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2.5 text-sm font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)]"
+                      >
+                        Save and return to planning
+                      </button>
+                    </div>
+                  </div>
+                </aside>
+              </div>
             </div>
           </section>
 
@@ -16504,7 +16694,7 @@ export default function CreatePlanningPage() {
               onClick={continueFromBuildPlan}
               className={primaryButtonClassName}
             >
-              Continue to Pre-Submission Review →
+              Continue to Risk & Readiness →
             </button>
           </section>
         </>
@@ -19275,6 +19465,51 @@ function formatDynamicAnswer(
   }
 
   return value;
+}
+
+function ReadinessItem({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone:
+    | "neutral"
+    | "warning"
+    | "danger"
+    | "success";
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+      : tone === "warning"
+        ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
+        : tone === "success"
+          ? "border-[#A9DDD2] bg-[var(--qoreva-success-soft)]"
+          : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]";
+
+  return (
+    <div className={`rounded-xl border p-3 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+            {label}
+          </p>
+
+          <p className="mt-1 text-[11px] font-medium leading-4 text-[var(--qoreva-muted)]">
+            {detail}
+          </p>
+        </div>
+
+        <span className="text-xl font-black text-[var(--qoreva-obsidian)]">
+          {value}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function WizardProgress({
