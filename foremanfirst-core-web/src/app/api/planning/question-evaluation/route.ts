@@ -35,6 +35,35 @@ function nullableString(
     : null;
 }
 
+function sanitizePlanningAnswers(
+  value: unknown,
+): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([questionCode, answer]) => {
+      if (typeof answer !== "string") {
+        return [];
+      }
+
+      const code = questionCode.trim();
+      const normalized = answer.trim();
+
+      if (
+        !code ||
+        !normalized ||
+        /^(dd+|test|testing|asdf|xxx+|tbd|unknown|n\/?a|na)$/i.test(normalized)
+      ) {
+        return [];
+      }
+
+      return [[code, normalized]];
+    }),
+  );
+}
+
 export async function POST(
   request: Request,
 ) {
@@ -78,20 +107,14 @@ export async function POST(
           )
         : [];
 
+    /*
+     * The API is the trust boundary. Placeholder, empty, and
+     * non-string answers must not influence requirement logic.
+     */
     const answers =
-      body.answers &&
-      typeof body.answers ===
-        "object" &&
-      !Array.isArray(
+      sanitizePlanningAnswers(
         body.answers,
-      )
-        ? (
-            body.answers as Record<
-              string,
-              string | null | undefined
-            >
-          )
-        : {};
+      );
 
     /*
      * Server-side trust boundary:

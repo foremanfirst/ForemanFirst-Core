@@ -21,6 +21,7 @@ type ActivityInput = {
   detectionSource?: string | null;
   score?: number | string | null;
   aiConfidence?: number | string | null;
+  confirmationStatus?: string | null;
 };
 
 function nullableString(
@@ -101,6 +102,14 @@ function getActivityConfidence(
   return normalizeConfidence(
     activity.score,
   );
+}
+
+function normalizeConfirmationStatus(
+  value: unknown,
+) {
+  return value === "Confirmed"
+    ? "Confirmed"
+    : "Pending";
 }
 
 function normalizeActivities(
@@ -303,6 +312,15 @@ export async function PUT(
                 activity,
               );
 
+            const confirmationStatus =
+              normalizeConfirmationStatus(
+                activity.confirmationStatus,
+              );
+
+            const isConfirmed =
+              confirmationStatus ===
+              "Confirmed";
+
             await tx.planningActivity.upsert({
               where: {
                 planningRecordId_activityCode:
@@ -339,19 +357,21 @@ export async function PUT(
                   confidence,
 
                 /*
-                 * Step 4 currently auto-selects all detected activities
-                 * before the user reviews them in Step 5. Persisting that
-                 * same selected state prevents refresh/reopen from losing
-                 * the activity context. Step 5 remains the final user
-                 * review and can remove activities before draft generation.
+                 * Detection is only a Qoreva suggestion. A qualified user
+                 * must explicitly confirm applicability in Step 5 before
+                 * the activity can drive the official planning record.
                  */
-                confirmationStatus:
-                  "Confirmed",
+                confirmationStatus,
 
-                confirmedBy,
+                confirmedBy:
+                  isConfirmed
+                    ? confirmedBy
+                    : null,
 
                 confirmedAt:
-                  now,
+                  isConfirmed
+                    ? now
+                    : null,
 
                 isActive:
                   true,
@@ -377,13 +397,17 @@ export async function PUT(
                 aiConfidence:
                   confidence,
 
-                confirmationStatus:
-                  "Confirmed",
+                confirmationStatus,
 
-                confirmedBy,
+                confirmedBy:
+                  isConfirmed
+                    ? confirmedBy
+                    : null,
 
                 confirmedAt:
-                  now,
+                  isConfirmed
+                    ? now
+                    : null,
 
                 isActive:
                   true,

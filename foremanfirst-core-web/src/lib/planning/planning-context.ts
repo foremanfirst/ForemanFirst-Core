@@ -9,7 +9,10 @@ import {
 } from "@/lib/planning/requirement-resolver";
 
 import type {
+  PlanningActivityContext,
   PlanningGenerationContext,
+  PlanningQuestionAnswerContext,
+  PlanningWorkStepContext,
 } from "./planning-types";
 
 function decimalToNumber(
@@ -27,6 +30,277 @@ function decimalToNumber(
   return Number.isFinite(parsed)
     ? parsed
     : null;
+}
+
+export type ProposedPlanningActivityInput = {
+  activityCode: string;
+  name: string;
+  category: string | null;
+  detectionSource: string;
+  confidence: number | null;
+};
+
+export type ProposedPlanningQuestionInput = {
+  questionCode: string;
+  category: string;
+  questionText: string;
+  responseValue: string | null;
+  notes: string | null;
+};
+
+export async function buildProposedPlanningGenerationContext({
+  baseContext,
+  activities,
+  questions,
+  workSteps,
+}: {
+  baseContext: PlanningGenerationContext;
+  activities: ProposedPlanningActivityInput[];
+  questions: ProposedPlanningQuestionInput[];
+  workSteps: PlanningWorkStepContext[];
+}): Promise<PlanningGenerationContext> {
+  /*
+   * Guided Planning may evaluate a proposed state before that state
+   * has been persisted.
+   *
+   * Planner-authored selections/answers are therefore overlaid onto
+   * the authoritative server context, while safety intelligence is
+   * rebuilt from trusted Qoreva/tenant definitions.
+   */
+
+  const activityCodes =
+    Array.from(
+      new Set(
+        activities.map(
+          (activity) =>
+            activity.activityCode,
+        ),
+      ),
+    );
+
+  const activityDefinitions =
+    activityCodes.length > 0
+      ? await prisma.planningActivityDefinition.findMany({
+          where: {
+            activityCode: {
+              in: activityCodes,
+            },
+
+            isActive: true,
+            isArchived: false,
+
+            OR: [
+              {
+                scopeKey:
+                  "QOREVA",
+              },
+              {
+                tenantId:
+                  baseContext.tenantId,
+              },
+            ],
+          },
+        })
+      : [];
+
+  const activityDefinitionMap =
+    new Map<
+      string,
+      (typeof activityDefinitions)[number]
+    >();
+
+  for (
+    const definition of
+    activityDefinitions
+  ) {
+    const existing =
+      activityDefinitionMap.get(
+        definition.activityCode,
+      );
+
+    /*
+     * Tenant intelligence overrides the Qoreva base definition when
+     * both define the same activity code.
+     */
+    if (
+      !existing ||
+      (
+        definition.tenantId ===
+          baseContext.tenantId &&
+        existing.tenantId !==
+          baseContext.tenantId
+      )
+    ) {
+      activityDefinitionMap.set(
+        definition.activityCode,
+        definition,
+      );
+    }
+  }
+
+  const proposedActivities:
+    PlanningActivityContext[] =
+      activities.map(
+        (activity) => {
+          const definition =
+            activityDefinitionMap.get(
+              activity.activityCode,
+            );
+
+          return {
+            activityCode:
+              activity.activityCode,
+
+            /*
+             * Prefer trusted definition metadata when available.
+             * The persisted planner selection remains the fallback so
+             * legacy/custom activity selections continue to round-trip.
+             */
+            name:
+              definition?.name ??
+              activity.name,
+
+            category:
+              definition?.category ??
+              activity.category,
+
+            isHighRisk:
+              definition?.isHighRisk ??
+              false,
+
+            detectionSource:
+              activity.detectionSource,
+
+            confidence:
+              activity.confidence,
+          };
+        },
+      );
+
+  const questionCodes =
+    Array.from(
+      new Set(
+        questions.map(
+          (question) =>
+            question.questionCode,
+        ),
+      ),
+    );
+
+  const questionDefinitions =
+    questionCodes.length > 0
+      ? await prisma.planningQuestionDefinition.findMany({
+          where: {
+            tenantId:
+              baseContext.tenantId,
+
+            questionCode: {
+              in: questionCodes,
+            },
+
+            isActive: true,
+            isArchived: false,
+          },
+
+          orderBy: [
+            {
+              questionCode:
+                "asc",
+            },
+            {
+              version:
+                "desc",
+            },
+          ],
+        })
+      : [];
+
+  const questionDefinitionMap =
+    new Map<
+      string,
+      (typeof questionDefinitions)[number]
+    >();
+
+  for (
+    const definition of
+    questionDefinitions
+  ) {
+    /*
+     * Results are newest-version-first within each question code.
+     * Preserve the first authoritative active definition.
+     */
+    if (
+      !questionDefinitionMap.has(
+        definition.questionCode,
+      )
+    ) {
+      questionDefinitionMap.set(
+        definition.questionCode,
+        definition,
+      );
+    }
+  }
+
+  const proposedQuestions:
+    PlanningQuestionAnswerContext[] =
+      questions.map(
+        (question) => {
+          const definition =
+            questionDefinitionMap.get(
+              question.questionCode,
+            );
+
+          return {
+            questionCode:
+              question.questionCode,
+
+            category:
+              definition?.category ??
+              question.category,
+
+            section:
+              definition?.section ??
+              null,
+
+            questionText:
+              definition?.questionText ??
+              question.questionText,
+
+            questionType:
+              definition?.questionType ??
+              "Text",
+
+            isRequired:
+              definition?.isRequired ??
+              false,
+
+            /*
+             * Criticality is server-owned whenever an authoritative
+             * definition exists. Unknown legacy/custom questions are
+             * not promoted to safety-critical merely because the
+             * browser says so.
+             */
+            isCritical:
+              definition?.isCritical ??
+              false,
+
+            responseValue:
+              question.responseValue,
+
+            notes:
+              question.notes,
+          };
+        },
+      );
+
+  return {
+    ...baseContext,
+    activities:
+      proposedActivities,
+    questions:
+      proposedQuestions,
+    workSteps,
+  };
 }
 
 export async function buildPlanningGenerationContext(
@@ -523,6 +797,15 @@ export async function buildPlanningGenerationContext(
 
           riskLevel:
             step.riskLevel,
+
+          inherentRiskLevel:
+            step.inherentRiskLevel,
+
+          recommendedControlledRiskLevel:
+            step.recommendedControlledRiskLevel,
+
+          controlledRiskLevel:
+            step.controlledRiskLevel,
         }),
       ),
 

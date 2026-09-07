@@ -595,6 +595,7 @@ model PlanningRecord {
   dailyWseRecords         DailyWorkerSafetyEngagement[]
   hazardControlDecisions  PlanningHazardControlDecision[]
   hazardControlOverrides  PlanningHazardControlOverride[]
+  controlEvaluations      PlanningControlEvaluation[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -631,7 +632,13 @@ model PlanningWorkStep {
   // Risk before controls are credited.
   inherentRiskLevel String?
 
-  // Risk after selected/verified controls are credited.
+  // Qoreva's post-control risk recommendation.
+  // This remains separate from the qualified person's official
+  // Controlled Risk confirmation.
+  recommendedControlledRiskLevel String?
+
+  // Risk after selected/verified controls are credited and
+  // confirmed by the qualified planner.
   controlledRiskLevel String?
 
   createdAt DateTime @default(now())
@@ -644,8 +651,85 @@ model PlanningWorkStep {
   @@index([planningRecordId])
   @@index([riskLevel])
   @@index([inherentRiskLevel])
+  @@index([recommendedControlledRiskLevel])
   @@index([controlledRiskLevel])
   @@index([safetyCritical])
+}
+
+model PlanningControlEvaluation {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable Guided Planning work-step identity. This intentionally
+  // does not require a PlanningWorkStep foreign key because control
+  // evaluation can occur before final work-step persistence.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  // Stable working-plan identities for the evaluated relationship.
+  hazardId  String
+  controlId String
+
+  hazardText  String
+  controlText String
+
+  // Structured Hierarchy of Controls classification when known.
+  controlHierarchy String?
+
+  // Qoreva's structured evaluation of this specific control.
+  //
+  // Hierarchy, protective function, effectiveness, and verification
+  // are intentionally separate. A higher-order control is not
+  // automatically effective.
+  protectiveFunction      String?
+  effectiveness           String?
+  verificationExpectation String?
+  verificationRequired    Boolean @default(false)
+  verificationMethod      String?
+
+  // Whether the current evidence is sufficient for this control to
+  // contribute to Qoreva's Controlled Risk recommendation.
+  riskCreditEligible Boolean @default(false)
+
+  // Critical Control remains a recommendation until confirmed through
+  // the appropriate qualified-user workflow.
+  criticalControlRecommended Boolean @default(false)
+
+  evaluationReason String?
+
+  evaluatorVersion String
+
+  evaluatedById   String?
+  evaluatedByName String?
+  evaluatedByRole String?
+  evaluatedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  // One current evaluation for a specific working control in a
+  // specific PTP revision. Future evaluation history can be preserved
+  // through audit events or a dedicated history model if required.
+  @@unique([planningRecordId, revisionNumber, workStepId, hazardId, controlId])
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([workStepId])
+  @@index([hazardId])
+  @@index([controlId])
+  @@index([controlHierarchy])
+  @@index([effectiveness])
+  @@index([riskCreditEligible])
+  @@index([criticalControlRecommended])
+  @@index([evaluatedAt])
 }
 
 model PlanningHazardControlDecision {

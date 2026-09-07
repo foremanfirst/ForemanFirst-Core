@@ -2,9 +2,31 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 import {
+  PlanningReaderAuthorizationError,
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
+import {
   PlanningEditorAuthorizationError,
   requireAuthorizedPlanningEditor,
 } from "@/lib/planning/planning-editor-authorization";
+
+import type {
+  PlanningWorkStepContext,
+} from "@/lib/planning/planning-types";
+
+import {
+  buildPlanningGenerationContext,
+  buildProposedPlanningGenerationContext,
+} from "@/lib/planning/planning-context";
+
+import {
+  generatePlanningDraft,
+} from "@/lib/planning/draft-generator";
+
+import {
+  evaluateControlledRisk,
+} from "@/lib/planning/controlled-risk-evaluator";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +43,112 @@ type WorkStepInput = {
   hazards?: string | null;
   controls?: string | null;
   safetyCritical?: boolean;
+
+  // Legacy compatibility field. During the risk-model transition this
+  // mirrors controlledRiskLevel for downstream consumers that still
+  // read riskLevel.
   riskLevel?: string | null;
+
+  // Risk before planned controls are credited.
+  inherentRiskLevel?: string | null;
+
+  // Risk after planned controls are credited.
+  controlledRiskLevel?: string | null;
 };
+
+/**
+ * Builds the planner-owned work-step state that may be overlaid onto
+ * Qoreva's authoritative server-side planning generation context.
+ *
+ * Security / ownership boundary:
+ *
+ * - The planner owns Inherent Risk.
+ * - Qoreva owns recommendedControlledRiskLevel.
+ * - A qualified confirmation workflow owns controlledRiskLevel.
+ *
+ * Guided Planning therefore does not trust browser-supplied Controlled
+ * Risk or Qoreva recommendation values when constructing evaluation
+ * context.
+ *
+ * Legacy riskLevel is preserved only for callers that have not entered
+ * the explicit Inherent Risk model.
+ */
+function buildIncomingWorkStepContext(
+  workSteps: WorkStepInput[],
+): PlanningWorkStepContext[] {
+  return workSteps.map(
+    (step, index) => {
+      const inherentRiskLevel =
+        nullableString(
+          step.inherentRiskLevel,
+        );
+
+      const usesExplicitRiskModel =
+        step.inherentRiskLevel !==
+        undefined;
+
+      const legacyRiskLevel =
+        usesExplicitRiskModel
+          ? null
+          : nullableString(
+              step.riskLevel,
+            );
+
+      return {
+        sequence:
+          index + 1,
+
+        title:
+          nullableString(
+            step.title,
+          )!,
+
+        description:
+          nullableString(
+            step.description,
+          ),
+
+        hazards:
+          nullableString(
+            step.hazards,
+          ),
+
+        controls:
+          nullableString(
+            step.controls,
+          ),
+
+        safetyCritical:
+          Boolean(
+            step.safetyCritical,
+          ),
+
+        riskLevel:
+          legacyRiskLevel,
+
+        inherentRiskLevel:
+          usesExplicitRiskModel
+            ? inherentRiskLevel
+            : null,
+
+        /*
+         * These fields are intentionally server-owned.
+         *
+         * They will be populated by later Controlled Risk evaluation
+         * and qualified-user confirmation steps rather than accepted
+         * from this Guided Planning request.
+         */
+        recommendedControlledRiskLevel:
+          null,
+
+        controlledRiskLevel:
+          usesExplicitRiskModel
+            ? null
+            : legacyRiskLevel,
+      };
+    },
+  );
+}
 
 type QuestionResponseInput = {
   questionId: string;
@@ -244,21 +370,35 @@ export async function GET(
     const { planningRecordId } =
       await context.params;
 
+    const authorization =
+      await requireAuthorizedPlanningReader(
+        planningRecordId,
+      );
+
     const existing =
       await prisma.planningRecord.findFirst({
         where: {
           id: planningRecordId,
+          tenantId:
+            authorization.planningRecord.tenantId,
+          projectId:
+            authorization.planningRecord.projectId,
           isArchived: false,
         },
 
         select: {
           id: true,
+          revisionNumber: true,
 
           activities: {
             where: {
               isActive: true,
-              confirmationStatus:
-                "Confirmed",
+              confirmationStatus: {
+                in: [
+                  "Pending",
+                  "Confirmed",
+                ],
+              },
             },
 
             orderBy: {
@@ -271,6 +411,7 @@ export async function GET(
               category: true,
               detectionSource: true,
               aiConfidence: true,
+              confirmationStatus: true,
             },
           },
         },
@@ -288,6 +429,66 @@ export async function GET(
       );
     }
 
+    const controlEvaluations =
+      await prisma.planningControlEvaluation.findMany({
+        where: {
+          planningRecordId:
+            existing.id,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+
+          revisionNumber:
+            existing.revisionNumber,
+        },
+
+        orderBy: [
+          {
+            workStepSequence:
+              "asc",
+          },
+          {
+            hazardText:
+              "asc",
+          },
+          {
+            controlText:
+              "asc",
+          },
+        ],
+
+        select: {
+          workStepId: true,
+          workStepSequence: true,
+          workStepTitle: true,
+
+          hazardId: true,
+          hazardText: true,
+
+          controlId: true,
+          controlText: true,
+          controlHierarchy: true,
+
+          protectiveFunction: true,
+          effectiveness: true,
+
+          verificationExpectation:
+            true,
+          verificationRequired:
+            true,
+          verificationMethod: true,
+
+          riskCreditEligible: true,
+
+          criticalControlRecommended:
+            true,
+
+          evaluationReason: true,
+          evaluatorVersion: true,
+          evaluatedAt: true,
+        },
+      });
+
     const activities =
       existing.activities.map(
         (activity) => ({
@@ -302,6 +503,9 @@ export async function GET(
 
           detectionSource:
             activity.detectionSource,
+
+          confirmationStatus:
+            activity.confirmationStatus,
 
           score:
             activity.aiConfidence !==
@@ -321,10 +525,28 @@ export async function GET(
 
       activities,
 
+      controlEvaluations,
+
       count:
         activities.length,
     });
   } catch (error) {
+    if (
+      error instanceof
+        PlanningReaderAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
     console.error(
       "Unable to load guided planning activities:",
       error,
@@ -407,6 +629,11 @@ export async function PUT(
         ? (body.workSteps as WorkStepInput[])
         : [];
 
+    const incomingWorkStepContext =
+      buildIncomingWorkStepContext(
+        workSteps,
+      );
+
     const questionResponses =
       Array.isArray(
         body.questionResponses,
@@ -426,6 +653,7 @@ export async function PUT(
       authorization.membership.roleCodes.join(
         ", ",
       ) || "Planning Editor";
+
 
     if (workSteps.length === 0) {
       return NextResponse.json(
@@ -495,7 +723,59 @@ export async function PUT(
         );
       }
 
+      const inherentRiskLevel =
+        nullableString(
+          step.inherentRiskLevel,
+        );
+
+      /*
+       * Explicit risk-model ownership begins when the planner provides
+       * Inherent Risk.
+       *
+       * controlledRiskLevel is not considered here because the browser
+       * does not own Controlled Risk in Qoreva's explicit model.
+       */
+      const usesExplicitRiskModel =
+        step.inherentRiskLevel !==
+        undefined;
+
       if (
+        usesExplicitRiskModel &&
+        ![
+          "Low",
+          "Medium",
+          "High",
+        ].includes(
+          inherentRiskLevel ??
+          "",
+        )
+      ) {
+        return NextResponse.json(
+          {
+            message:
+              `Work step ${index + 1} requires a valid inherent risk level.`,
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      /**
+       * Controlled Risk is not planner-authored in the explicit
+       * Qoreva risk model.
+       *
+       * Qoreva will recommend post-control risk through the
+       * controlled-risk evaluation workflow. Until that evaluator
+       * produces a recommendation and the qualified planner confirms
+       * it, the explicit model intentionally leaves Controlled Risk
+       * unresolved.
+       *
+       * Legacy callers that do not use the explicit model may continue
+       * to provide riskLevel during the transition.
+       */
+      if (
+        !usesExplicitRiskModel &&
         ![
           "Low",
           "Medium",
@@ -518,12 +798,94 @@ export async function PUT(
       }
     }
 
+    /*
+     * Build Qoreva's authoritative generation context from server-side
+     * planning data, then construct the exact proposed planner state.
+     *
+     * Planner-authored activity selections, question answers, and work
+     * steps are combined with trusted server-side definitions before
+     * safety intelligence is evaluated.
+     *
+     * Requirements, hazard identity, control intelligence, decisions,
+     * overrides, and provenance remain server-owned.
+     */
+    const generationContext =
+      await buildPlanningGenerationContext(
+        planningRecordId,
+      );
+
+    const incomingGenerationContext =
+      await buildProposedPlanningGenerationContext({
+        baseContext:
+          generationContext,
+
+        activities:
+          confirmedActivities.map(
+            (activity) => ({
+              activityCode:
+                activity.activityCode,
+
+              name:
+                activity.name,
+
+              category:
+                nullableString(
+                  activity.category,
+                ),
+
+              detectionSource:
+                normalizeDetectionSource(
+                  activity.detectionSource,
+                ),
+
+              confidence:
+                getActivityConfidence(
+                  activity,
+                ),
+            }),
+          ),
+
+        questions:
+          questionResponses.map(
+            (response) => ({
+              questionCode:
+                response.questionId,
+
+              category:
+                response.category,
+
+              questionText:
+                response.question,
+
+              responseValue:
+                nullableString(
+                  response.responseValue,
+                ),
+
+              notes:
+                nullableString(
+                  response.notes,
+                ),
+            }),
+          ),
+
+        workSteps:
+          incomingWorkStepContext,
+      });
+
+    /*
+     * Safety-critical classification is server-owned.
+     *
+     * A browser cannot downgrade an authoritative critical question by
+     * sending isCritical=false. Unknown/custom questions do not acquire
+     * compliance authority merely from client-provided metadata.
+     */
     const criticalMissing =
-      questionResponses.filter(
-        (response) =>
-          response.isCritical &&
+      incomingGenerationContext.questions.filter(
+        (question) =>
+          question.isCritical &&
           !nullableString(
-            response.responseValue,
+            question.responseValue,
           ),
       );
 
@@ -540,6 +902,54 @@ export async function PUT(
         },
       );
     }
+
+    const generatedDraft =
+      generatePlanningDraft(
+        incomingGenerationContext,
+      );
+
+    /*
+     * Controlled Risk evaluation is intentionally server-owned.
+     *
+     * No verification evidence is invented here. Controls whose
+     * intelligence requires verification therefore remain ineligible
+     * for risk credit until a qualified planning workflow supplies
+     * actual planning-specific verification evidence.
+     */
+    const controlledRiskEvaluations =
+      generatedDraft.workSteps.map(
+        (generatedStep, index) => {
+          const incomingStep =
+            incomingWorkStepContext[
+              index
+            ];
+
+          if (
+            !incomingStep ||
+            ![
+              "Low",
+              "Medium",
+              "High",
+            ].includes(
+              incomingStep.inherentRiskLevel ??
+              "",
+            )
+          ) {
+            return null;
+          }
+
+          return evaluateControlledRisk({
+            inherentRiskLevel:
+              incomingStep.inherentRiskLevel as
+                | "Low"
+                | "Medium"
+                | "High",
+
+            hazardControlGroups:
+              generatedStep.hazardControlGroups,
+          });
+        },
+      );
 
     const saved =
       await prisma.$transaction(
@@ -672,14 +1082,21 @@ export async function PUT(
           // UPSERT CURRENT CONFIRMED ACTIVITIES
           // ===================================================
 
+          /*
+           * Persist from the trusted proposed generation context rather
+           * than directly from browser-supplied activity metadata.
+           *
+           * For known Qoreva/tenant activity definitions, name and
+           * category are authoritative server-owned values. Custom or
+           * legacy activities retain the safe planner-supplied fallback
+           * established by buildProposedPlanningGenerationContext().
+           */
           for (
             const activity of
-            confirmedActivities
+            incomingGenerationContext.activities
           ) {
             const confidence =
-              getActivityConfidence(
-                activity,
-              );
+              activity.confidence;
 
             await tx.planningActivity.upsert({
               where: {
@@ -704,14 +1121,10 @@ export async function PUT(
                   activity.name,
 
                 category:
-                  nullableString(
-                    activity.category,
-                  ),
+                  activity.category,
 
                 detectionSource:
-                  normalizeDetectionSource(
-                    activity.detectionSource,
-                  ),
+                  activity.detectionSource,
 
                 aiConfidence:
                   confidence,
@@ -736,14 +1149,10 @@ export async function PUT(
                   activity.name,
 
                 category:
-                  nullableString(
-                    activity.category,
-                  ),
+                  activity.category,
 
                 detectionSource:
-                  normalizeDetectionSource(
-                    activity.detectionSource,
-                  ),
+                  activity.detectionSource,
 
                 aiConfidence:
                   confidence,
@@ -788,7 +1197,13 @@ export async function PUT(
                 (
                   step,
                   index,
-                ) => ({
+                ) => {
+                  const controlledRiskEvaluation =
+                    controlledRiskEvaluations[
+                      index
+                    ];
+
+                  return {
                   tenantId:
                     existing.tenantId,
 
@@ -822,13 +1237,221 @@ export async function PUT(
                       step.safetyCritical,
                     ),
 
+                  /*
+                   * Risk ownership has already been normalized through
+                   * buildIncomingWorkStepContext().
+                   *
+                   * The browser may provide planner-owned Inherent Risk
+                   * or legacy riskLevel, but it cannot author Qoreva's
+                   * recommendation or confirmed Controlled Risk for the
+                   * explicit model.
+                   */
                   riskLevel:
-                    nullableString(
-                      step.riskLevel,
-                    ),
-                }),
+                    incomingWorkStepContext[
+                      index
+                    ].riskLevel,
+
+                  inherentRiskLevel:
+                    incomingWorkStepContext[
+                      index
+                    ].inherentRiskLevel,
+
+                  /*
+                   * Qoreva owns the recommendation. The browser cannot
+                   * author this value.
+                   *
+                   * A null recommendation is meaningful: it means the
+                   * current structured evidence is not sufficient for
+                   * Qoreva to make a Controlled Risk recommendation.
+                   */
+                  recommendedControlledRiskLevel:
+                    controlledRiskEvaluation
+                      ?.recommendedControlledRiskLevel ??
+                    null,
+
+                  /*
+                   * Confirmed Controlled Risk remains separate from
+                   * Qoreva's advisory recommendation.
+                   *
+                   * Explicit-model saves leave it unresolved until the
+                   * qualified-user confirmation workflow is connected.
+                   * Legacy callers retain their compatibility value.
+                   */
+                  controlledRiskLevel:
+                    incomingWorkStepContext[
+                      index
+                    ].controlledRiskLevel,
+                  };
+                },
               ),
           });
+
+          // ===================================================
+          // REPLACE CONTROL EVALUATION EVIDENCE
+          // ===================================================
+
+          /*
+           * These rows describe Qoreva's current evaluation of the
+           * working controls for this formal PTP revision.
+           *
+           * Replace the active revision's rows atomically with the
+           * work-step save so recommendation and reasoning cannot drift
+           * apart.
+           *
+           * Prior revisions are preserved for history.
+           */
+          await tx.planningControlEvaluation.deleteMany({
+            where: {
+              planningRecordId,
+              tenantId:
+                existing.tenantId,
+
+              revisionNumber:
+                generationContext.revisionNumber,
+            },
+          });
+
+          const controlEvaluationRows =
+            controlledRiskEvaluations.flatMap(
+              (
+                evaluation,
+                workStepIndex,
+              ) => {
+                if (!evaluation) {
+                  return [];
+                }
+
+                const generatedStep =
+                  generatedDraft.workSteps[
+                    workStepIndex
+                  ];
+
+                const incomingStep =
+                  incomingWorkStepContext[
+                    workStepIndex
+                  ];
+
+                if (
+                  !generatedStep ||
+                  !incomingStep
+                ) {
+                  return [];
+                }
+
+                const riskCreditByControlId =
+                  new Map(
+                    evaluation.riskCreditAssessments.map(
+                      (assessment) => [
+                        assessment.controlId,
+                        assessment,
+                      ],
+                    ),
+                  );
+
+                return evaluation.controlEvaluations.map(
+                  (controlEvaluation) => {
+                    const riskCreditAssessment =
+                      riskCreditByControlId.get(
+                        controlEvaluation.controlId,
+                      );
+
+                    return {
+                      tenantId:
+                        existing.tenantId,
+
+                      planningRecordId,
+
+                      revisionNumber:
+                        generationContext.revisionNumber,
+
+                      /*
+                       * Stable working identity independent of the
+                       * replace-on-save PlanningWorkStep database row.
+                       */
+                      workStepId:
+                        `planning-work-step:${incomingStep.sequence}`,
+
+                      workStepSequence:
+                        incomingStep.sequence,
+
+                      workStepTitle:
+                        incomingStep.title,
+
+                      hazardId:
+                        controlEvaluation.hazardId,
+
+                      controlId:
+                        controlEvaluation.controlId,
+
+                      hazardText:
+                        controlEvaluation.hazardText,
+
+                      controlText:
+                        controlEvaluation.controlText,
+
+                      controlHierarchy:
+                        controlEvaluation.controlHierarchy,
+
+                      protectiveFunction:
+                        controlEvaluation.protectiveFunction,
+
+                      effectiveness:
+                        controlEvaluation.effectiveness,
+
+                      verificationExpectation:
+                        controlEvaluation.verificationExpectation,
+
+                      verificationRequired:
+                        riskCreditAssessment
+                          ?.verificationRequired ??
+                        controlEvaluation.verificationRequired,
+
+                      verificationMethod:
+                        riskCreditAssessment
+                          ?.verificationMethod ??
+                        controlEvaluation.verificationMethod,
+
+                      riskCreditEligible:
+                        riskCreditAssessment
+                          ?.riskCreditEligible ??
+                        false,
+
+                      criticalControlRecommended:
+                        controlEvaluation
+                          .criticalControlRecommended,
+
+                      evaluationReason:
+                        controlEvaluation.evaluationReason,
+
+                      evaluatorVersion:
+                        evaluation.evaluatorVersion,
+
+                      evaluatedById:
+                        authorization.user.id,
+
+                      evaluatedByName:
+                        confirmedBy,
+
+                      evaluatedByRole:
+                        actorRole,
+
+                      evaluatedAt:
+                        now,
+                    };
+                  },
+                );
+              },
+            );
+
+          if (
+            controlEvaluationRows.length >
+            0
+          ) {
+            await tx.planningControlEvaluation.createMany({
+              data:
+                controlEvaluationRows,
+            });
+          }
 
           // ===================================================
           // REPLACE GUIDED QUESTION RESPONSES
@@ -841,41 +1464,59 @@ export async function PUT(
             await tx.planningQuestionResponse.createMany({
               data:
                 questionResponses.map(
-                  (response) => ({
-                    tenantId:
-                      existing.tenantId,
+                  (response, index) => {
+                    const trustedQuestion =
+                      incomingGenerationContext.questions[
+                        index
+                      ];
 
-                    planningRecordId,
+                    return {
+                      tenantId:
+                        existing.tenantId,
 
-                    questionId:
-                      response.questionId,
+                      planningRecordId,
 
-                    category:
-                      response.category,
+                      questionId:
+                        trustedQuestion?.questionCode ??
+                        response.questionId,
 
-                    question:
-                      response.question,
+                      /*
+                       * Definition-owned question metadata is persisted
+                       * from Qoreva's trusted proposed generation context.
+                       *
+                       * The browser owns the planner's answer and notes,
+                       * not compliance classification or question wording.
+                       */
+                      category:
+                        trustedQuestion?.category ??
+                        response.category,
 
-                    helpText:
-                      nullableString(
-                        response.helpText,
-                      ),
+                      question:
+                        trustedQuestion?.questionText ??
+                        response.question,
 
-                    isCritical:
-                      Boolean(
-                        response.isCritical,
-                      ),
+                      helpText:
+                        nullableString(
+                          response.helpText,
+                        ),
 
-                    responseValue:
-                      nullableString(
-                        response.responseValue,
-                      ),
+                      isCritical:
+                        trustedQuestion?.isCritical ??
+                        false,
 
-                    notes:
-                      nullableString(
-                        response.notes,
-                      ),
-                  }),
+                      responseValue:
+                        trustedQuestion?.responseValue ??
+                        nullableString(
+                          response.responseValue,
+                        ),
+
+                      notes:
+                        trustedQuestion?.notes ??
+                        nullableString(
+                          response.notes,
+                        ),
+                    };
+                  },
                 ),
             });
           }

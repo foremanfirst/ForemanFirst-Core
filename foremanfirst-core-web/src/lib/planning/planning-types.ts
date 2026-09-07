@@ -26,7 +26,28 @@ export type PlanningWorkStepContext = {
   hazards: string | null;
   controls: string | null;
   safetyCritical: boolean;
+
+  /**
+   * Legacy compatibility risk field.
+   * New Qoreva planning logic must prefer the explicit risk model.
+   */
   riskLevel: string | null;
+
+  /**
+   * Planner-confirmed risk before planned controls are credited.
+   */
+  inherentRiskLevel: string | null;
+
+  /**
+   * Qoreva-generated post-control risk recommendation.
+   * This is advisory until confirmed by a qualified planner.
+   */
+  recommendedControlledRiskLevel: string | null;
+
+  /**
+   * Qualified-planner confirmed post-control risk.
+   */
+  controlledRiskLevel: string | null;
 };
 
 export type PlanningRequirementContext = {
@@ -351,6 +372,13 @@ export type DraftGenerationSource =
   | "Requirement"
   | "AI";
 
+export type PlanningControlHierarchy =
+  | "Elimination"
+  | "Substitution"
+  | "Engineering"
+  | "Administrative"
+  | "PPE";
+
 /**
  * A single hazard or control generated for a work step.
  *
@@ -368,6 +396,18 @@ export type GeneratedHazardControlItem = {
   sourceActivityCodes: string[];
   sourceQuestionCodes: string[];
   sourceRequirementIds: string[];
+
+  /**
+   * Structured Hierarchy of Controls classification.
+   *
+   * Null means Qoreva does not currently have an
+   * authoritative classification for this item.
+   *
+   * Hazards normally remain null. Controls may carry
+   * a classification from validated Qoreva planning
+   * intelligence or preserved source provenance.
+   */
+  controlHierarchy?: PlanningControlHierarchy | null;
 
   /**
    * True when this item originates from an applicable
@@ -389,6 +429,17 @@ export type GeneratedHazardControlItem = {
  */
 export type GeneratedHazardControlGroup = {
   id: string;
+
+  /**
+   * Stable Qoreva canonical hazard identity when this
+   * relationship has been confidently resolved against the
+   * canonical hazard intelligence library.
+   *
+   * Null/undefined means Qoreva does not currently have a
+   * confirmed canonical relationship. Safety and risk
+   * intelligence must not infer one from display wording.
+   */
+  canonicalHazardConceptId?: string | null;
 
   hazard: GeneratedHazardControlItem;
 

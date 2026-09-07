@@ -9,7 +9,9 @@ import type {
 } from "./planning-types";
 
 import {
+  buildCanonicalHazardControlGroup,
   findCanonicalHazardMatch,
+  getCanonicalControlHierarchy,
 } from "./hazard-control-library";
 
 type ActivityHazardControlGuidance = {
@@ -1255,6 +1257,66 @@ function buildGeneratedHazardControlGroup(
     group.hazard,
   );
 
+  /*
+   * Qoreva-authored activity guidance may already represent
+   * a canonical hazard relationship.
+   *
+   * Resolve that identity here, at the authoritative Rule
+   * source, rather than asking downstream Controlled Risk
+   * intelligence to infer identity from display wording.
+   *
+   * The canonical matcher remains conservative. Ambiguous
+   * or unsupported relationships fall through to the legacy
+   * Rule shape without receiving canonical safety authority.
+   */
+  const canonicalMatch =
+    findCanonicalHazardMatch(
+      group.hazard,
+      [activityCode],
+    );
+
+  if (canonicalMatch) {
+    return buildCanonicalHazardControlGroup({
+      groupId: stableDraftItemId(
+        "hazard-control-group",
+        stepSequence,
+        activityCode,
+        group.hazard,
+      ),
+
+      hazardId,
+
+      hazardText: group.hazard,
+
+      definition:
+        canonicalMatch.definition,
+
+      sourceActivityCodes: [
+        activityCode,
+      ],
+
+      buildControlId: (
+        controlText,
+      ) =>
+        stableDraftItemId(
+          "control",
+          stepSequence,
+          activityCode,
+          group.hazard,
+          controlText,
+        ),
+
+      source: "Rule",
+    });
+  }
+
+  /*
+   * Transitional legacy relationship.
+   *
+   * Keep useful planning guidance available, but do not
+   * manufacture canonical identity when Qoreva cannot
+   * resolve the relationship confidently.
+   */
   return {
     id: stableDraftItemId(
       "hazard-control-group",
@@ -1263,36 +1325,57 @@ function buildGeneratedHazardControlGroup(
       group.hazard,
     ),
 
+    canonicalHazardConceptId:
+      null,
+
     hazard: {
       id: hazardId,
       text: group.hazard,
       source: "Rule",
-      sourceActivityCodes: [activityCode],
+      sourceActivityCodes: [
+        activityCode,
+      ],
       sourceQuestionCodes: [],
       sourceRequirementIds: [],
       required: false,
     },
 
-    controls: uniqueStrings(group.controls).map(
-      (control) => ({
-        id: stableDraftItemId(
-          "control",
-          stepSequence,
-          activityCode,
-          group.hazard,
-          control,
-        ),
-        text: control,
-        source: "Rule" as const,
-        sourceActivityCodes: [activityCode],
-        sourceQuestionCodes: [],
-        sourceRequirementIds: [],
-        required: false,
-      }),
-    ),
+    controls:
+      uniqueStrings(
+        group.controls,
+      ).map(
+        (control) => ({
+          id: stableDraftItemId(
+            "control",
+            stepSequence,
+            activityCode,
+            group.hazard,
+            control,
+          ),
+
+          text: control,
+
+          source:
+            "Rule" as const,
+
+          sourceActivityCodes: [
+            activityCode,
+          ],
+
+          sourceQuestionCodes: [],
+
+          sourceRequirementIds: [],
+
+          controlHierarchy:
+            getCanonicalControlHierarchy(
+              control,
+            ),
+
+          required: false,
+        }),
+      ),
   };
 }
-
 
 function splitLegacyPlanningEntries(
   value: string | null | undefined,
@@ -1511,6 +1594,35 @@ function buildUserHazardControlGroups(
   ];
 }
 
+function mergeCanonicalHazardConceptId(
+  existingId: string | null | undefined,
+  incomingId: string | null | undefined,
+): string | null {
+  /*
+   * Canonical safety identity may survive consolidation only
+   * when the available evidence is compatible.
+   *
+   * - one known identity + one unresolved identity => preserve known
+   * - same known identity => preserve it
+   * - conflicting known identities => clear identity
+   *
+   * Never choose between conflicting canonical concepts.
+   */
+  if (
+    existingId &&
+    incomingId &&
+    existingId !== incomingId
+  ) {
+    return null;
+  }
+
+  return (
+    existingId ??
+    incomingId ??
+    null
+  );
+}
+
 function mergeGeneratedHazardControlGroupsByExactText(
   groups: GeneratedHazardControlGroup[],
 ): GeneratedHazardControlGroup[] {
@@ -1583,6 +1695,12 @@ function mergeGeneratedHazardControlGroupsByExactText(
 
       continue;
     }
+
+    existing.canonicalHazardConceptId =
+      mergeCanonicalHazardConceptId(
+        existing.canonicalHazardConceptId,
+        group.canonicalHazardConceptId,
+      );
 
     existing.hazard.sourceActivityCodes =
       uniqueStrings([
@@ -1938,6 +2056,12 @@ function consolidateSemanticHazardControlGroups(
 
       continue;
     }
+
+    existing.canonicalHazardConceptId =
+      mergeCanonicalHazardConceptId(
+        existing.canonicalHazardConceptId,
+        group.canonicalHazardConceptId,
+      );
 
     existing.hazard.sourceActivityCodes =
       uniqueStrings([
@@ -2822,6 +2946,17 @@ function resolveUserHazardFromCanonicalLibrary(
         ),
     );
 
+  /*
+   * Preserve the exact canonical relationship accepted by
+   * the conservative resolver.
+   *
+   * Downstream effectiveness and risk intelligence must
+   * consume this explicit identity rather than attempting
+   * to infer the hazard again from display wording.
+   */
+  userGroup.canonicalHazardConceptId =
+    canonicalMatch.definition.id;
+
   userGroup.hazard.sourceActivityCodes =
     uniqueStrings([
       ...userGroup.hazard
@@ -2857,6 +2992,11 @@ function resolveUserHazardFromCanonicalLibrary(
 
           sourceRequirementIds:
             [],
+
+          controlHierarchy:
+            getCanonicalControlHierarchy(
+              controlText,
+            ),
 
           required: false,
         }),
@@ -3440,6 +3580,40 @@ function applyExplicitControlAssignments(
 }
 
 
+function readOverrideControlHierarchy(
+  sourceMetadata: unknown,
+):
+  | "Elimination"
+  | "Substitution"
+  | "Engineering"
+  | "Administrative"
+  | "PPE"
+  | null {
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return null;
+  }
+
+  const value = (
+    sourceMetadata as Record<
+      string,
+      unknown
+    >
+  ).controlHierarchy;
+
+  return value === "Elimination" ||
+    value === "Substitution" ||
+    value === "Engineering" ||
+    value === "Administrative" ||
+    value === "PPE"
+    ? value
+    : null;
+}
+
+
 function findGeneratedHazardGroup(
   groups: GeneratedHazardControlGroup[],
   targetItemId: string,
@@ -3683,10 +3857,20 @@ function applyHazardControlOverrides(
       };
 
       /*
-       * Semantic classification changed. Existing controls
-       * belonged to the old hazard meaning and therefore
-       * cannot be silently retained.
+       * Semantic classification changed.
+       *
+       * Existing controls belonged to the old hazard meaning
+       * and therefore cannot be silently retained.
+       *
+       * The old canonical hazard identity must also be
+       * cleared before re-resolution. If the revised wording
+       * cannot be confidently resolved, the hazard remains
+       * intentionally unclassified rather than inheriting
+       * stale safety intelligence from its previous meaning.
        */
+      targetGroup.canonicalHazardConceptId =
+        null;
+
       targetGroup.controls = [];
     }
   }
@@ -3781,6 +3965,11 @@ function applyHazardControlOverrides(
             uniqueStrings(
               parentGroup.hazard
                 .sourceRequirementIds,
+            ),
+
+          controlHierarchy:
+            readOverrideControlHierarchy(
+              override.sourceMetadata,
             ),
 
           required: false,
@@ -4147,6 +4336,24 @@ function resolveUserHazardControls(
       }
 
       best = scoredBest;
+    }
+
+    /*
+     * The fallback relationship resolver may organize a user-entered
+     * hazard around an existing Qoreva Rule relationship.
+     *
+     * Similarity itself is NOT sufficient to establish canonical
+     * safety identity. Only propagate identity when the selected
+     * Rule group already carries an authoritative canonical concept
+     * established upstream by Qoreva's canonical matcher.
+     */
+    if (
+      best.ruleGroup
+        .canonicalHazardConceptId
+    ) {
+      userGroup.canonicalHazardConceptId =
+        best.ruleGroup
+          .canonicalHazardConceptId;
     }
 
     userGroup.hazard.sourceActivityCodes =
@@ -4645,9 +4852,27 @@ function buildWorkStepSuggestions(
         );
       }
 
+      /**
+       * Inherent Risk is the authoritative attention signal for
+       * work steps using Qoreva's explicit risk model.
+       *
+       * Historical records may have controlledRiskLevel populated
+       * by migration while inherentRiskLevel remains null. That
+       * backfill must not cause legacy High riskLevel values to
+       * lose HighAttention behavior.
+       *
+       * Therefore explicit risk ownership begins when an
+       * Inherent Risk value exists. Until then, preserve the
+       * historical riskLevel signal.
+       */
+      const highRiskAttention =
+        step.inherentRiskLevel !== null
+          ? step.inherentRiskLevel === "High"
+          : step.riskLevel === "High";
+
       if (
         step.safetyCritical ||
-        step.riskLevel === "High"
+        highRiskAttention
       ) {
         riskAttention =
           "HighAttention";

@@ -51,6 +51,23 @@ export type CanonicalHazardKind =
   | "Exposure"
   | "ReadinessCondition";
 
+/**
+ * Qoreva Hierarchy of Controls.
+ *
+ * Structured safety-domain data used for:
+ * - control presentation
+ * - controlled-risk evaluation
+ * - critical-control intelligence
+ * - Daily WSE field verification
+ * - Planning / Intelligence analytics
+ */
+export type ControlHierarchy =
+  | "Elimination"
+  | "Substitution"
+  | "Engineering"
+  | "Administrative"
+  | "PPE";
+
 export type CanonicalHazardControlDefinition = {
   id: CanonicalHazardConceptId;
 
@@ -1014,6 +1031,11 @@ export function buildCanonicalHazardControlGroup(args: {
 
           sourceRequirementIds: [],
 
+          controlHierarchy:
+            getCanonicalControlHierarchy(
+              controlText,
+            ),
+
           required: false,
         }),
       );
@@ -1021,6 +1043,18 @@ export function buildCanonicalHazardControlGroup(args: {
   return {
     id:
       args.groupId,
+
+    /*
+     * This identity was established by Qoreva's conservative
+     * canonical matcher before this group was constructed.
+     *
+     * Preserve it explicitly so downstream effectiveness,
+     * verification, Critical Control, and Controlled Risk
+     * intelligence consume authoritative structured identity
+     * rather than attempting to rediscover it from wording.
+     */
+    canonicalHazardConceptId:
+      args.definition.id,
 
     hazard,
 
@@ -1196,3 +1230,184 @@ export function recommendCanonicalControlsForHazard(args: {
   };
 }
 
+
+/**
+ * Explicit hierarchy classifications for Qoreva-authored canonical controls.
+ *
+ * IMPORTANT:
+ * Do not infer hierarchy from arbitrary free-form contractor wording here.
+ * Unknown/custom controls remain unclassified until Qoreva or a qualified
+ * user can classify them through a controlled workflow.
+ *
+ * Keeping this mapping separate from the existing string[] control contract
+ * lets Qoreva add structured hierarchy intelligence without breaking legacy
+ * Planning generation consumers during the transition.
+ */
+const canonicalControlHierarchyByText:
+  Readonly<Record<string, ControlHierarchy>> = {
+  "Separate workers from moving equipment whenever practical.":
+    "Engineering",
+
+  "Establish controlled travel paths and equipment operating areas.":
+    "Engineering",
+
+  "Keep personnel outside vehicle blind spots and line-of-fire areas.":
+    "Administrative",
+
+  "Use a spotter when visibility, backing, congestion, or site conditions require one.":
+    "Administrative",
+
+  "Use a spotter when visibility, congestion, or site conditions require one.":
+    "Administrative",
+
+  "Maintain effective communication between operators, spotters, and affected workers.":
+    "Administrative",
+
+  "Keep personnel outside equipment swing radius and line-of-fire areas.":
+    "Administrative",
+
+  "Maintain effective communication between operators and spotters.":
+    "Administrative",
+
+  "Evaluate and maintain suitable equipment travel and operating surfaces.":
+    "Engineering",
+
+  "Stop equipment operations when ground conditions cannot support safe operation.":
+    "Administrative",
+
+  "Use trained and authorized equipment operators.":
+    "Administrative",
+
+  "Complete the required pre-use equipment inspection.":
+    "Administrative",
+
+  "A competent person must inspect the excavation and surrounding conditions as required.":
+    "Administrative",
+
+  "Determine the required protective system based on excavation depth, soil, loading, water, and actual site conditions.":
+    "Engineering",
+
+  "Reinspect after weather, vibration, water intrusion, or other conditions that could affect excavation stability.":
+    "Administrative",
+
+  "Provide safe access and egress where required.":
+    "Engineering",
+
+  "Maintain access and egress routes so they remain usable as excavation conditions change.":
+    "Administrative",
+
+  "Control access to excavation edges and maintain safe work boundaries based on the actual exposure.":
+    "Administrative",
+
+  "Provide appropriate edge protection, barricading, warnings, or other fall-prevention measures when required by the applicable conditions and requirements.":
+    "Engineering",
+
+  "Maintain safe access and egress and clearly identify excavation openings and travel paths.":
+    "Administrative",
+
+  "Maintain required spoil, material, and equipment setback from the excavation edge.":
+    "Administrative",
+
+  "Protect workers from equipment operating near excavation edges.":
+    "Engineering",
+
+  "Obtain applicable utility locate information before disturbing the ground.":
+    "Administrative",
+
+  "Review available drawings, records, and field markings.":
+    "Administrative",
+
+  "Use private locating or additional locating methods when required by project conditions.":
+    "Administrative",
+
+  "Positively expose or verify utilities where required before mechanical excavation.":
+    "Engineering",
+
+  "Maintain required clearances from known utilities.":
+    "Administrative",
+
+  "Use approved non-destructive excavation methods where required.":
+    "Engineering",
+
+  "Stop mechanical excavation when the utility location or depth cannot be adequately verified.":
+    "Administrative",
+
+  "Stop work and secure the affected area if a utility is damaged or an unexpected release occurs.":
+    "Administrative",
+
+  "Follow the project and utility-specific emergency notification and response process.":
+    "Administrative",
+
+  "Apply required energy-isolation controls when the work requires de-energization or lockout/tagout.":
+    "Engineering",
+
+  "Stop work when an electrical source, condition, or safe work boundary cannot be verified.":
+    "Administrative",
+
+  "De-energized work should be the default whenever feasible.":
+    "Elimination",
+
+  "Only qualified or authorized persons may perform tasks requiring those qualifications.":
+    "Administrative",
+
+  "Verify the required safe condition before work begins.":
+    "Administrative",
+
+  "Identify all hazardous energy sources that could affect the work.":
+    "Administrative",
+
+  "Apply the required energy-isolation and lockout/tagout process before work begins.":
+    "Engineering",
+
+  "Maintain control of personal locks and energy-isolation devices in accordance with the applicable procedure.":
+    "Administrative",
+
+  "Address group lockout, lockbox, transfer, and shift-change requirements when applicable.":
+    "Administrative",
+
+  "Use mechanical assistance or handling methods appropriate to the load when practical.":
+    "Engineering",
+
+  "Keep personnel out of pinch points and the load travel path.":
+    "Administrative",
+
+  "Plan hand placement and body position before moving or setting materials.":
+    "Administrative",
+
+  "Evaluate the load, route, destination, and handling method before movement.":
+    "Administrative",
+
+  "Use handling equipment and rigging suitable for the load and method when applicable.":
+    "Engineering",
+
+  "Maintain clear communication during coordinated material movement.":
+    "Administrative",
+
+  "Use practical dust-suppression, capture, isolation, or ventilation methods appropriate to the actual material and process.":
+    "Engineering",
+
+  "Identify the material and dust-generating task before selecting controls.":
+    "Administrative",
+
+  "Maintain housekeeping so settled dust does not create additional exposure.":
+    "Administrative",
+
+  "Determine whether respiratory protection, exposure assessment, or material-specific controls are required based on the actual hazard.":
+    "Administrative",
+};
+
+/**
+ * Returns Qoreva's explicit hierarchy classification for a canonical control.
+ *
+ * Null means Qoreva does not yet have enough authoritative structured
+ * information to classify the control. Callers must not silently guess.
+ */
+export function getCanonicalControlHierarchy(
+  controlText: string,
+): ControlHierarchy | null {
+  return (
+    canonicalControlHierarchyByText[
+      controlText.trim()
+    ] ?? null
+  );
+}

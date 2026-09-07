@@ -1,6 +1,8 @@
 import {
   canonicalHazardControlLibrary,
+  getCanonicalControlHierarchy,
   type CanonicalHazardConceptId,
+  type ControlHierarchy,
 } from "./hazard-control-library";
 
 import type {
@@ -63,6 +65,15 @@ export type RecommendedControl = {
   id: string;
 
   text: string;
+
+  /**
+   * Qoreva Hierarchy of Controls classification.
+   *
+   * Null means the control has not yet been authoritatively classified.
+   * Callers must not infer a hierarchy classification merely from free text.
+   */
+  controlHierarchy:
+    ControlHierarchy | null;
 
   sourceType:
     HazardRecommendationSourceType;
@@ -629,6 +640,11 @@ function baselineRecommendation(
           text:
             control,
 
+          controlHierarchy:
+            getCanonicalControlHierarchy(
+              control,
+            ),
+
           sourceType:
             "CanonicalLibrary",
 
@@ -746,6 +762,16 @@ function mergeControlIntoRecommendation(
 
     text:
       control.text,
+
+    /*
+     * Requirement-backed controls remain unclassified until the
+     * normalized requirement source carries an authoritative hierarchy
+     * classification. Qoreva must not guess from arbitrary wording.
+     */
+    controlHierarchy:
+      getCanonicalControlHierarchy(
+        control.text,
+      ),
 
     sourceType:
       "Requirement",

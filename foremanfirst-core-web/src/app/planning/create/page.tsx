@@ -217,6 +217,33 @@ type DetectedPlanningActivity = {
   sourceType: string;
 };
 
+type GuidedPlanningControlEvaluation = {
+  workStepId: string;
+  workStepSequence: number;
+  workStepTitle: string;
+
+  hazardId: string;
+  hazardText: string;
+
+  controlId: string;
+  controlText: string;
+
+  controlHierarchy: string | null;
+  protectiveFunction: string | null;
+  effectiveness: string;
+
+  verificationExpectation: string | null;
+  verificationRequired: boolean;
+  verificationMethod: string | null;
+
+  riskCreditEligible: boolean;
+  criticalControlRecommended: boolean;
+
+  evaluationReason: string;
+  evaluatorVersion: string;
+  evaluatedAt: string;
+};
+
 type GuidedPlanningActivitiesResponse = {
   planningRecordId?: string;
   activities?: Array<{
@@ -225,7 +252,9 @@ type GuidedPlanningActivitiesResponse = {
     category: string | null;
     detectionSource: string | null;
     score: number;
+    confirmationStatus?: "Pending" | "Confirmed" | "Removed";
   }>;
+  controlEvaluations?: GuidedPlanningControlEvaluation[];
   count?: number;
   message?: string;
 };
@@ -265,6 +294,155 @@ type DynamicPlanningQuestion = {
 
   requirementSources: RequirementQuestionSource[];
 };
+
+type PlanningAnswerAssessment = {
+  isAnswered: boolean;
+  needsClarification: boolean;
+};
+
+function hasMeaningfulPlanningText(
+  value: string,
+  {
+    minimumCharacters = 3,
+    minimumWords = 1,
+  }: {
+    minimumCharacters?: number;
+    minimumWords?: number;
+  } = {},
+) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  const normalized =
+    trimmed.replace(
+      /[^a-z0-9]/gi,
+      "",
+    );
+
+  const words =
+    trimmed
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? [];
+
+  if (
+    normalized.length < minimumCharacters ||
+    words.length < minimumWords ||
+    new Set(
+      normalized.toLowerCase(),
+    ).size < 2
+  ) {
+    return false;
+  }
+
+  return !/^(dd+|test|testing|asdf|xxx+|tbd|unknown|n\/?a|na)$/i.test(
+    trimmed,
+  );
+}
+
+function evaluatePlanningAnswer(
+  question: DynamicPlanningQuestion,
+  value: string,
+  notes: string,
+): PlanningAnswerAssessment {
+  const trimmedValue =
+    value.trim();
+
+  const trimmedNotes =
+    notes.trim();
+
+  let validValue = false;
+
+  if (question.questionType === "Boolean") {
+    validValue =
+      trimmedValue === "true" ||
+      trimmedValue === "false";
+  } else if (
+    question.questionType === "SingleSelect"
+  ) {
+    const options =
+      Array.isArray(question.options)
+        ? question.options.filter(
+            (option): option is string =>
+              typeof option === "string",
+          )
+        : [];
+
+    validValue =
+      trimmedValue.length > 0 &&
+      (
+        options.length === 0 ||
+        options.includes(
+          trimmedValue,
+        )
+      );
+  } else if (
+    question.questionType === "Number"
+  ) {
+    validValue =
+      trimmedValue.length > 0 &&
+      Number.isFinite(
+        Number(
+          trimmedValue,
+        ),
+      );
+  } else if (
+    question.questionType === "Date"
+  ) {
+    validValue =
+      /^\d{4}-\d{2}-\d{2}$/.test(
+        trimmedValue,
+      ) &&
+      !Number.isNaN(
+        Date.parse(
+          trimmedValue,
+        ),
+      );
+  } else if (
+    question.questionType === "TextArea"
+  ) {
+    validValue =
+      hasMeaningfulPlanningText(
+        trimmedValue,
+        {
+          minimumCharacters: 8,
+          minimumWords: 2,
+        },
+      );
+  } else {
+    validValue =
+      hasMeaningfulPlanningText(
+        trimmedValue,
+      );
+  }
+
+  const validNotes =
+    !trimmedNotes ||
+    hasMeaningfulPlanningText(
+      trimmedNotes,
+    );
+
+  const hasAnyInput =
+    Boolean(
+      trimmedValue ||
+      trimmedNotes,
+    );
+
+  return {
+    isAnswered:
+      validValue &&
+      validNotes,
+
+    needsClarification:
+      hasAnyInput &&
+      (
+        !validValue ||
+        !validNotes
+      ),
+  };
+}
 
 type PlanningComplianceResult = {
   requirementRuleId: string;
@@ -308,11 +486,26 @@ type PlanningComplianceEvaluation = {
   };
 };
 
+type WorkStepRiskLevel =
+  | "Low"
+  | "Medium"
+  | "High"
+  | "";
+
 type WorkStepPlanning = {
   hazards: string;
   controls: string;
   safetyCritical: boolean;
-  riskLevel: "Low" | "Medium" | "High" | "";
+
+  // Legacy compatibility value. This will mirror controlledRiskLevel
+  // until downstream Planning/WSE consumers complete the transition.
+  riskLevel: WorkStepRiskLevel;
+
+  // Risk before planned controls are credited.
+  inherentRiskLevel: WorkStepRiskLevel;
+
+  // Risk after planned controls are credited.
+  controlledRiskLevel: WorkStepRiskLevel;
 };
 
 type GeneratedDraftControlSuggestion = {
@@ -343,6 +536,14 @@ type GeneratedHazardControlItem = {
   sourceQuestionCodes: string[];
   sourceRequirementIds: string[];
 
+  controlHierarchy?:
+    | "Elimination"
+    | "Substitution"
+    | "Engineering"
+    | "Administrative"
+    | "PPE"
+    | null;
+
   required: boolean;
 };
 
@@ -351,6 +552,35 @@ type GeneratedHazardControlGroup = {
   hazard: GeneratedHazardControlItem;
   controls: GeneratedHazardControlItem[];
 };
+
+type ControlHierarchyPresentation =
+  | "Elimination"
+  | "Substitution"
+  | "Engineering"
+  | "Administrative"
+  | "PPE";
+
+function controlHierarchyBadgeClass(
+  hierarchy: ControlHierarchyPresentation,
+) {
+  switch (hierarchy) {
+    case "Elimination":
+      return "border-[#A7DCC2] bg-[#ECF8F2] text-[#16794A]";
+
+    case "Substitution":
+      return "border-[#B8D7F0] bg-[#EEF7FD] text-[#236A9D]";
+
+    case "Engineering":
+      return "border-[#E7CF85] bg-[#FFF8DC] text-[#8A6812]";
+
+    case "Administrative":
+      return "border-[#F0C69D] bg-[#FFF3E8] text-[#A45818]";
+
+    case "PPE":
+      return "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
+  }
+}
+
 
 type HazardCategory =
   | "Electrical"
@@ -1066,6 +1296,19 @@ type ControlEditorState = {
 type RecommendedControlSuggestion = {
   id: string;
   text: string;
+
+  /**
+   * Qoreva's structured Hierarchy of Controls classification.
+   * Null means the recommendation has not yet been authoritatively classified.
+   */
+  controlHierarchy:
+    | "Elimination"
+    | "Substitution"
+    | "Engineering"
+    | "Administrative"
+    | "PPE"
+    | null;
+
   source: "User" | "Rule" | "Requirement" | "AI";
   sourceActivityCodes: string[];
   sourceQuestionCodes: string[];
@@ -1451,6 +1694,8 @@ type EditablePlanningRecordResponse = {
       controls: string | null;
       safetyCritical: boolean;
       riskLevel: string | null;
+      inherentRiskLevel: string | null;
+      controlledRiskLevel: string | null;
     }>;
     questionResponses: Array<{
       questionId: string;
@@ -2478,6 +2723,104 @@ export default function CreatePlanningPage() {
   ] = useState<string[]>([]);
 
   const [
+    guidedPlanningControlEvaluations,
+    setGuidedPlanningControlEvaluations,
+  ] = useState<GuidedPlanningControlEvaluation[]>([]);
+
+  /*
+   * Persisted Qoreva Control Intelligence is joined to visible working
+   * controls only through exact server-owned identities.
+   *
+   * Never fall back to wording or fuzzy matching for safety intelligence.
+   */
+  const controlEvaluationByIdentity = useMemo(() => {
+    const evaluations = new Map<
+      string,
+      GuidedPlanningControlEvaluation
+    >();
+
+    for (const evaluation of guidedPlanningControlEvaluations) {
+      const key = [
+        evaluation.workStepSequence,
+        evaluation.hazardId,
+        evaluation.controlId,
+      ].join(":");
+
+      evaluations.set(
+        key,
+        evaluation,
+      );
+    }
+
+    return evaluations;
+  }, [guidedPlanningControlEvaluations]);
+
+  /*
+   * This score describes only whether current control intelligence is ready
+   * for qualified risk review. It is not approval, field authorization, or
+   * an automatic Controlled Risk decision.
+   */
+  const controlReadinessSummary = useMemo(() => {
+    const total = guidedPlanningControlEvaluations.length;
+
+    const criticalCandidates =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.criticalControlRecommended,
+      ).length;
+
+    const missingVerification =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.verificationRequired &&
+          !evaluation.verificationMethod?.trim(),
+      ).length;
+
+    const insufficientIntelligence =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.effectiveness === "Unresolved" ||
+          !evaluation.protectiveFunction ||
+          evaluation.protectiveFunction === "Unresolved",
+      ).length;
+
+    const readyForQualifiedRiskReview =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.effectiveness !== "Unresolved" &&
+          Boolean(evaluation.protectiveFunction) &&
+          evaluation.protectiveFunction !== "Unresolved" &&
+          (!evaluation.verificationRequired ||
+            Boolean(evaluation.verificationMethod?.trim())),
+      ).length;
+
+    const score =
+      total > 0
+        ? Math.round(
+            (readyForQualifiedRiskReview / total) * 100,
+          )
+        : 0;
+
+    const status =
+      total === 0
+        ? "Not Evaluated"
+        : missingVerification > 0 ||
+            insufficientIntelligence > 0
+          ? "Needs Attention"
+          : "Ready for Qualified Review";
+
+    return {
+      total,
+      criticalCandidates,
+      missingVerification,
+      insufficientIntelligence,
+      readyForQualifiedRiskReview,
+      score,
+      status,
+    };
+  }, [guidedPlanningControlEvaluations]);
+
+  const [
     activityDetectionLoading,
     setActivityDetectionLoading,
   ] = useState(false);
@@ -2844,10 +3187,19 @@ export default function CreatePlanningPage() {
           );
 
         const restoredConfirmedActivityCodes =
-          restoredDetectedActivities.map(
-            (activity) =>
-              activity.activityCode,
-          );
+          (
+            activityHydrationData.activities ??
+            []
+          )
+            .filter(
+              (activity) =>
+                activity.confirmationStatus ===
+                "Confirmed",
+            )
+            .map(
+              (activity) =>
+                activity.activityCode,
+            );
 
         const restoredReviewConfirmations =
           normalizeReviewConfirmations(
@@ -2987,6 +3339,33 @@ export default function CreatePlanningPage() {
 
         record.workSteps.forEach(
           (step) => {
+            const storedControlledRisk =
+              step.controlledRiskLevel ===
+                "Low" ||
+              step.controlledRiskLevel ===
+                "Medium" ||
+              step.controlledRiskLevel ===
+                "High"
+                ? step.controlledRiskLevel
+                : step.riskLevel ===
+                      "Low" ||
+                    step.riskLevel ===
+                      "Medium" ||
+                    step.riskLevel ===
+                      "High"
+                  ? step.riskLevel
+                  : "";
+
+            const storedInherentRisk =
+              step.inherentRiskLevel ===
+                "Low" ||
+              step.inherentRiskLevel ===
+                "Medium" ||
+              step.inherentRiskLevel ===
+                "High"
+                ? step.inherentRiskLevel
+                : "";
+
             restoredWorkPlanning[
               step.id
             ] = {
@@ -2997,14 +3376,11 @@ export default function CreatePlanningPage() {
               safetyCritical:
                 step.safetyCritical,
               riskLevel:
-                step.riskLevel ===
-                  "Low" ||
-                step.riskLevel ===
-                  "Medium" ||
-                step.riskLevel ===
-                  "High"
-                  ? step.riskLevel
-                  : "",
+                storedControlledRisk,
+              inherentRiskLevel:
+                storedInherentRisk,
+              controlledRiskLevel:
+                storedControlledRisk,
             };
           },
         );
@@ -3130,6 +3506,11 @@ export default function CreatePlanningPage() {
 
         setConfirmedActivityCodes(
           restoredConfirmedActivityCodes,
+        );
+
+        setGuidedPlanningControlEvaluations(
+          activityHydrationData.controlEvaluations ??
+            [],
         );
 
         setActivityDetectionError("");
@@ -3517,15 +3898,66 @@ export default function CreatePlanningPage() {
            * follow-up questions can react immediately
            * before the final Guided Planning save.
            */
+          const visibleQuestionByCode =
+            new Map(
+              guidedPlanningQuestions.map(
+                (question) => [
+                  question.questionCode,
+                  question,
+                ],
+              ),
+            );
+
+          /*
+           * Only validated answers may influence deterministic
+           * requirement rules or reveal conditional questions.
+           *
+           * CORE_* answers originate from the human-authored scope
+           * fields in Step 4. Visible dynamic answers must pass the
+           * same type-aware validation used by progress and Continue.
+           * Hidden/stale answers and placeholder text are omitted from
+           * this evaluation payload without deleting saved form state.
+           */
           const answers = Object.fromEntries(
             (
               Object.entries(planningAnswers) as Array<
                 [string, PlanningAnswer]
               >
-            ).map(([questionCode, answer]) => [
-              questionCode,
-              answer.value,
-            ]),
+            ).flatMap(([questionCode, answer]) => {
+              const question =
+                visibleQuestionByCode.get(
+                  questionCode,
+                );
+
+              if (question) {
+                const assessment =
+                  evaluatePlanningAnswer(
+                    question,
+                    answer.value,
+                    answer.notes,
+                  );
+
+                return assessment.isAnswered
+                  ? [[questionCode, answer.value]]
+                  : [];
+              }
+
+              if (
+                questionCode.startsWith("CORE_") &&
+                hasMeaningfulPlanningText(
+                  answer.value,
+                )
+              ) {
+                return [
+                  [
+                    questionCode,
+                    answer.value.trim(),
+                  ],
+                ];
+              }
+
+              return [];
+            }),
           );
 
           /*
@@ -3617,21 +4049,44 @@ export default function CreatePlanningPage() {
 
       const answered =
         guidedPlanningQuestions.filter(
-          (question) =>
-            Boolean(
+          (question) => {
+            const answer =
               planningAnswers[
                 question.questionCode
-              ]?.value.trim(),
-            ),
+              ] ?? {
+                value: "",
+                notes: "",
+              };
+
+            return evaluatePlanningAnswer(
+              question,
+              answer.value,
+              answer.notes,
+            ).isAnswered;
+          },
         ).length;
 
       const criticalUnresolved =
         guidedPlanningQuestions.filter(
-          (question) =>
-            question.isCritical &&
-            !planningAnswers[
-              question.questionCode
-            ]?.value.trim(),
+          (question) => {
+            if (!question.isCritical) {
+              return false;
+            }
+
+            const answer =
+              planningAnswers[
+                question.questionCode
+              ] ?? {
+                value: "",
+                notes: "",
+              };
+
+            return !evaluatePlanningAnswer(
+              question,
+              answer.value,
+              answer.notes,
+            ).isAnswered;
+          },
         ).length;
 
       return {
@@ -4697,9 +5152,71 @@ export default function CreatePlanningPage() {
       return;
     }
 
+    const normalizedScopeTitle =
+      scopeTitle
+        .trim()
+        .replace(
+          /[^a-z0-9]/gi,
+          "",
+        );
+
+    if (
+      normalizedScopeTitle.length < 3 ||
+      new Set(
+        normalizedScopeTitle.toLowerCase(),
+      ).size < 2
+    ) {
+      setStepError(
+        "Enter a meaningful work activity or task title before continuing.",
+      );
+      return;
+    }
+
+    const scopeDescriptionWords =
+      scopeDescription
+        .trim()
+        .toLowerCase()
+        .match(/[a-z0-9]+/g) ?? [];
+
+    const uniqueScopeDescriptionWords =
+      new Set(
+        scopeDescriptionWords,
+      );
+
+    if (
+      scopeDescription.trim().length < 24 ||
+      scopeDescriptionWords.length < 5 ||
+      uniqueScopeDescriptionWords.size < 4
+    ) {
+      setStepError(
+        "Provide a meaningful Scope of Work describing what the crew will do and how the work will be performed. Qoreva will analyze the scope but will not write it for you.",
+      );
+      return;
+    }
+
     if (!workLocation.trim()) {
       setStepError(
         "Enter the work location or area before continuing.",
+      );
+      return;
+    }
+
+    const normalizedWorkLocation =
+      workLocation
+        .trim()
+        .replace(
+          /[^a-z0-9]/gi,
+          "",
+        );
+
+    if (
+      normalizedWorkLocation.length < 3 ||
+      new Set(
+        normalizedWorkLocation.toLowerCase(),
+      ).size < 2
+    ) {
+      setStepError(
+        "Enter a meaningful work location or area before continuing.",
       );
       return;
     }
@@ -4714,6 +5231,34 @@ export default function CreatePlanningPage() {
     if (!equipmentTools.trim()) {
       setStepError(
         "Enter the equipment and tools the crew expects to use.",
+      );
+      return;
+    }
+
+    const normalizedEquipmentTools =
+      equipmentTools
+        .trim()
+        .replace(
+          /[^a-z0-9]/gi,
+          "",
+        );
+
+    const explicitNoEquipment =
+      /^(none|n\/?a|not applicable)$/i.test(
+        equipmentTools.trim(),
+      );
+
+    if (
+      !explicitNoEquipment &&
+      (
+        normalizedEquipmentTools.length < 3 ||
+        new Set(
+          normalizedEquipmentTools.toLowerCase(),
+        ).size < 2
+      )
+    ) {
+      setStepError(
+        "Identify the expected equipment and tools, or enter None when no equipment or tools apply.",
       );
       return;
     }
@@ -4740,6 +5285,33 @@ export default function CreatePlanningPage() {
     ) {
       setStepError(
         "Give each entered work step a short title.",
+      );
+      return;
+    }
+
+    const lowInformationWorkStep =
+      completedSequence.find(
+        (step) => {
+          const normalizedTitle =
+            step.title
+              .trim()
+              .replace(
+                /[^a-z0-9]/gi,
+                "",
+              );
+
+          return (
+            normalizedTitle.length < 3 ||
+            new Set(
+              normalizedTitle.toLowerCase(),
+            ).size < 2
+          );
+        },
+      );
+
+    if (lowInformationWorkStep) {
+      setStepError(
+        `Give "${lowInformationWorkStep.title}" a meaningful work-step title before continuing.`,
       );
       return;
     }
@@ -4985,6 +5557,8 @@ export default function CreatePlanningPage() {
             controls: "",
             safetyCritical: false,
             riskLevel: "",
+            inherentRiskLevel: "",
+            controlledRiskLevel: "",
           };
         },
       );
@@ -5126,12 +5700,11 @@ export default function CreatePlanningPage() {
         nextDetectedActivities,
       );
 
-      setConfirmedActivityCodes(
-        nextDetectedActivities.map(
-          (activity) =>
-            activity.activityCode,
-        ),
-      );
+      /*
+       * Detection does not equal confirmation. Step 5 is the explicit
+       * qualified-user applicability decision.
+       */
+      setConfirmedActivityCodes([]);
 
       /*
        * Prefill the core guided-planning answers from the
@@ -5261,6 +5834,10 @@ export default function CreatePlanningPage() {
           current[stepId]?.safetyCritical ?? false,
         riskLevel:
           current[stepId]?.riskLevel ?? "",
+        inherentRiskLevel:
+          current[stepId]?.inherentRiskLevel ?? "",
+        controlledRiskLevel:
+          current[stepId]?.controlledRiskLevel ?? "",
         [field]: value,
       },
     }));
@@ -5269,13 +5846,57 @@ export default function CreatePlanningPage() {
   }
 
   async function continueFromGuidedPlanning() {
+    const invalidAnsweredQuestions =
+      guidedPlanningQuestions.filter(
+        (question) => {
+          const answer =
+            planningAnswers[
+              question.questionCode
+            ] ?? {
+              value: "",
+              notes: "",
+            };
+
+          return evaluatePlanningAnswer(
+            question,
+            answer.value,
+            answer.notes,
+          ).needsClarification;
+        },
+      );
+
+    if (invalidAnsweredQuestions.length > 0) {
+      setStepError(
+        `Clarify "${invalidAnsweredQuestions[0].questionText}" before continuing. ${invalidAnsweredQuestions.length} response${
+          invalidAnsweredQuestions.length === 1
+            ? ""
+            : "s"
+        } contain incomplete or placeholder information.`,
+      );
+      return;
+    }
+
     const unansweredCritical =
       guidedPlanningQuestions.filter(
-        (question) =>
-          question.isCritical &&
-          !planningAnswers[
-            question.questionCode
-          ]?.value.trim(),
+        (question) => {
+          if (!question.isCritical) {
+            return false;
+          }
+
+          const answer =
+            planningAnswers[
+              question.questionCode
+            ] ?? {
+              value: "",
+              notes: "",
+            };
+
+          return !evaluatePlanningAnswer(
+            question,
+            answer.value,
+            answer.notes,
+          ).isAnswered;
+        },
       );
 
     if (unansweredCritical.length > 0) {
@@ -5298,36 +5919,95 @@ export default function CreatePlanningPage() {
         const planning = workStepPlanning[step.id];
 
         return (
-          !planning?.hazards.trim() ||
-          !planning?.controls.trim()
+          !hasMeaningfulPlanningText(
+            planning?.hazards ?? "",
+            {
+              minimumCharacters: 8,
+              minimumWords: 2,
+            },
+          ) ||
+          !hasMeaningfulPlanningText(
+            planning?.controls ?? "",
+            {
+              minimumCharacters: 8,
+              minimumWords: 2,
+            },
+          )
         );
       },
     );
 
     if (incompleteSteps.length > 0) {
       setStepError(
-        "Identify hazards and controls for every work step before continuing.",
+        "Enter meaningful, task-specific hazards and controls for every work step before continuing.",
       );
       return;
     }
 
     const unratedSteps = activeSteps.filter(
-      (step) =>
-        !workStepPlanning[step.id]?.riskLevel,
+      (step) => {
+        const planning =
+          workStepPlanning[step.id];
+
+        return !planning?.inherentRiskLevel;
+      },
     );
 
     if (unratedSteps.length > 0) {
       setStepError(
-        `Select a Low, Medium, or High risk level for every work step before continuing. ${unratedSteps.length} step${
+        `Select Inherent Risk for every work step before continuing. ${unratedSteps.length} step${
           unratedSteps.length === 1 ? "" : "s"
-        } still need a risk rating.`,
+        } still need an inherent risk rating.`,
       );
       return;
     }
 
-    if (!emergencyPlan.trim()) {
+    if (
+      !hasMeaningfulPlanningText(
+        emergencyPlan,
+        {
+          minimumCharacters: 12,
+          minimumWords: 3,
+        },
+      )
+    ) {
       setStepError(
-        "Document the task-specific emergency plan before continuing.",
+        "Document a meaningful, task-specific emergency plan before continuing.",
+      );
+      return;
+    }
+
+    const optionalPlanningFields = [
+      {
+        label: "Required PPE",
+        value: requiredPpe,
+      },
+      {
+        label: "Required Permits",
+        value: requiredPermits,
+      },
+      {
+        label: "Stop-Work Triggers",
+        value: stopWorkTriggers,
+      },
+      {
+        label: "Additional Planning Notes",
+        value: planningNotes,
+      },
+    ];
+
+    const invalidOptionalPlanningField =
+      optionalPlanningFields.find(
+        (field) =>
+          Boolean(field.value.trim()) &&
+          !hasMeaningfulPlanningText(
+            field.value,
+          ),
+      );
+
+    if (invalidOptionalPlanningField) {
+      setStepError(
+        `Clarify ${invalidOptionalPlanningField.label} or leave it blank before continuing. Placeholder information cannot be added to the plan.`,
       );
       return;
     }
@@ -5359,8 +6039,21 @@ export default function CreatePlanningPage() {
               planning?.controls.trim() || null,
             safetyCritical:
               Boolean(planning?.safetyCritical),
+
+            // Legacy compatibility mirrors Controlled Risk.
             riskLevel:
-              planning?.riskLevel || null,
+              planning?.controlledRiskLevel ||
+              planning?.riskLevel ||
+              null,
+
+            inherentRiskLevel:
+              planning?.inherentRiskLevel ||
+              null,
+
+            controlledRiskLevel:
+              planning?.controlledRiskLevel ||
+              planning?.riskLevel ||
+              null,
           };
         });
 
@@ -5420,6 +6113,9 @@ export default function CreatePlanningPage() {
                       "System",
                     score:
                       activity.score,
+
+                    confirmationStatus:
+                      "Pending",
                   })),
 
               confirmedBy:
@@ -5470,6 +6166,41 @@ export default function CreatePlanningPage() {
           "Guided planning was not confirmed as saved.",
         );
       }
+
+      /*
+       * The Guided Planning PUT recalculates and persists Qoreva Control
+       * Intelligence atomically with the work-step save.
+       *
+       * Refresh that authoritative current-revision snapshot before Step 6
+       * can render it. Never carry evaluator state from the pre-save plan
+       * into the newly saved working plan.
+       */
+      const controlIntelligenceResponse =
+        await fetch(
+          `/api/planning/${planningRecordId}/guided-planning`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+      const controlIntelligenceData =
+        (await controlIntelligenceResponse.json()) as
+          GuidedPlanningActivitiesResponse;
+
+      if (!controlIntelligenceResponse.ok) {
+        setGuidedPlanningControlEvaluations([]);
+
+        throw new Error(
+          controlIntelligenceData.message ||
+            "Unable to refresh Qoreva Control Intelligence.",
+        );
+      }
+
+      setGuidedPlanningControlEvaluations(
+        controlIntelligenceData.controlEvaluations ??
+          [],
+      );
 
       setDraftGenerated(false);
       setGeneratedPlanningDraft(null);
@@ -5565,6 +6296,8 @@ export default function CreatePlanningPage() {
               controls: "",
               safetyCritical: false,
               riskLevel: "",
+              inherentRiskLevel: "",
+              controlledRiskLevel: "",
             };
 
           if (!generatedStep) {
@@ -5620,6 +6353,14 @@ export default function CreatePlanningPage() {
               generatedStep.safetyCriticalSuggested,
 
             riskLevel:
+              currentPlanning.controlledRiskLevel ||
+              currentPlanning.riskLevel,
+
+            inherentRiskLevel:
+              currentPlanning.inherentRiskLevel,
+
+            controlledRiskLevel:
+              currentPlanning.controlledRiskLevel ||
               currentPlanning.riskLevel,
           };
         },
@@ -5839,7 +6580,20 @@ export default function CreatePlanningPage() {
                     planning?.safetyCritical,
                   ),
 
+                // Legacy compatibility value. Downstream consumers
+                // continue reading riskLevel while the risk model
+                // transitions to explicit inherent/controlled values.
                 riskLevel:
+                  planning?.controlledRiskLevel ||
+                  planning?.riskLevel ||
+                  null,
+
+                inherentRiskLevel:
+                  planning?.inherentRiskLevel ||
+                  null,
+
+                controlledRiskLevel:
+                  planning?.controlledRiskLevel ||
                   planning?.riskLevel ||
                   null,
 
@@ -7549,6 +8303,8 @@ export default function CreatePlanningPage() {
                     recommendation.riskAttention,
                   recommendationReason:
                     recommendation.recommendationReason,
+                  controlHierarchy:
+                    recommendation.controlHierarchy,
                   parentHazardText:
                     activeRecommendedControls.hazardText,
                   sourceActivityCodes:
@@ -12312,6 +13068,8 @@ export default function CreatePlanningPage() {
                           controls: "",
                           safetyCritical: false,
                           riskLevel: "",
+                          inherentRiskLevel: "",
+                          controlledRiskLevel: "",
                         };
 
                       return (
@@ -12366,66 +13124,6 @@ export default function CreatePlanningPage() {
                             </button>
                           </div>
 
-                          <div className="mt-4 rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                              <div>
-                                <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                                  Work Step Risk Level
-                                </p>
-
-                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                  Select the overall risk level for this work step after considering the credible hazards and the controls that will be used.
-                                </p>
-                              </div>
-
-                              <div className="grid grid-cols-3 gap-2 sm:min-w-[330px]">
-                                {(["Low", "Medium", "High"] as const).map(
-                                  (riskLevel) => {
-                                    const selected =
-                                      planning.riskLevel === riskLevel;
-
-                                    const riskClasses =
-                                      riskLevel === "Low"
-                                        ? selected
-                                          ? "border-[#8ED1B1] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
-                                          : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#8ED1B1]"
-                                        : riskLevel === "Medium"
-                                          ? selected
-                                            ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
-                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E8C276]"
-                                          : selected
-                                            ? "border-[#E99BA7] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
-                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E99BA7]";
-
-                                    return (
-                                      <button
-                                        key={riskLevel}
-                                        type="button"
-                                        onClick={() =>
-                                          updateWorkStepPlanning(
-                                            step.id,
-                                            "riskLevel",
-                                            riskLevel,
-                                          )
-                                        }
-                                        aria-pressed={selected}
-                                        className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${riskClasses}`}
-                                      >
-                                        {riskLevel}
-                                      </button>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            </div>
-
-                            {planning.riskLevel === "High" ? (
-                              <div className="mt-3 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
-                                High-risk work should receive additional verification during pre-submission review and the configured approval workflow before the plan becomes an official field record.
-                              </div>
-                            ) : null}
-                          </div>
-
                           <div className="mt-4 grid gap-4 lg:grid-cols-2">
                             <TextareaControl
                               label="Hazards / What Could Go Wrong?"
@@ -12455,6 +13153,93 @@ export default function CreatePlanningPage() {
                               }
                             />
                           </div>
+
+                          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                            <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
+                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                Inherent Risk
+                              </p>
+
+                              <p className="mt-1 min-h-10 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                Select the credible risk before planned controls are credited.
+                              </p>
+
+                              <div className="mt-3 grid grid-cols-3 gap-2">
+                                {(["Low", "Medium", "High"] as const).map(
+                                  (riskLevel) => {
+                                    const selected =
+                                      planning.inherentRiskLevel ===
+                                      riskLevel;
+
+                                    const riskClasses =
+                                      riskLevel === "Low"
+                                        ? selected
+                                          ? "border-[#8ED1B1] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                          : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#8ED1B1]"
+                                        : riskLevel === "Medium"
+                                          ? selected
+                                            ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
+                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E8C276]"
+                                          : selected
+                                            ? "border-[#E99BA7] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
+                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E99BA7]";
+
+                                    return (
+                                      <button
+                                        key={riskLevel}
+                                        type="button"
+                                        onClick={() =>
+                                          updateWorkStepPlanning(
+                                            step.id,
+                                            "inherentRiskLevel",
+                                            riskLevel,
+                                          )
+                                        }
+                                        aria-pressed={selected}
+                                        className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${riskClasses}`}
+                                      >
+                                        {riskLevel}
+                                      </button>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-soft)] p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    Controlled Risk
+                                  </p>
+
+                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                    Qoreva will evaluate the planned controls before recommending the remaining risk.
+                                  </p>
+                                </div>
+
+                                <span className="shrink-0 rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                  Qoreva
+                                </span>
+                              </div>
+
+                              <div className="mt-3 rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-white px-3 py-3">
+                                <p className="text-xs font-black text-[var(--qoreva-text)]">
+                                  Qoreva recommendation pending control evaluation
+                                </p>
+
+                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                  The controlled risk will be recommended after Qoreva evaluates the selected controls and available planning evidence.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {planning.controlledRiskLevel === "High" ? (
+                            <div className="mt-3 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
+                              High controlled risk should receive additional verification during pre-submission review and the configured approval workflow before the plan becomes an official field record.
+                            </div>
+                          ) : null}
                         </article>
                       );
                     })}
@@ -12509,6 +13294,13 @@ export default function CreatePlanningPage() {
                           value: "",
                           notes: "",
                         };
+
+                      const answerAssessment =
+                        evaluatePlanningAnswer(
+                          question,
+                          answer.value,
+                          answer.notes,
+                        );
 
                       const requirementSources =
                         question.requirementSources ?? [];
@@ -12704,6 +13496,12 @@ export default function CreatePlanningPage() {
                                   }
                                 />
                               </div>
+
+                              {answerAssessment.needsClarification ? (
+                                <div className="mt-2 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
+                                  Needs clarification — enter a meaningful task-specific answer and remove placeholder text.
+                                </div>
+                              ) : null}
 
                               {unresolvedCompliance.length > 0 ? (
                                 <div className="mt-3 grid gap-2">
@@ -13074,6 +13872,125 @@ export default function CreatePlanningPage() {
                           }
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="border-b border-[var(--qoreva-border)] bg-white p-4 sm:p-5">
+                    <div className="rounded-2xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] p-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex items-start gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-xs font-black text-white">
+                            AI
+                          </span>
+
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                              Qoreva Safety Review
+                            </p>
+
+                            <h4 className="mt-1 text-base font-black text-[var(--qoreva-obsidian)]">
+                              {controlReadinessSummary.status}
+                            </h4>
+
+                            <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                              Qoreva evaluated the current hazard-to-control relationships and identified items that still require intelligence, verification, or qualified-person review. This review does not automatically lower Controlled Risk or authorize field work.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="min-w-[12rem] rounded-xl border border-[rgba(102,87,232,0.20)] bg-white px-4 py-3">
+                          <div className="flex items-end justify-between gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                Control Readiness
+                              </p>
+
+                              <p className="mt-1 text-2xl font-black text-[var(--qoreva-obsidian)]">
+                                {controlReadinessSummary.score}%
+                              </p>
+                            </div>
+
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] ${
+                                controlReadinessSummary.status ===
+                                "Ready for Qualified Review"
+                                  ? "bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                  : "bg-[var(--qoreva-warning-soft)] text-[#8A5A12]"
+                              }`}
+                            >
+                              {controlReadinessSummary.status}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--qoreva-surface-muted)]">
+                            <div
+                              className="h-full rounded-full bg-[var(--qoreva-violet)] transition-[width] duration-300"
+                              style={{
+                                width: `${controlReadinessSummary.score}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      {[
+                        {
+                          label: "Evaluated Controls",
+                          value: controlReadinessSummary.total,
+                          tone: "neutral",
+                        },
+                        {
+                          label: "Critical Candidates",
+                          value:
+                            controlReadinessSummary.criticalCandidates,
+                          tone: "violet",
+                        },
+                        {
+                          label: "Verification Missing",
+                          value:
+                            controlReadinessSummary.missingVerification,
+                          tone: "warning",
+                        },
+                        {
+                          label: "Intelligence Unresolved",
+                          value:
+                            controlReadinessSummary.insufficientIntelligence,
+                          tone: "danger",
+                        },
+                      ].map((metric) => (
+                        <div
+                          key={metric.label}
+                          className={`rounded-xl border p-3 ${
+                            metric.tone === "violet"
+                              ? "border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)]"
+                              : metric.tone === "warning"
+                                ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
+                                : metric.tone === "danger"
+                                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                                  : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                          }`}
+                        >
+                          <p
+                            className={`text-[9px] font-black uppercase tracking-[0.08em] ${
+                              metric.tone === "violet"
+                                ? "text-[var(--qoreva-violet-dark)]"
+                                : metric.tone === "warning"
+                                  ? "text-[#8A5A12]"
+                                  : metric.tone === "danger"
+                                    ? "text-[var(--qoreva-danger)]"
+                                    : "text-[var(--qoreva-muted)]"
+                            }`}
+                          >
+                            {metric.label}
+                          </p>
+
+                          <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
+                            {metric.value}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -14202,11 +15119,21 @@ export default function CreatePlanningPage() {
                                                                 />
 
                                                                 <div className="min-w-0 flex-1">
-                                                                  <p className="text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
-                                                                    {
-                                                                      recommendation.text
-                                                                    }
-                                                                  </p>
+                                                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                    <p className="min-w-0 flex-1 text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                                                      {
+                                                                        recommendation.text
+                                                                      }
+                                                                    </p>
+
+                                                                    {recommendation.controlHierarchy ? (
+                                                                      <span className="shrink-0 rounded-md border border-[var(--qoreva-border)] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                        {
+                                                                          recommendation.controlHierarchy
+                                                                        }
+                                                                      </span>
+                                                                    ) : null}
+                                                                  </div>
 
                                                                   <div className="mt-2 flex flex-wrap gap-2">
                                                                     <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
@@ -14567,7 +15494,37 @@ export default function CreatePlanningPage() {
                                               {group.controls.length > 0 ? (
                                                 <div className="mt-4 grid gap-2">
                                                   {group.controls.map(
-                                                    (control) => (
+                                                    (control) => {
+                                                      const controlEvaluation =
+                                                        controlEvaluationByIdentity.get(
+                                                          [
+                                                            step.sequence,
+                                                            group.hazard.id,
+                                                            control.id,
+                                                          ].join(":"),
+                                                        );
+
+                                                      const controlEvaluationMatchesWorkingSnapshot =
+                                                        Boolean(
+                                                          controlEvaluation &&
+                                                            controlEvaluation.hazardText ===
+                                                              group.hazard.text &&
+                                                            controlEvaluation.controlText ===
+                                                              control.text,
+                                                        );
+
+                                                      const hasResolvedControlIntelligence =
+                                                        Boolean(
+                                                          controlEvaluationMatchesWorkingSnapshot &&
+                                                            controlEvaluation &&
+                                                            controlEvaluation.effectiveness !==
+                                                              "Unresolved" &&
+                                                            controlEvaluation.protectiveFunction &&
+                                                            controlEvaluation.protectiveFunction !==
+                                                              "Unresolved",
+                                                        );
+
+                                                      return (
                                                       <div
                                                         key={control.id}
                                                         className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-porcelain)] p-3"
@@ -14581,6 +15538,56 @@ export default function CreatePlanningPage() {
                                                             <p className="text-sm font-medium leading-5 text-[var(--qoreva-obsidian)]">
                                                               {control.text}
                                                             </p>
+
+                                                            {hasResolvedControlIntelligence &&
+                                                            controlEvaluation ? (
+                                                              <div className="mt-2 rounded-lg border border-[rgba(102,87,232,0.16)] bg-white px-3 py-2.5">
+                                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                                  {controlEvaluation.controlHierarchy ? (
+                                                                    <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-text)]">
+                                                                      {controlEvaluation.controlHierarchy}
+                                                                    </span>
+                                                                  ) : null}
+
+                                                                  <span className="rounded-full border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-faint)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                                                    {controlEvaluation.protectiveFunction
+                                                                      ? controlEvaluation.protectiveFunction.replace(
+                                                                          /([a-z])([A-Z])/g,
+                                                                          "$1 $2",
+                                                                        )
+                                                                      : "Protective Function"}
+                                                                  </span>
+
+                                                                  <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-obsidian)]">
+                                                                    {controlEvaluation.effectiveness}
+                                                                  </span>
+
+                                                                  {controlEvaluation.verificationRequired ? (
+                                                                    <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[#8A5A12]">
+                                                                      Verification Required
+                                                                    </span>
+                                                                  ) : null}
+
+                                                                  {controlEvaluation.criticalControlRecommended ? (
+                                                                    <span className="rounded-full border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                                                      Qoreva Critical-Control Candidate
+                                                                    </span>
+                                                                  ) : null}
+                                                                </div>
+
+                                                                {controlEvaluation.evaluationReason ? (
+                                                                  <details className="mt-2">
+                                                                    <summary className="cursor-pointer text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                                                      Why Qoreva says this
+                                                                    </summary>
+
+                                                                    <p className="mt-1.5 text-[11px] font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                                      {controlEvaluation.evaluationReason}
+                                                                    </p>
+                                                                  </details>
+                                                                ) : null}
+                                                              </div>
+                                                            ) : null}
 
                                                             <div className="mt-2 flex flex-wrap items-center gap-2">
                                                               <button
@@ -14735,7 +15742,8 @@ export default function CreatePlanningPage() {
                                                           </div>
                                                         </div>
                                                       </div>
-                                                    ),
+                                                      );
+                                                    },
                                                   )}
                                                 </div>
                                               ) : (
@@ -15231,12 +16239,20 @@ export default function CreatePlanningPage() {
                                   </div>
 
                                   <div className="flex flex-wrap gap-2">
-                                    <RiskLevelBadge
-                                      riskLevel={
-                                        planning?.riskLevel ||
-                                        ""
-                                      }
-                                    />
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-text)]">
+                                      Inherent{" "}
+                                      <span className="text-[var(--qoreva-obsidian)]">
+                                        {planning?.inherentRiskLevel ||
+                                          "Needs Input"}
+                                      </span>
+                                      {" → "}
+                                      Controlled{" "}
+                                      <span className="text-[var(--qoreva-obsidian)]">
+                                        {planning?.controlledRiskLevel ||
+                                          planning?.riskLevel ||
+                                          "Needs Input"}
+                                      </span>
+                                    </div>
 
                                     {planning?.safetyCritical ? (
                                       <DocumentStatusBadge
@@ -16374,21 +17390,54 @@ export default function CreatePlanningPage() {
                                 </div>
 
                                 <div className="flex flex-wrap gap-2">
-                                  <ReviewableRiskBadge
-                                    targetId={`review-work-step-${step.id}-risk`}
-                                    section={`Work Step ${index + 1}`}
-                                    label={`${step.title} — Risk Level`}
-                                    riskLevel={
-                                      planning?.riskLevel ||
-                                      ""
-                                    }
-                                    activeTargetId={activeReviewTargetId}
-                                    commentDraft={reviewCommentDraft}
-                                    onOpenComment={openReviewComment}
-                                    onCommentDraftChange={setReviewCommentDraft}
-                                    onAddComment={addReviewComment}
-                                    onCancelComment={cancelReviewComment}
-                                  />
+                                  <div
+                                    id={`review-work-step-${step.id}-risk`}
+                                    className="rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-xs font-black text-[var(--qoreva-text)]">
+                                        Inherent{" "}
+                                        <span className="text-[var(--qoreva-obsidian)]">
+                                          {planning?.inherentRiskLevel ||
+                                            "Needs Input"}
+                                        </span>
+                                        {" → "}
+                                        Controlled{" "}
+                                        <span className="text-[var(--qoreva-obsidian)]">
+                                          {planning?.controlledRiskLevel ||
+                                            planning?.riskLevel ||
+                                            "Needs Input"}
+                                        </span>
+                                      </span>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openReviewComment(
+                                            `review-work-step-${step.id}-risk`,
+                                          )
+                                        }
+                                        className="rounded-lg border border-[#F0BDC4] bg-white px-2.5 py-1.5 text-[10px] font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)]"
+                                      >
+                                        Request Revision
+                                      </button>
+                                    </div>
+
+                                    {activeReviewTargetId ===
+                                    `review-work-step-${step.id}-risk` ? (
+                                      <ReviewCommentComposer
+                                        targetId={`review-work-step-${step.id}-risk`}
+                                        section={`Work Step ${index + 1}`}
+                                        label={`${step.title} — Inherent / Controlled Risk`}
+                                        commentDraft={reviewCommentDraft}
+                                        onCommentDraftChange={
+                                          setReviewCommentDraft
+                                        }
+                                        onAddComment={addReviewComment}
+                                        onCancelComment={cancelReviewComment}
+                                      />
+                                    ) : null}
+                                  </div>
 
                                   {planning?.safetyCritical ? (
                                     <DocumentStatusBadge
