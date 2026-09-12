@@ -30,12 +30,16 @@ export type CanonicalHazardConceptId =
   | "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION"
   | "MOBILE_EQUIPMENT_SWING_RADIUS"
   | "MOBILE_EQUIPMENT_UNSTABLE_SURFACE"
+  | "EXCAVATION_MANUAL_POTHOLING_HAND_INJURY"
+  | "EXCAVATION_HAZARDOUS_ATMOSPHERE"
+  | "EXCAVATION_PROTECTIVE_SYSTEM_INTEGRITY"
   | "EXCAVATION_COLLAPSE"
   | "EXCAVATION_ACCESS_EGRESS"
   | "EXCAVATION_EDGE_FALL"
   | "EXCAVATION_WORKER_EXPOSURE"
   | "UNDERGROUND_UTILITY_CONTACT"
   | "UNDERGROUND_UTILITY_LOCATION_UNCERTAINTY"
+  | "UNDERGROUND_UTILITY_SUPPORT_LOSS"
   | "UNDERGROUND_UTILITY_DAMAGE"
   | "UNDERGROUND_UTILITY_RELEASE"
   | "UNDERGROUND_UTILITY_ELECTRICAL_CONTACT"
@@ -276,12 +280,15 @@ export const canonicalHazardControlLibrary:
     activityCodes: [
       "MOBILE_EQUIPMENT",
       "TRAFFIC_VEHICLE_INTERACTION",
+      "EXCAVATION",
     ],
     aliases: [
       "equipment worker interaction",
       "equipment/worker interaction",
       "workers struck by mobile equipment",
       "worker struck by equipment",
+      "struck-by exposure from excavation equipment",
+      "struck by exposure from excavation equipment",
       "workers entering equipment operating area",
       "personnel entering equipment operating area",
       "pedestrian equipment interaction",
@@ -359,6 +366,84 @@ export const canonicalHazardControlLibrary:
       "Stop equipment operations when ground conditions cannot support safe operation.",
     ],
     riskAttention: "Elevated",
+  },
+
+  EXCAVATION_MANUAL_POTHOLING_HAND_INJURY: {
+    id: "EXCAVATION_MANUAL_POTHOLING_HAND_INJURY",
+    kind: "Exposure",
+    label: "Hand Injury During Manual Potholing",
+    description:
+      "Workers can sustain cuts, punctures, impact injuries, pinch injuries, or strains while manually exposing utilities or potholing.",
+    activityCodes: [
+      "EXCAVATION",
+      "UNDERGROUND_UTILITIES",
+    ],
+    aliases: [
+      "hand injuries while potholing",
+      "hand injury while potholing",
+      "hand injuries during potholing",
+      "manual potholing hand injury",
+      "hand injury while hand digging",
+    ],
+    controls: [
+      "Select and inspect hand tools suitable for the material, exposure method, and known or suspected utilities.",
+      "Keep hands and other body parts outside striking, cutting, and pinch-point paths while digging or probing.",
+      "Use task-appropriate hand protection and replace damaged gloves before continuing work.",
+      "Maintain safe spacing and communication between workers performing manual excavation or potholing.",
+    ],
+    riskAttention: "Elevated",
+  },
+
+  EXCAVATION_HAZARDOUS_ATMOSPHERE: {
+    id: "EXCAVATION_HAZARDOUS_ATMOSPHERE",
+    kind: "Exposure",
+    label: "Hazardous Atmosphere in Excavation",
+    description:
+      "An excavation may contain or develop oxygen deficiency, toxic contaminants, flammable vapor, or another hazardous atmosphere.",
+    activityCodes: [
+      "EXCAVATION",
+    ],
+    aliases: [
+      "hazardous atmosphere",
+      "hazardous atmosphere in excavation",
+      "toxic atmosphere",
+      "oxygen deficient atmosphere",
+      "flammable atmosphere",
+      "atmospheric hazard",
+    ],
+    controls: [
+      "Have the competent person evaluate whether a hazardous atmosphere could reasonably exist before workers enter the excavation.",
+      "Test the atmosphere before entry and as conditions warrant when oxygen deficiency or a hazardous atmosphere could reasonably exist.",
+      "Prevent entry or remove workers when atmospheric conditions are unsafe or cannot be verified.",
+      "Provide ventilation, respiratory protection, rescue provisions, and other controls required by the verified atmospheric exposure.",
+    ],
+    riskAttention: "HighAttention",
+  },
+
+  EXCAVATION_PROTECTIVE_SYSTEM_INTEGRITY: {
+    id: "EXCAVATION_PROTECTIVE_SYSTEM_INTEGRITY",
+    kind: "Hazard",
+    label: "Damaged, Inadequate, or Prematurely Removed Protective System",
+    description:
+      "A damaged, improperly installed, inadequate, altered, or prematurely removed excavation protective system can expose workers to collapse or engulfment.",
+    activityCodes: [
+      "EXCAVATION",
+    ],
+    aliases: [
+      "damaged protective system",
+      "damaged excavation protective system",
+      "inadequate protective system",
+      "premature removal of the protective system",
+      "premature removal of protective system",
+      "protective system removed too early",
+    ],
+    controls: [
+      "The competent person must inspect the protective system and excavation conditions before worker entry and as conditions change.",
+      "Do not allow workers into an excavation when the protective system is damaged, inadequate, improperly installed, or otherwise unsafe.",
+      "Repair, replace, or correct the protective system in accordance with its approved design, tabulated data, or manufacturer requirements before exposure.",
+      "Sequence installation and removal so workers are not exposed to an unprotected excavation.",
+    ],
+    riskAttention: "HighAttention",
   },
 
   EXCAVATION_COLLAPSE: {
@@ -471,6 +556,8 @@ export const canonicalHazardControlLibrary:
       "utility strike",
       "hit underground utility",
       "contact with underground utility",
+      "contact with energized electrical, gas, water, communication, lighting, or unknown underground systems",
+      "contact with electrical, gas, water, communication, lighting, or unknown underground systems",
       "damaged conduit",
     ],
     controls: [
@@ -492,10 +579,17 @@ export const canonicalHazardControlLibrary:
       "Utility drawings, records, markings, locations, elevations, or field conditions are incomplete, conflicting, or unreliable.",
     activityCodes: [
       "UNDERGROUND_UTILITIES",
+      "EXCAVATION",
     ],
     aliases: [
       "unknown underground utilities",
       "unknown/mismarked underground utilities",
+      "unidentified or incorrectly marked underground utilities",
+      "incorrectly marked underground utilities",
+      "incorrectly marked utilities",
+      "inaccurate utility marks",
+      "inaccurate utility markings",
+      "unidentified underground utilities",
       "mismarked utilities",
       "unmarked utilities",
       "mislocated conduit",
@@ -508,6 +602,33 @@ export const canonicalHazardControlLibrary:
       "Use private locating or additional locating methods when required by project conditions.",
       "Positively expose or verify utilities where required before mechanical excavation.",
       "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
+    ],
+    riskAttention: "HighAttention",
+  },
+
+  UNDERGROUND_UTILITY_SUPPORT_LOSS: {
+    id: "UNDERGROUND_UTILITY_SUPPORT_LOSS",
+    kind: "Hazard",
+    label: "Loss of Support for Exposed Utility",
+    description:
+      "An exposed underground utility can move, deflect, separate, or become damaged when its original soil support is removed or the temporary support system is inadequate.",
+    activityCodes: [
+      "UNDERGROUND_UTILITIES",
+      "EXCAVATION",
+    ],
+    aliases: [
+      "loss of utility support after exposure",
+      "loss of support after utility exposure",
+      "unsupported exposed utility",
+      "exposed utility not supported",
+      "inadequate support for exposed utility",
+      "utility movement after exposure",
+    ],
+    controls: [
+      "Determine utility-owner and project requirements for supporting the exposed utility before removing its original soil support.",
+      "Install and maintain an approved support method that prevents damaging movement, deflection, or separation of the exposed utility.",
+      "Control equipment, spoil, materials, and other loading that could affect the exposed utility or its support system.",
+      "Inspect the exposed utility and support system before work continues and whenever conditions or loading change.",
     ],
     riskAttention: "HighAttention",
   },

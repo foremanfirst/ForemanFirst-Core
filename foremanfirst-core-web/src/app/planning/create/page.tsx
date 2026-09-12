@@ -224,6 +224,8 @@ type GuidedPlanningControlEvaluation = {
 
   hazardId: string;
   hazardText: string;
+  canonicalHazardConceptId:
+    string | null;
 
   controlId: string;
   controlText: string;
@@ -234,10 +236,45 @@ type GuidedPlanningControlEvaluation = {
 
   verificationExpectation: string | null;
   verificationRequired: boolean;
+
+  // Qoreva-authored expected verification method.
   verificationMethod: string | null;
+
+  // Qualified-user planning-specific evidence.
+  verificationRequiredForCurrentContext:
+    boolean | null;
+  verificationEvidenceMethod: string | null;
+  verificationEvidence: string | null;
+  verificationCompleted: boolean;
+
+  verifiedById: string | null;
+  verifiedByName: string | null;
+  verifiedByRole: string | null;
+  verifiedAt: string | null;
 
   riskCreditEligible: boolean;
   criticalControlRecommended: boolean;
+
+  criticalControlClassification:
+    "Core" | "Contextual" | "Supporting";
+  criticalControlTrigger:
+    string | null;
+
+  criticalControlDecision:
+    | "Confirmed"
+    | "Declined"
+    | "NotApplicable"
+    | null;
+  criticalControlDecisionReason:
+    string | null;
+  criticalControlDecidedById:
+    string | null;
+  criticalControlDecidedByName:
+    string | null;
+  criticalControlDecidedByRole:
+    string | null;
+  criticalControlDecidedAt:
+    string | null;
 
   evaluationReason: string;
   evaluatorVersion: string;
@@ -504,7 +541,10 @@ type WorkStepPlanning = {
   // Risk before planned controls are credited.
   inherentRiskLevel: WorkStepRiskLevel;
 
-  // Risk after planned controls are credited.
+  // Qoreva's deterministic post-control recommendation.
+  recommendedControlledRiskLevel: WorkStepRiskLevel;
+
+  // Official risk after the qualified user confirms or overrides Qoreva.
   controlledRiskLevel: WorkStepRiskLevel;
 };
 
@@ -1194,6 +1234,10 @@ type HazardControlDecision = {
   decision: HazardControlDecisionValue;
   modifiedText: string | null;
   targetHazardId: string | null;
+  targets?: Array<{
+    hazardId: string;
+    isPrimary: boolean;
+  }>;
   canonicalHazardConceptId: string | null;
   sourceType: string | null;
   sourceMetadata: unknown;
@@ -1695,6 +1739,7 @@ type EditablePlanningRecordResponse = {
       safetyCritical: boolean;
       riskLevel: string | null;
       inherentRiskLevel: string | null;
+      recommendedControlledRiskLevel: string | null;
       controlledRiskLevel: string | null;
     }>;
     questionResponses: Array<{
@@ -2195,37 +2240,83 @@ const planTypes: PlanTypeDefinition[] = [
 const wizardSteps = [
   {
     number: 1,
-    shortTitle: "Plan Type",
+    shortTitle: "Plan Setup",
   },
   {
     number: 2,
-    shortTitle: "Assignment",
-  },
-  {
-    number: 3,
     shortTitle: "Requirements",
   },
   {
+    number: 3,
+    shortTitle: "Scope & Sequence",
+  },
+  {
     number: 4,
-    shortTitle: "Scope",
+    shortTitle: "Guided Planning",
   },
   {
     number: 5,
-    shortTitle: "Planning",
+    shortTitle: "Hazards & Readiness",
   },
   {
     number: 6,
-    shortTitle: "Hazards & Controls",
-  },
-  {
-    number: 7,
-    shortTitle: "Risk & Readiness",
-  },
-  {
-    number: 8,
     shortTitle: "Review & Submit",
   },
 ];
+
+/*
+ * Six-step field workflow mapped over the existing persisted
+ * eight-screen implementation during the controlled remodel.
+ *
+ * Keeping internal screen identifiers stable prevents this visual
+ * consolidation from changing APIs, saved records, approval routing,
+ * or edit-mode restoration.
+ */
+function workflowStepFromInternalStep(
+  internalStep: number,
+) {
+  if (internalStep <= 2) {
+    return 1;
+  }
+
+  if (internalStep === 3) {
+    return 2;
+  }
+
+  if (internalStep === 4) {
+    return 3;
+  }
+
+  if (internalStep === 5) {
+    return 4;
+  }
+
+  if (internalStep === 6) {
+    return 5;
+  }
+
+  return 6;
+}
+
+function internalStepFromWorkflowStep(
+  workflowStep: number,
+) {
+  const destinationByWorkflowStep:
+    Record<number, number> = {
+      1: 1,
+      2: 3,
+      3: 4,
+      4: 5,
+      5: 6,
+      6: 7,
+    };
+
+  return (
+    destinationByWorkflowStep[
+      workflowStep
+    ] ?? 1
+  );
+}
 
 export default function CreatePlanningPage() {
   const [currentStep, setCurrentStep] =
@@ -2238,6 +2329,15 @@ export default function CreatePlanningPage() {
    */
   const previousStepRef =
     useRef(currentStep);
+
+  const stepFiveReadinessRailRef =
+    useRef<HTMLElement | null>(null);
+
+  const stepFiveReadinessCardRef =
+    useRef<HTMLDivElement | null>(null);
+
+  const planningQualityCheckRef =
+    useRef<HTMLDivElement | null>(null);
 
   const [
     planningRecordId,
@@ -2361,6 +2461,16 @@ export default function CreatePlanningPage() {
   ] = useState<string[]>([]);
 
   const [
+    selectedVisibleControlKeys,
+    setSelectedVisibleControlKeys,
+  ] = useState<string[]>([]);
+
+  const [
+    bulkVisibleControlSavingKey,
+    setBulkVisibleControlSavingKey,
+  ] = useState<string | null>(null);
+
+  const [
     recommendedControlsLoadingKey,
     setRecommendedControlsLoadingKey,
   ] = useState<string | null>(null);
@@ -2374,6 +2484,43 @@ export default function CreatePlanningPage() {
     recommendedControlsError,
     setRecommendedControlsError,
   ] = useState("");
+
+  const [
+    controlledRiskDecisionSavingId,
+    setControlledRiskDecisionSavingId,
+  ] = useState<string | null>(null);
+
+  const [
+    controlledRiskOverrideStepId,
+    setControlledRiskOverrideStepId,
+  ] = useState<string | null>(null);
+
+  const [
+    controlledRiskOverrideLevel,
+    setControlledRiskOverrideLevel,
+  ] = useState<WorkStepRiskLevel>("");
+
+  const [
+    controlledRiskOverrideReason,
+    setControlledRiskOverrideReason,
+  ] = useState("");
+
+  const [
+    controlledRiskDecisionError,
+    setControlledRiskDecisionError,
+  ] = useState<{
+    stepId: string;
+    message: string;
+  } | null>(null);
+
+  /*
+   * Prevent duplicate automatic recommendation requests while a
+   * work-step evaluation is already in flight.
+   */
+  const controlledRiskRecommendationInFlightRef =
+    useRef<Set<string>>(
+      new Set<string>(),
+    );
 
   const [
     activeHazardResolution,
@@ -2398,6 +2545,11 @@ export default function CreatePlanningPage() {
   ] = useState<Set<string>>(
     () => new Set<string>(),
   );
+
+  const [
+    pendingHazardReviewTargetId,
+    setPendingHazardReviewTargetId,
+  ] = useState<string | null>(null);
 
   const [
     guidedHazardTargetId,
@@ -2474,9 +2626,9 @@ export default function CreatePlanningPage() {
   );
 
   const [
-    selectedTargetHazardId,
-    setSelectedTargetHazardId,
-  ] = useState("");
+    selectedTargetHazardIds,
+    setSelectedTargetHazardIds,
+  ] = useState<string[]>([]);
 
   const [
     modifiedControlText,
@@ -2727,6 +2879,80 @@ export default function CreatePlanningPage() {
     setGuidedPlanningControlEvaluations,
   ] = useState<GuidedPlanningControlEvaluation[]>([]);
 
+  const [
+    controlVerificationEditorKey,
+    setControlVerificationEditorKey,
+  ] = useState<string | null>(null);
+
+  const [
+    controlVerificationRequiredForContext,
+    setControlVerificationRequiredForContext,
+  ] = useState<boolean | null>(null);
+
+  const [
+    controlVerificationEvidenceMethod,
+    setControlVerificationEvidenceMethod,
+  ] = useState("");
+
+  const [
+    controlVerificationEvidence,
+    setControlVerificationEvidence,
+  ] = useState("");
+
+  const [
+    controlVerificationSavingKey,
+    setControlVerificationSavingKey,
+  ] = useState<string | null>(null);
+
+  const [
+    controlVerificationError,
+    setControlVerificationError,
+  ] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+
+  const [
+    criticalControlDeclineEditorKey,
+    setCriticalControlDeclineEditorKey,
+  ] = useState<string | null>(null);
+
+  const [
+    criticalControlDeclineReason,
+    setCriticalControlDeclineReason,
+  ] = useState("");
+
+  const [
+    criticalControlDecisionSavingKey,
+    setCriticalControlDecisionSavingKey,
+  ] = useState<string | null>(null);
+
+  const [
+    criticalControlDecisionError,
+    setCriticalControlDecisionError,
+  ] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+
+  const [
+    coreCriticalReviewAttestedByStep,
+    setCoreCriticalReviewAttestedByStep,
+  ] = useState<Record<string, boolean>>({});
+
+  const [
+    coreCriticalReviewSavingStepId,
+    setCoreCriticalReviewSavingStepId,
+  ] = useState<string | null>(null);
+
+  const [
+    coreCriticalReviewError,
+    setCoreCriticalReviewError,
+  ] = useState<{
+    stepId: string;
+    message: string;
+  } | null>(null);
+
   /*
    * Persisted Qoreva Control Intelligence is joined to visible working
    * controls only through exact server-owned identities.
@@ -2755,10 +2981,69 @@ export default function CreatePlanningPage() {
     return evaluations;
   }, [guidedPlanningControlEvaluations]);
 
+  function isControlVerificationReadyForCompletion(
+    stepSequence: number,
+    group: GeneratedHazardControlGroup,
+    control: GeneratedHazardControlItem,
+  ) {
+    const evaluation =
+      controlEvaluationByIdentity.get(
+        [
+          stepSequence,
+          group.hazard.id,
+          control.id,
+        ].join(":"),
+      );
+
+    /*
+     * Missing or stale evaluation data cannot support a complete
+     * safety-review status.
+     */
+    if (
+      !evaluation ||
+      evaluation.hazardText !==
+        group.hazard.text ||
+      evaluation.controlText !==
+        control.text
+    ) {
+      return false;
+    }
+
+    if (
+      evaluation.verificationExpectation ===
+      "Required"
+    ) {
+      return (
+        evaluation.verificationCompleted ===
+        true
+      );
+    }
+
+    if (
+      evaluation.verificationExpectation ===
+      "Conditional"
+    ) {
+      return (
+        evaluation.verificationRequiredForCurrentContext ===
+          false ||
+        (
+          evaluation.verificationRequiredForCurrentContext ===
+            true &&
+          evaluation.verificationCompleted ===
+            true
+        )
+      );
+    }
+
+    return true;
+  }
+
   /*
-   * This score describes only whether current control intelligence is ready
-   * for qualified risk review. It is not approval, field authorization, or
-   * an automatic Controlled Risk decision.
+   * This score is the percentage of evaluated control relationships that
+   * currently qualify for Qoreva Risk Credit. Eligibility requires the
+   * applicable structured intelligence and planning-specific verification;
+   * it is not approval, field authorization, or an automatic Controlled
+   * Risk decision.
    */
   const controlReadinessSummary = useMemo(() => {
     const total = guidedPlanningControlEvaluations.length;
@@ -2769,11 +3054,58 @@ export default function CreatePlanningPage() {
           evaluation.criticalControlRecommended,
       ).length;
 
+    const criticalAwaitingReview =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.criticalControlRecommended &&
+          !evaluation.criticalControlDecision,
+      ).length;
+
+    const criticalConfirmed =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.criticalControlRecommended &&
+          evaluation.criticalControlDecision ===
+            "Confirmed",
+      ).length;
+
+    const criticalDeclined =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.criticalControlRecommended &&
+          evaluation.criticalControlDecision ===
+            "Declined",
+      ).length;
+
+    const criticalNotApplicable =
+      guidedPlanningControlEvaluations.filter(
+        (evaluation) =>
+          evaluation.criticalControlRecommended &&
+          evaluation.criticalControlDecision ===
+            "NotApplicable",
+      ).length;
+
     const missingVerification =
       guidedPlanningControlEvaluations.filter(
         (evaluation) =>
-          evaluation.verificationRequired &&
-          !evaluation.verificationMethod?.trim(),
+          (
+            evaluation.verificationExpectation ===
+              "Required" &&
+            !evaluation.verificationCompleted
+          ) ||
+          (
+            evaluation.verificationExpectation ===
+              "Conditional" &&
+            evaluation.verificationRequiredForCurrentContext ===
+              null
+          ) ||
+          (
+            evaluation.verificationExpectation ===
+              "Conditional" &&
+            evaluation.verificationRequiredForCurrentContext ===
+              true &&
+            !evaluation.verificationCompleted
+          ),
       ).length;
 
     const insufficientIntelligence =
@@ -2787,11 +3119,7 @@ export default function CreatePlanningPage() {
     const readyForQualifiedRiskReview =
       guidedPlanningControlEvaluations.filter(
         (evaluation) =>
-          evaluation.effectiveness !== "Unresolved" &&
-          Boolean(evaluation.protectiveFunction) &&
-          evaluation.protectiveFunction !== "Unresolved" &&
-          (!evaluation.verificationRequired ||
-            Boolean(evaluation.verificationMethod?.trim())),
+          evaluation.riskCreditEligible,
       ).length;
 
     const score =
@@ -2804,7 +3132,8 @@ export default function CreatePlanningPage() {
     const status =
       total === 0
         ? "Not Evaluated"
-        : missingVerification > 0 ||
+        : criticalAwaitingReview > 0 ||
+            missingVerification > 0 ||
             insufficientIntelligence > 0
           ? "Needs Attention"
           : "Ready for Qualified Review";
@@ -2812,6 +3141,10 @@ export default function CreatePlanningPage() {
     return {
       total,
       criticalCandidates,
+      criticalAwaitingReview,
+      criticalConfirmed,
+      criticalDeclined,
+      criticalNotApplicable,
       missingVerification,
       insufficientIntelligence,
       readyForQualifiedRiskReview,
@@ -2819,6 +3152,174 @@ export default function CreatePlanningPage() {
       status,
     };
   }, [guidedPlanningControlEvaluations]);
+
+  useEffect(() => {
+    const rail =
+      stepFiveReadinessRailRef.current;
+
+    const card =
+      stepFiveReadinessCardRef.current;
+
+    const boundary =
+      planningQualityCheckRef.current;
+
+    if (
+      currentStep !== 6 ||
+      !rail ||
+      !card ||
+      !boundary
+    ) {
+      return;
+    }
+
+    const railElement:
+      HTMLElement = rail;
+
+    const cardElement:
+      HTMLDivElement = card;
+
+    const boundaryElement:
+      HTMLElement = boundary;
+
+    let frame:
+      number | null = null;
+
+    const desktop =
+      window.matchMedia(
+        "(min-width: 1280px)",
+      );
+
+    function releaseCard() {
+      cardElement.style.position = "";
+      cardElement.style.top = "";
+      cardElement.style.left = "";
+      cardElement.style.width = "";
+      cardElement.style.maxHeight = "";
+      cardElement.style.overflowY = "";
+      cardElement.style.zIndex = "";
+      railElement.style.minHeight = "";
+    }
+
+    function updateCard() {
+      if (frame !== null) {
+        window.cancelAnimationFrame(
+          frame,
+        );
+      }
+
+      frame =
+        window.requestAnimationFrame(() => {
+          frame = null;
+
+          if (!desktop.matches) {
+            releaseCard();
+            return;
+          }
+
+          const viewportTop = 88;
+          const boundaryGap = 24;
+
+          const railRect =
+            railElement.getBoundingClientRect();
+
+          if (
+            railRect.top >=
+            viewportTop
+          ) {
+            releaseCard();
+            return;
+          }
+
+          const maximumHeight =
+            Math.max(
+              window.innerHeight -
+                viewportTop -
+                20,
+              240,
+            );
+
+          const cardHeight =
+            Math.min(
+              cardElement.scrollHeight,
+              maximumHeight,
+            );
+
+          const boundaryRect =
+            boundaryElement.getBoundingClientRect();
+
+          const boundedTop =
+            Math.min(
+              viewportTop,
+              boundaryRect.top -
+                cardHeight -
+                boundaryGap,
+            );
+
+          railElement.style.minHeight =
+            `${cardHeight}px`;
+
+          cardElement.style.position = "fixed";
+          cardElement.style.top =
+            `${boundedTop}px`;
+          cardElement.style.left =
+            `${railRect.left}px`;
+          cardElement.style.width =
+            `${railRect.width}px`;
+          cardElement.style.maxHeight =
+            `${maximumHeight}px`;
+          cardElement.style.overflowY = "auto";
+          cardElement.style.zIndex = "20";
+        });
+    }
+
+    const mutationObserver =
+      new MutationObserver(updateCard);
+
+    mutationObserver.observe(
+      cardElement,
+      {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      },
+    );
+
+    window.addEventListener(
+      "scroll",
+      updateCard,
+      true,
+    );
+
+    window.addEventListener(
+      "resize",
+      updateCard,
+    );
+
+    updateCard();
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(
+          frame,
+        );
+      }
+
+      mutationObserver.disconnect();
+
+      window.removeEventListener(
+        "scroll",
+        updateCard,
+        true,
+      );
+
+      window.removeEventListener(
+        "resize",
+        updateCard,
+      );
+
+      releaseCard();
+    };
+  }, [currentStep]);
 
   const [
     activityDetectionLoading,
@@ -3366,6 +3867,16 @@ export default function CreatePlanningPage() {
                 ? step.inherentRiskLevel
                 : "";
 
+            const storedRecommendedRisk =
+              step.recommendedControlledRiskLevel ===
+                "Low" ||
+              step.recommendedControlledRiskLevel ===
+                "Medium" ||
+              step.recommendedControlledRiskLevel ===
+                "High"
+                ? step.recommendedControlledRiskLevel
+                : "";
+
             restoredWorkPlanning[
               step.id
             ] = {
@@ -3379,6 +3890,8 @@ export default function CreatePlanningPage() {
                 storedControlledRisk,
               inherentRiskLevel:
                 storedInherentRisk,
+              recommendedControlledRiskLevel:
+                storedRecommendedRisk,
               controlledRiskLevel:
                 storedControlledRisk,
             };
@@ -4044,6 +4557,8 @@ export default function CreatePlanningPage() {
           total: 0,
           percent: 0,
           criticalUnresolved: 0,
+          unanswered: 0,
+          conditional: 0,
         };
       }
 
@@ -4098,6 +4613,14 @@ export default function CreatePlanningPage() {
             100,
         ),
         criticalUnresolved,
+        unanswered:
+          guidedPlanningQuestions.length -
+          answered,
+        conditional:
+          guidedPlanningQuestions.filter(
+            (question) =>
+              question.category !== "Core",
+          ).length,
       };
     }, [
       guidedPlanningQuestions,
@@ -4180,15 +4703,119 @@ export default function CreatePlanningPage() {
       });
 
       const incompleteHazardSteps =
-        activeWorkSteps.filter((step) => {
-          const planning =
-            workStepPlanning[step.id];
+        activeWorkSteps.filter(
+          (step, index) => {
+            const planning =
+              workStepPlanning[step.id];
 
-          return (
-            !planning?.hazards.trim() ||
-            !planning?.controls.trim()
-          );
-        });
+            const generatedStep =
+              generatedPlanningDraft?.workSteps.find(
+                (candidate) =>
+                  candidate.sequence ===
+                  index + 1,
+              ) ??
+              generatedPlanningDraft?.workSteps.find(
+                (candidate) =>
+                  candidate.title
+                    .trim()
+                    .toLowerCase() ===
+                  step.title
+                    .trim()
+                    .toLowerCase(),
+              );
+
+            const structuredGroups = (
+              generatedStep?.hazardControlGroups ??
+              []
+            ).filter(
+              (group) =>
+                group.hazard.text !==
+                "User-entered controls requiring hazard assignment",
+            );
+
+            /*
+             * Preserve compatibility with older saved revisions that
+             * predate structured hazard/control relationships.
+             */
+            if (!generatedStep) {
+              return (
+                !planning?.hazards.trim() ||
+                !planning?.controls.trim()
+              );
+            }
+
+            if (
+              structuredGroups.length === 0
+            ) {
+              return true;
+            }
+
+            return structuredGroups.some(
+              (group) => {
+                const protectiveControlCount =
+                  group.controls.filter(
+                    (control) => {
+                      const decision =
+                        hazardControlDecisions.find(
+                          (candidate) =>
+                            candidate.recommendationId ===
+                            control.id,
+                        );
+
+                      return (
+                        decision?.decision ===
+                          "Accept" ||
+                        decision?.decision ===
+                          "Modify" ||
+                        (control.source ===
+                          "User" &&
+                          decision?.decision !==
+                            "NotApplicable")
+                      );
+                    },
+                  ).length;
+
+                const everyControlReviewed =
+                  group.controls.every(
+                    (control) => {
+                      if (
+                        control.source ===
+                        "User"
+                      ) {
+                        return true;
+                      }
+
+                      const decision =
+                        hazardControlDecisions.find(
+                          (candidate) =>
+                            candidate.recommendationId ===
+                            control.id,
+                        );
+
+                      return (
+                        decision?.decision ===
+                          "Accept" ||
+                        decision?.decision ===
+                          "Modify" ||
+                        decision?.decision ===
+                          "NotApplicable"
+                      );
+                    },
+                  );
+
+                /*
+                 * N/A is a completed review decision but does not provide
+                 * protection. Every hazard still needs at least one
+                 * authoritative protective control.
+                 */
+                return (
+                  protectiveControlCount === 0 ||
+                  !everyControlReviewed
+                );
+              },
+            );
+          },
+        );
 
       checks.push({
         id: "hazards-controls",
@@ -4200,7 +4827,7 @@ export default function CreatePlanningPage() {
                 incompleteHazardSteps.length === 1
                   ? ""
                   : "s"
-              } still need hazards or controls.`,
+              } still need hazard coverage or completed control review.`,
         status:
           incompleteHazardSteps.length === 0
             ? "Pass"
@@ -4382,6 +5009,8 @@ export default function CreatePlanningPage() {
     }, [
       activeWorkSteps,
       emergencyPlan,
+      generatedPlanningDraft,
+      hazardControlDecisions,
       highRiskSteps,
       planSpecificDocuments.length,
       planningProgress.criticalUnresolved,
@@ -4703,21 +5332,6 @@ export default function CreatePlanningPage() {
       approvalAssignments,
       approvalAssignmentConfirmations,
     ]);
-
-  function continueFromPlanType() {
-    if (
-      !selectedPlanType
-    ) {
-      setStepError(
-        "Select a plan type before continuing.",
-      );
-
-      return;
-    }
-
-    setStepError("");
-    setCurrentStep(2);
-  }
 
   function handleProjectChange(
     projectId: string,
@@ -5558,6 +6172,7 @@ export default function CreatePlanningPage() {
             safetyCritical: false,
             riskLevel: "",
             inherentRiskLevel: "",
+            recommendedControlledRiskLevel: "",
             controlledRiskLevel: "",
           };
         },
@@ -5701,10 +6316,31 @@ export default function CreatePlanningPage() {
       );
 
       /*
-       * Detection does not equal confirmation. Step 5 is the explicit
-       * qualified-user applicability decision.
+       * Reanalysis must preserve prior qualified-user applicability
+       * decisions for activities that are still detected. Remove only
+       * confirmations that no longer apply; newly detected activities
+       * remain available for confirmation in Guided Planning.
+       *
+       * Existing planning answers remain keyed by question code so
+       * applicable responses survive normal backward navigation.
        */
-      setConfirmedActivityCodes([]);
+      const nextDetectedActivityCodes =
+        new Set(
+          nextDetectedActivities.map(
+            (activity) =>
+              activity.activityCode,
+          ),
+        );
+
+      setConfirmedActivityCodes(
+        (current) =>
+          current.filter(
+            (activityCode) =>
+              nextDetectedActivityCodes.has(
+                activityCode,
+              ),
+          ),
+      );
 
       /*
        * Prefill the core guided-planning answers from the
@@ -5836,6 +6472,8 @@ export default function CreatePlanningPage() {
           current[stepId]?.riskLevel ?? "",
         inherentRiskLevel:
           current[stepId]?.inherentRiskLevel ?? "",
+        recommendedControlledRiskLevel:
+          current[stepId]?.recommendedControlledRiskLevel ?? "",
         controlledRiskLevel:
           current[stepId]?.controlledRiskLevel ?? "",
         [field]: value,
@@ -5845,7 +6483,158 @@ export default function CreatePlanningPage() {
     setStepError("");
   }
 
-  async function continueFromGuidedPlanning() {
+  function openGeneratedHazardReview(
+    hazardId: string,
+  ) {
+    if (!generatedPlanningDraft) {
+      setStepError(
+        "Generate the Qoreva draft before opening the detailed hazard review.",
+      );
+      return;
+    }
+
+    setExpandedHazardIds(
+      (current) => {
+        const next =
+          new Set(current);
+
+        next.add(hazardId);
+
+        return next;
+      },
+    );
+
+    setPendingHazardReviewTargetId(
+      hazardId,
+    );
+
+    setHighestReachedStep(
+      (current) =>
+        Math.max(current, 6),
+    );
+
+    setCurrentStep(6);
+    setStepError("");
+  }
+
+  useEffect(() => {
+    if (
+      currentStep !== 6 ||
+      !pendingHazardReviewTargetId
+    ) {
+      return;
+    }
+
+    let animationFrame = 0;
+    let attempts = 0;
+
+    const focusHazard = () => {
+      const target =
+        document.querySelector<HTMLElement>(
+          `[data-guided-hazard-id="${CSS.escape(
+            pendingHazardReviewTargetId,
+          )}"]`,
+        );
+
+      if (target) {
+        /*
+         * The detailed hazard can live inside a collapsed work-step
+         * details panel. Open every details ancestor before focusing
+         * and scrolling so Review visibly reaches the selected hazard.
+         */
+        let detailsAncestor =
+          target.closest("details");
+
+        while (
+          detailsAncestor instanceof
+          HTMLDetailsElement
+        ) {
+          detailsAncestor.open = true;
+          detailsAncestor =
+            detailsAncestor.parentElement?.closest(
+              "details",
+            ) ?? null;
+        }
+
+        target.focus({
+          preventScroll: true,
+        });
+
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+
+        target.animate(
+          [
+            {
+              boxShadow:
+                "0 0 0 4px rgba(102, 87, 232, 0.28)",
+            },
+            {
+              boxShadow:
+                "0 0 0 0 rgba(102, 87, 232, 0)",
+            },
+          ],
+          {
+            duration: 1400,
+            easing: "ease-out",
+          },
+        );
+
+        setPendingHazardReviewTargetId(
+          null,
+        );
+
+        return;
+      }
+
+      attempts += 1;
+
+      if (attempts < 12) {
+        animationFrame =
+          window.requestAnimationFrame(
+            focusHazard,
+          );
+
+        return;
+      }
+
+      setStepError(
+        "Qoreva opened the detailed review, but could not locate the selected hazard. Refresh the draft and try again.",
+      );
+
+      setPendingHazardReviewTargetId(
+        null,
+      );
+    };
+
+    animationFrame =
+      window.requestAnimationFrame(
+        focusHazard,
+      );
+
+    return () => {
+      window.cancelAnimationFrame(
+        animationFrame,
+      );
+    };
+  }, [
+    currentStep,
+    pendingHazardReviewTargetId,
+  ]);
+
+  async function persistGuidedPlanning({
+    requireHazardReadinessPlanning,
+    advanceToHazardReview,
+    invalidateGeneratedDraft,
+    validateQuestionReadiness = true,
+  }: {
+    requireHazardReadinessPlanning: boolean;
+    advanceToHazardReview: boolean;
+    invalidateGeneratedDraft: boolean;
+    validateQuestionReadiness?: boolean;
+  }): Promise<boolean> {
     const invalidAnsweredQuestions =
       guidedPlanningQuestions.filter(
         (question) => {
@@ -5865,7 +6654,10 @@ export default function CreatePlanningPage() {
         },
       );
 
-    if (invalidAnsweredQuestions.length > 0) {
+    if (
+      validateQuestionReadiness &&
+      invalidAnsweredQuestions.length > 0
+    ) {
       setStepError(
         `Clarify "${invalidAnsweredQuestions[0].questionText}" before continuing. ${invalidAnsweredQuestions.length} response${
           invalidAnsweredQuestions.length === 1
@@ -5873,7 +6665,7 @@ export default function CreatePlanningPage() {
             : "s"
         } contain incomplete or placeholder information.`,
       );
-      return;
+      return false;
     }
 
     const unansweredCritical =
@@ -5899,13 +6691,16 @@ export default function CreatePlanningPage() {
         },
       );
 
-    if (unansweredCritical.length > 0) {
+    if (
+      validateQuestionReadiness &&
+      unansweredCritical.length > 0
+    ) {
       setStepError(
         `Answer all safety-critical planning questions before continuing. ${unansweredCritical.length} critical item${
           unansweredCritical.length === 1 ? "" : "s"
         } remain.`,
       );
-      return;
+      return false;
     }
 
     const activeSteps = workSequence.filter(
@@ -5914,109 +6709,111 @@ export default function CreatePlanningPage() {
         step.description.trim(),
     );
 
-    const incompleteSteps = activeSteps.filter(
-      (step) => {
-        const planning = workStepPlanning[step.id];
+    if (requireHazardReadinessPlanning) {
+      const incompleteSteps = activeSteps.filter(
+        (step) => {
+          const planning = workStepPlanning[step.id];
 
-        return (
-          !hasMeaningfulPlanningText(
-            planning?.hazards ?? "",
-            {
-              minimumCharacters: 8,
-              minimumWords: 2,
-            },
-          ) ||
-          !hasMeaningfulPlanningText(
-            planning?.controls ?? "",
-            {
-              minimumCharacters: 8,
-              minimumWords: 2,
-            },
-          )
-        );
-      },
-    );
-
-    if (incompleteSteps.length > 0) {
-      setStepError(
-        "Enter meaningful, task-specific hazards and controls for every work step before continuing.",
-      );
-      return;
-    }
-
-    const unratedSteps = activeSteps.filter(
-      (step) => {
-        const planning =
-          workStepPlanning[step.id];
-
-        return !planning?.inherentRiskLevel;
-      },
-    );
-
-    if (unratedSteps.length > 0) {
-      setStepError(
-        `Select Inherent Risk for every work step before continuing. ${unratedSteps.length} step${
-          unratedSteps.length === 1 ? "" : "s"
-        } still need an inherent risk rating.`,
-      );
-      return;
-    }
-
-    if (
-      !hasMeaningfulPlanningText(
-        emergencyPlan,
-        {
-          minimumCharacters: 12,
-          minimumWords: 3,
+          return (
+            !hasMeaningfulPlanningText(
+              planning?.hazards ?? "",
+              {
+                minimumCharacters: 8,
+                minimumWords: 2,
+              },
+            ) ||
+            !hasMeaningfulPlanningText(
+              planning?.controls ?? "",
+              {
+                minimumCharacters: 8,
+                minimumWords: 2,
+              },
+            )
+          );
         },
-      )
-    ) {
-      setStepError(
-        "Document a meaningful, task-specific emergency plan before continuing.",
-      );
-      return;
-    }
-
-    const optionalPlanningFields = [
-      {
-        label: "Required PPE",
-        value: requiredPpe,
-      },
-      {
-        label: "Required Permits",
-        value: requiredPermits,
-      },
-      {
-        label: "Stop-Work Triggers",
-        value: stopWorkTriggers,
-      },
-      {
-        label: "Additional Planning Notes",
-        value: planningNotes,
-      },
-    ];
-
-    const invalidOptionalPlanningField =
-      optionalPlanningFields.find(
-        (field) =>
-          Boolean(field.value.trim()) &&
-          !hasMeaningfulPlanningText(
-            field.value,
-          ),
       );
 
-    if (invalidOptionalPlanningField) {
-      setStepError(
-        `Clarify ${invalidOptionalPlanningField.label} or leave it blank before continuing. Placeholder information cannot be added to the plan.`,
+      if (incompleteSteps.length > 0) {
+        setStepError(
+          "Enter meaningful, task-specific hazards and controls for every work step before continuing.",
+        );
+        return false;
+      }
+
+      const unratedSteps = activeSteps.filter(
+        (step) => {
+          const planning =
+            workStepPlanning[step.id];
+
+          return !planning?.inherentRiskLevel;
+        },
       );
-      return;
+
+      if (unratedSteps.length > 0) {
+        setStepError(
+          `Select Inherent Risk for every work step before continuing. ${unratedSteps.length} step${
+            unratedSteps.length === 1 ? "" : "s"
+          } still need an inherent risk rating.`,
+        );
+        return false;
+      }
+
+      if (
+        !hasMeaningfulPlanningText(
+          emergencyPlan,
+          {
+            minimumCharacters: 12,
+            minimumWords: 3,
+          },
+        )
+      ) {
+        setStepError(
+          "Document a meaningful, task-specific emergency plan before continuing.",
+        );
+        return false;
+      }
+
+      const optionalPlanningFields = [
+        {
+          label: "Required PPE",
+          value: requiredPpe,
+        },
+        {
+          label: "Required Permits",
+          value: requiredPermits,
+        },
+        {
+          label: "Stop-Work Triggers",
+          value: stopWorkTriggers,
+        },
+        {
+          label: "Additional Planning Notes",
+          value: planningNotes,
+        },
+      ];
+
+      const invalidOptionalPlanningField =
+        optionalPlanningFields.find(
+          (field) =>
+            Boolean(field.value.trim()) &&
+            !hasMeaningfulPlanningText(
+              field.value,
+            ),
+        );
+
+      if (invalidOptionalPlanningField) {
+        setStepError(
+          `Clarify ${invalidOptionalPlanningField.label} or leave it blank before continuing. Placeholder information cannot be added to the plan.`,
+        );
+        return false;
+      }
     }
 
     if (!planningRecordId) {
       setStepError(
         "The planning draft has not been created yet. Return to Assignment and save the draft before continuing.",
       );
-      return;
+      return false;
     }
 
     setStepError("");
@@ -6147,6 +6944,19 @@ export default function CreatePlanningPage() {
           record?: {
             id: string;
           };
+          workSteps?: Array<{
+            id: string;
+            sequence: number;
+            title: string;
+            description: string | null;
+            hazards: string | null;
+            controls: string | null;
+            safetyCritical: boolean;
+            riskLevel: string | null;
+            inherentRiskLevel: string | null;
+            recommendedControlledRiskLevel: string | null;
+            controlledRiskLevel: string | null;
+          }>;
           saved?: {
             workSteps: number;
             questionResponses: number;
@@ -6166,6 +6976,121 @@ export default function CreatePlanningPage() {
           "Guided planning was not confirmed as saved.",
         );
       }
+
+      const persistedWorkSteps =
+        data.workSteps ?? [];
+
+      if (
+        persistedWorkSteps.length !==
+        activeSteps.length
+      ) {
+        throw new Error(
+          "Guided planning was saved, but Qoreva could not reconnect every work step. Refresh the record before continuing.",
+        );
+      }
+
+      const nextWorkSequence =
+        persistedWorkSteps.map(
+          (persistedStep) => ({
+            id:
+              persistedStep.id,
+
+            title:
+              persistedStep.title,
+
+            description:
+              persistedStep.description ??
+              "",
+          }),
+        );
+
+      const nextWorkStepPlanning:
+        Record<
+          string,
+          WorkStepPlanning
+        > = {};
+
+      persistedWorkSteps.forEach(
+        (persistedStep, index) => {
+          const priorStep =
+            activeSteps[index];
+
+          const priorPlanning =
+            priorStep
+              ? workStepPlanning[
+                  priorStep.id
+                ]
+              : undefined;
+
+          const recommendedRisk =
+            persistedStep.recommendedControlledRiskLevel ===
+              "Low" ||
+            persistedStep.recommendedControlledRiskLevel ===
+              "Medium" ||
+            persistedStep.recommendedControlledRiskLevel ===
+              "High"
+              ? persistedStep.recommendedControlledRiskLevel
+              : "";
+
+          const controlledRisk =
+            persistedStep.controlledRiskLevel ===
+              "Low" ||
+            persistedStep.controlledRiskLevel ===
+              "Medium" ||
+            persistedStep.controlledRiskLevel ===
+              "High"
+              ? persistedStep.controlledRiskLevel
+              : "";
+
+          const inherentRisk =
+            persistedStep.inherentRiskLevel ===
+              "Low" ||
+            persistedStep.inherentRiskLevel ===
+              "Medium" ||
+            persistedStep.inherentRiskLevel ===
+              "High"
+              ? persistedStep.inherentRiskLevel
+              : priorPlanning?.inherentRiskLevel ??
+                "";
+
+          nextWorkStepPlanning[
+            persistedStep.id
+          ] = {
+            hazards:
+              persistedStep.hazards ??
+              priorPlanning?.hazards ??
+              "",
+
+            controls:
+              persistedStep.controls ??
+              priorPlanning?.controls ??
+              "",
+
+            safetyCritical:
+              persistedStep.safetyCritical,
+
+            riskLevel:
+              controlledRisk,
+
+            inherentRiskLevel:
+              inherentRisk,
+
+            recommendedControlledRiskLevel:
+              recommendedRisk,
+
+            controlledRiskLevel:
+              controlledRisk,
+          };
+        },
+      );
+
+      setWorkSequence(
+        nextWorkSequence,
+      );
+
+      setWorkStepPlanning(
+        nextWorkStepPlanning,
+      );
 
       /*
        * The Guided Planning PUT recalculates and persists Qoreva Control
@@ -6202,18 +7127,49 @@ export default function CreatePlanningPage() {
           [],
       );
 
-      setDraftGenerated(false);
-      setGeneratedPlanningDraft(null);
-      setCurrentStep(6);
+      if (invalidateGeneratedDraft) {
+        setDraftGenerated(false);
+        setGeneratedPlanningDraft(null);
+      }
+
+      if (advanceToHazardReview) {
+        setCurrentStep(6);
+      }
+
+      return true;
     } catch (error) {
       setStepError(
         error instanceof Error
           ? error.message
           : "Unable to save guided planning.",
       );
+
+      return false;
     } finally {
       setPlanningDraftSaving(false);
     }
+  }
+
+  async function continueFromGuidedPlanning() {
+    await persistGuidedPlanning({
+      requireHazardReadinessPlanning:
+        false,
+      advanceToHazardReview:
+        true,
+      invalidateGeneratedDraft:
+        true,
+    });
+  }
+
+  async function saveHazardReadinessPlanning() {
+    return persistGuidedPlanning({
+      requireHazardReadinessPlanning:
+        true,
+      advanceToHazardReview:
+        false,
+      invalidateGeneratedDraft:
+        false,
+    });
   }
 
   async function generateDraftPlan(): Promise<boolean> {
@@ -6297,6 +7253,7 @@ export default function CreatePlanningPage() {
               safetyCritical: false,
               riskLevel: "",
               inherentRiskLevel: "",
+              recommendedControlledRiskLevel: "",
               controlledRiskLevel: "",
             };
 
@@ -6358,6 +7315,9 @@ export default function CreatePlanningPage() {
 
             inherentRiskLevel:
               currentPlanning.inherentRiskLevel,
+
+            recommendedControlledRiskLevel:
+              currentPlanning.recommendedControlledRiskLevel,
 
             controlledRiskLevel:
               currentPlanning.controlledRiskLevel ||
@@ -8094,6 +9054,1003 @@ export default function CreatePlanningPage() {
     setRecommendedControlsError("");
   }
 
+  function controlVerificationKey(
+    evaluation: GuidedPlanningControlEvaluation,
+  ) {
+    return JSON.stringify([
+      evaluation.workStepId,
+      evaluation.hazardId,
+      evaluation.controlId,
+    ]);
+  }
+
+  function openControlVerificationEditor(
+    evaluation: GuidedPlanningControlEvaluation,
+  ) {
+    const key =
+      controlVerificationKey(
+        evaluation,
+      );
+
+    setControlVerificationEditorKey(
+      key,
+    );
+
+    setControlVerificationRequiredForContext(
+      evaluation.verificationExpectation ===
+        "Required"
+        ? true
+        : evaluation.verificationRequiredForCurrentContext,
+    );
+
+    setControlVerificationEvidenceMethod(
+      evaluation.verificationEvidenceMethod ??
+        evaluation.verificationMethod ??
+        "",
+    );
+
+    setControlVerificationEvidence(
+      evaluation.verificationEvidence ??
+        "",
+    );
+
+    setControlVerificationError(
+      null,
+    );
+  }
+
+  function closeControlVerificationEditor() {
+    setControlVerificationEditorKey(
+      null,
+    );
+
+    setControlVerificationRequiredForContext(
+      null,
+    );
+
+    setControlVerificationEvidenceMethod(
+      "",
+    );
+
+    setControlVerificationEvidence(
+      "",
+    );
+
+    setControlVerificationError(
+      null,
+    );
+  }
+
+  async function saveControlVerification(
+    evaluation: GuidedPlanningControlEvaluation,
+  ) {
+    if (!planningRecordId) {
+      return;
+    }
+
+    const key =
+      controlVerificationKey(
+        evaluation,
+      );
+
+    setControlVerificationSavingKey(
+      key,
+    );
+
+    setControlVerificationError(
+      null,
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/control-verification`,
+          {
+            method: "PUT",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              workStepId:
+                evaluation.workStepId,
+
+              hazardId:
+                evaluation.hazardId,
+
+              controlId:
+                evaluation.controlId,
+
+              verificationRequiredForCurrentContext:
+                evaluation.verificationExpectation ===
+                  "Required"
+                  ? true
+                  : controlVerificationRequiredForContext,
+
+              verificationEvidenceMethod:
+                controlVerificationRequiredForContext ===
+                  false
+                  ? null
+                  : controlVerificationEvidenceMethod,
+
+              verificationEvidence:
+                controlVerificationEvidence,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          controlEvaluation?:
+            GuidedPlanningControlEvaluation;
+
+          requiresRiskRefresh?:
+            boolean;
+
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to save verification evidence.",
+        );
+      }
+
+      if (!data.controlEvaluation) {
+        throw new Error(
+          "Verification was saved but Qoreva did not return the updated control evaluation.",
+        );
+      }
+
+      setGuidedPlanningControlEvaluations(
+        (current) =>
+          current.map(
+            (currentEvaluation) =>
+              controlVerificationKey(
+                currentEvaluation,
+              ) === key
+                ? data.controlEvaluation!
+                : currentEvaluation,
+          ),
+      );
+
+      /*
+       * The evidence endpoint has already persisted the qualified-user
+       * evidence and recalculated Risk Credit for this exact control.
+       * Close the editor immediately so a separate work-step refresh
+       * cannot make a successful verification appear to have failed.
+       */
+      closeControlVerificationEditor();
+
+      /*
+       * Attempt the broader work-step recalculation independently.
+       * This refresh does not authorize navigation, submission, or a
+       * qualified-user Controlled Risk decision.
+       */
+      await persistGuidedPlanning({
+        requireHazardReadinessPlanning:
+          false,
+        advanceToHazardReview:
+          false,
+        invalidateGeneratedDraft:
+          false,
+        validateQuestionReadiness:
+          false,
+      });
+    } catch (error) {
+      setControlVerificationError({
+        key,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to save verification evidence.",
+      });
+    } finally {
+      setControlVerificationSavingKey(
+        null,
+      );
+    }
+  }
+
+  async function saveCriticalControlDecision(
+    evaluation: GuidedPlanningControlEvaluation,
+    decision:
+      | "Confirmed"
+      | "Declined"
+      | "NotApplicable",
+  ) {
+    if (!planningRecordId) {
+      return;
+    }
+
+    const key =
+      controlVerificationKey(
+        evaluation,
+      );
+
+    setCriticalControlDecisionSavingKey(
+      key,
+    );
+
+    setCriticalControlDecisionError(
+      null,
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/critical-control-decision`,
+          {
+            method: "PUT",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              workStepId:
+                evaluation.workStepId,
+
+              hazardId:
+                evaluation.hazardId,
+
+              controlId:
+                evaluation.controlId,
+
+              decision,
+
+              decisionReason:
+                decision !== "Confirmed"
+                  ? criticalControlDeclineReason
+                  : null,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          criticalControlDecision?: {
+            workStepId: string;
+            workStepSequence:
+              number | null;
+            hazardId: string;
+            controlId: string;
+            decision:
+              | "Confirmed"
+              | "Declined"
+              | "NotApplicable";
+            decisionReason:
+              string | null;
+            decidedByName:
+              string | null;
+            decidedByRole:
+              string | null;
+            decidedAt: string;
+          };
+
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to save the Critical Control decision.",
+        );
+      }
+
+      if (!data.criticalControlDecision) {
+        throw new Error(
+          "The decision was saved but Qoreva did not return the updated Critical Control decision.",
+        );
+      }
+
+      const savedDecision =
+        data.criticalControlDecision;
+
+      setGuidedPlanningControlEvaluations(
+        (current) =>
+          current.map(
+            (currentEvaluation) =>
+              controlVerificationKey(
+                currentEvaluation,
+              ) === key
+                ? {
+                    ...currentEvaluation,
+
+                    criticalControlDecision:
+                      savedDecision.decision,
+
+                    criticalControlDecisionReason:
+                      savedDecision
+                        .decisionReason,
+
+                    criticalControlDecidedById:
+                      null,
+
+                    criticalControlDecidedByName:
+                      savedDecision
+                        .decidedByName,
+
+                    criticalControlDecidedByRole:
+                      savedDecision
+                        .decidedByRole,
+
+                    criticalControlDecidedAt:
+                      savedDecision
+                        .decidedAt,
+                  }
+                : currentEvaluation,
+          ),
+      );
+
+      /*
+       * The server invalidates the prior qualified-user Controlled Risk
+       * value whenever a Critical Control decision changes. Mirror that
+       * state locally without writing stale risk data back to the server.
+       */
+      if (
+        savedDecision.workStepId
+      ) {
+        const affectedWorkStepId =
+          savedDecision.workStepId;
+
+        setWorkStepPlanning(
+          (current) => ({
+            ...current,
+
+            [affectedWorkStepId]: {
+              ...(
+                current[
+                  affectedWorkStepId
+                ] ?? {
+                    hazards: "",
+                    controls: "",
+                    safetyCritical:
+                      false,
+                    inherentRiskLevel:
+                      "",
+                    recommendedControlledRiskLevel:
+                      "",
+                    controlledRiskLevel:
+                      "",
+                  }
+                ),
+
+                controlledRiskLevel:
+                  "",
+            },
+          }),
+        );
+      }
+
+      setCriticalControlDeclineEditorKey(
+        null,
+      );
+
+      setCriticalControlDeclineReason(
+        "",
+      );
+    } catch (error) {
+      setCriticalControlDecisionError({
+        key,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to save the Critical Control decision.",
+      });
+    } finally {
+      setCriticalControlDecisionSavingKey(
+        null,
+      );
+    }
+  }
+
+  async function confirmCoreCriticalControlsForStep({
+    stepId,
+    evaluationWorkStepId,
+    workStepSequence,
+  }: {
+    stepId: string;
+    evaluationWorkStepId: string;
+    workStepSequence: number;
+  }) {
+    if (!planningRecordId) {
+      return;
+    }
+
+    if (
+      !coreCriticalReviewAttestedByStep[
+        stepId
+      ]
+    ) {
+      setCoreCriticalReviewError({
+        stepId,
+        message:
+          "Confirm the qualified-user review attestation before saving the Core Critical Controls.",
+      });
+      return;
+    }
+
+    setCoreCriticalReviewSavingStepId(
+      stepId,
+    );
+
+    setCoreCriticalReviewError(
+      null,
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/core-critical-control-review`,
+          {
+            method: "PUT",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              workStepId:
+                evaluationWorkStepId,
+
+              attested:
+                true,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          newlyConfirmedCount?: number;
+
+          decidedByName?:
+            string | null;
+
+          decidedByRole?:
+            string | null;
+
+          decidedAt?:
+            string;
+
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Qoreva did not complete the Core Critical Control review.",
+        );
+      }
+
+      const decidedAt =
+        data.decidedAt ??
+        new Date().toISOString();
+
+      setGuidedPlanningControlEvaluations(
+        (current) =>
+          current.map(
+            (evaluation) =>
+              (
+                evaluation.workStepId ===
+                  evaluationWorkStepId ||
+                evaluation.workStepSequence ===
+                  workStepSequence
+              ) &&
+              evaluation
+                .criticalControlClassification ===
+                "Core" &&
+              !evaluation
+                .criticalControlDecision
+                ? {
+                    ...evaluation,
+
+                    criticalControlDecision:
+                      "Confirmed",
+
+                    criticalControlDecisionReason:
+                      null,
+
+                    criticalControlDecidedById:
+                      null,
+
+                    criticalControlDecidedByName:
+                      data.decidedByName ??
+                      "Qualified user",
+
+                    criticalControlDecidedByRole:
+                      data.decidedByRole ??
+                      null,
+
+                    criticalControlDecidedAt:
+                      decidedAt,
+                  }
+                : evaluation,
+          ),
+      );
+
+      setWorkStepPlanning(
+        (current) => ({
+          ...current,
+
+          [stepId]: {
+            ...(
+              current[stepId] ?? {
+                hazards: "",
+                controls: "",
+                safetyCritical:
+                  false,
+                inherentRiskLevel:
+                  "",
+                recommendedControlledRiskLevel:
+                  "",
+                controlledRiskLevel:
+                  "",
+              }
+            ),
+
+            controlledRiskLevel:
+              "",
+          },
+        }),
+      );
+
+      setCoreCriticalReviewAttestedByStep(
+        (current) => ({
+          ...current,
+          [stepId]: false,
+        }),
+      );
+    } catch (error) {
+      setCoreCriticalReviewError({
+        stepId,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to complete the Core Critical Control review.",
+      });
+    } finally {
+      setCoreCriticalReviewSavingStepId(
+        null,
+      );
+    }
+  }
+
+  /*
+   * Automatically request Qoreva's step-level Controlled Risk
+   * recommendation once the authoritative current-revision control
+   * evidence is complete.
+   *
+   * This does not confirm Controlled Risk. The qualified-user Confirm
+   * or Override action remains separate and explicit.
+   */
+  useEffect(() => {
+    if (
+      currentStep !== 6 ||
+      !planningRecordId
+    ) {
+      return;
+    }
+
+    for (
+      let index = 0;
+      index < workSequence.length;
+      index += 1
+    ) {
+      const step =
+        workSequence[index];
+
+      const planning =
+        workStepPlanning[
+          step.id
+        ];
+
+      if (
+        planning
+          ?.recommendedControlledRiskLevel
+      ) {
+        controlledRiskRecommendationInFlightRef
+          .current
+          .delete(
+            step.id,
+          );
+
+        continue;
+      }
+
+      const inherentRiskLevel =
+        planning
+          ?.inherentRiskLevel;
+
+      if (
+        inherentRiskLevel !== "Low" &&
+        inherentRiskLevel !== "Medium" &&
+        inherentRiskLevel !== "High"
+      ) {
+        continue;
+      }
+
+      const stepEvaluations =
+        guidedPlanningControlEvaluations.filter(
+          (evaluation) =>
+            evaluation.workStepId ===
+              step.id ||
+            evaluation.workStepSequence ===
+              index + 1,
+        );
+
+      if (
+        stepEvaluations.length ===
+        0
+      ) {
+        continue;
+      }
+
+      const allRelationshipsEligible =
+        stepEvaluations.every(
+          (evaluation) =>
+            evaluation
+              .riskCreditEligible,
+        );
+
+      const hasPendingCriticalControlDecision =
+        stepEvaluations.some(
+          (evaluation) =>
+            evaluation
+              .criticalControlRecommended &&
+            !evaluation
+              .criticalControlDecision,
+        );
+
+      if (
+        !allRelationshipsEligible ||
+        hasPendingCriticalControlDecision ||
+        controlledRiskRecommendationInFlightRef
+          .current
+          .has(
+            step.id,
+          )
+      ) {
+        continue;
+      }
+
+      controlledRiskRecommendationInFlightRef
+        .current
+        .add(
+          step.id,
+        );
+
+      setControlledRiskDecisionSavingId(
+        step.id,
+      );
+
+      setControlledRiskDecisionError(
+        null,
+      );
+
+      void (async () => {
+        try {
+          const response =
+            await fetch(
+              `/api/planning/${planningRecordId}/controlled-risk-recommendation`,
+              {
+                method: "PUT",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    workStepId:
+                      step.id,
+
+                    inherentRiskLevel,
+                  }),
+              },
+            );
+
+          const data =
+            (await response.json()) as {
+              workStep?: {
+                id: string;
+
+                inherentRiskLevel:
+                  string | null;
+
+                recommendedControlledRiskLevel:
+                  string | null;
+
+                controlledRiskLevel:
+                  string | null;
+
+                riskLevel:
+                  string | null;
+              };
+
+              evaluation?: {
+                status:
+                  | "InsufficientEvidence"
+                  | "ReadyForEvaluation";
+
+                recommendedControlledRiskLevel:
+                  string | null;
+
+                reasons:
+                  string[];
+              };
+
+              message?: string;
+            };
+
+          if (!response.ok) {
+            throw new Error(
+              data.message ||
+                "Unable to refresh the Controlled Risk recommendation.",
+            );
+          }
+
+          const recommendation =
+            data.workStep
+              ?.recommendedControlledRiskLevel;
+
+          if (
+            recommendation !== "Low" &&
+            recommendation !== "Medium" &&
+            recommendation !== "High"
+          ) {
+            throw new Error(
+              data.evaluation
+                ?.reasons
+                ?.join(" ") ||
+                "Qoreva evaluated this work step, but additional structured evidence is still required.",
+            );
+          }
+
+          setWorkStepPlanning(
+            (current) => ({
+              ...current,
+
+              [step.id]: {
+                hazards:
+                  current[step.id]
+                    ?.hazards ??
+                  "",
+
+                controls:
+                  current[step.id]
+                    ?.controls ??
+                  "",
+
+                safetyCritical:
+                  current[step.id]
+                    ?.safetyCritical ??
+                  false,
+
+                inherentRiskLevel,
+
+                recommendedControlledRiskLevel:
+                  recommendation,
+
+                controlledRiskLevel:
+                  "",
+
+                riskLevel:
+                  "",
+              },
+            }),
+          );
+        } catch (error) {
+          setControlledRiskDecisionError({
+            stepId:
+              step.id,
+
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to refresh the Controlled Risk recommendation.",
+          });
+        } finally {
+          controlledRiskRecommendationInFlightRef
+            .current
+            .delete(
+              step.id,
+            );
+
+          setControlledRiskDecisionSavingId(
+            (current) =>
+              current === step.id
+                ? null
+                : current,
+          );
+        }
+      })();
+
+      /*
+       * Evaluate one ready work step at a time. Updating its
+       * recommendation retriggers this effect for the next step.
+       */
+      break;
+    }
+  }, [
+    currentStep,
+    planningRecordId,
+    workSequence,
+    workStepPlanning,
+    guidedPlanningControlEvaluations,
+  ]);
+
+  async function saveControlledRiskDecision(
+    stepId: string,
+    decision: "Confirm" | "Override",
+  ) {
+    if (!planningRecordId) {
+      setControlledRiskDecisionError({
+        stepId,
+        message:
+          "The planning record must be saved before Controlled Risk can be confirmed.",
+      });
+      return;
+    }
+
+    const planning =
+      workStepPlanning[stepId];
+
+    if (
+      !planning
+        ?.recommendedControlledRiskLevel
+    ) {
+      setControlledRiskDecisionError({
+        stepId,
+        message:
+          "Qoreva does not currently have enough structured evidence to recommend Controlled Risk for this work step.",
+      });
+      return;
+    }
+
+    setControlledRiskDecisionSavingId(
+      stepId,
+    );
+
+    setControlledRiskDecisionError(
+      null,
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/controlled-risk-decision`,
+          {
+            method: "PUT",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              workStepId:
+                stepId,
+
+              decision,
+
+              controlledRiskLevel:
+                decision === "Override"
+                  ? controlledRiskOverrideLevel
+                  : null,
+
+              overrideReason:
+                decision === "Override"
+                  ? controlledRiskOverrideReason
+                  : null,
+            }),
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          workStep?: {
+            id: string;
+            recommendedControlledRiskLevel:
+              string | null;
+            controlledRiskLevel:
+              string | null;
+            riskLevel:
+              string | null;
+          };
+
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to save the Controlled Risk decision.",
+        );
+      }
+
+      const officialRisk =
+        data.workStep
+          ?.controlledRiskLevel;
+
+      if (
+        officialRisk !== "Low" &&
+        officialRisk !== "Medium" &&
+        officialRisk !== "High"
+      ) {
+        throw new Error(
+          "Qoreva saved the decision but did not return a valid Controlled Risk.",
+        );
+      }
+
+      setWorkStepPlanning(
+        (current) => ({
+          ...current,
+
+          [stepId]: {
+            ...current[stepId],
+
+            recommendedControlledRiskLevel:
+              data.workStep
+                ?.recommendedControlledRiskLevel ===
+                  "Low" ||
+              data.workStep
+                ?.recommendedControlledRiskLevel ===
+                  "Medium" ||
+              data.workStep
+                ?.recommendedControlledRiskLevel ===
+                  "High"
+                ? data.workStep
+                    .recommendedControlledRiskLevel
+                : current[stepId]
+                    ?.recommendedControlledRiskLevel ??
+                  "",
+
+            controlledRiskLevel:
+              officialRisk,
+
+            riskLevel:
+              officialRisk,
+          },
+        }),
+      );
+
+      setControlledRiskOverrideStepId(
+        null,
+      );
+
+      setControlledRiskOverrideLevel(
+        "",
+      );
+
+      setControlledRiskOverrideReason(
+        "",
+      );
+    } catch (error) {
+      setControlledRiskDecisionError({
+        stepId,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to save the Controlled Risk decision.",
+      });
+    } finally {
+      setControlledRiskDecisionSavingId(
+        null,
+      );
+    }
+  }
+
   async function generateRecommendedControls(
     step: GeneratedDraftWorkStep,
     group: GeneratedHazardControlGroup,
@@ -8895,6 +10852,10 @@ export default function CreatePlanningPage() {
     group: GeneratedHazardControlGroup,
     control: GeneratedHazardControlItem,
     decision: "Accept" | "NotApplicable",
+    options: {
+      synchronizeDraft?: boolean;
+      rethrow?: boolean;
+    } = {},
   ) {
     if (!planningRecordId) {
       setHazardControlDecisionError(
@@ -9027,13 +10988,18 @@ export default function CreatePlanningPage() {
         ],
       );
 
-      const draftSynchronized =
-        await generateDraftPlan();
+      if (
+        options.synchronizeDraft !==
+        false
+      ) {
+        const draftSynchronized =
+          await generateDraftPlan();
 
-      if (!draftSynchronized) {
-        setHazardControlDecisionError(
-          "The control decision was saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.",
-        );
+        if (!draftSynchronized) {
+          setHazardControlDecisionError(
+            "The control decision was saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.",
+          );
+        }
       }
     } catch (error) {
       setHazardControlDecisionError(
@@ -9041,6 +11007,10 @@ export default function CreatePlanningPage() {
           ? error.message
           : "Unable to save the control decision.",
       );
+
+      if (options.rethrow) {
+        throw error;
+      }
     } finally {
       setHazardControlDecisionSavingId(
         null,
@@ -9059,6 +11029,198 @@ export default function CreatePlanningPage() {
       control,
       "Accept",
     );
+  }
+
+  function visibleControlSelectionKey(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+    control: GeneratedHazardControlItem,
+  ) {
+    return [
+      step.sequence,
+      group.hazard.id,
+      control.id,
+    ].join(":");
+  }
+
+  function toggleVisibleControlSelection(
+    selectionKey: string,
+  ) {
+    setSelectedVisibleControlKeys(
+      (current) =>
+        current.includes(
+          selectionKey,
+        )
+          ? current.filter(
+              (key) =>
+                key !== selectionKey,
+            )
+          : [
+              ...current,
+              selectionKey,
+            ],
+    );
+
+    setHazardControlDecisionError("");
+  }
+
+  function selectAllVisibleControls(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+  ) {
+    const selectableKeys =
+      group.controls
+        .filter(
+          (control) =>
+            hazardControlDecisions.find(
+              (decision) =>
+                decision.recommendationId ===
+                control.id,
+            )?.decision !==
+              "Accept" &&
+            hasMeaningfulPlanningText(
+              control.text,
+              {
+                minimumCharacters: 8,
+                minimumWords: 2,
+              },
+            ),
+        )
+        .map(
+          (control) =>
+            visibleControlSelectionKey(
+              step,
+              group,
+              control,
+            ),
+        );
+
+    setSelectedVisibleControlKeys(
+      (current) =>
+        Array.from(
+          new Set([
+            ...current,
+            ...selectableKeys,
+          ]),
+        ),
+    );
+
+    setHazardControlDecisionError("");
+  }
+
+  function clearVisibleControlSelection(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+  ) {
+    const groupKeys =
+      new Set(
+        group.controls.map(
+          (control) =>
+            visibleControlSelectionKey(
+              step,
+              group,
+              control,
+            ),
+        ),
+      );
+
+    setSelectedVisibleControlKeys(
+      (current) =>
+        current.filter(
+          (key) =>
+            !groupKeys.has(key),
+        ),
+    );
+  }
+
+  async function acceptSelectedVisibleControls(
+    step: GeneratedDraftWorkStep,
+    group: GeneratedHazardControlGroup,
+  ) {
+    const groupKey =
+      `${step.sequence}:${group.hazard.id}`;
+
+    const selectedControls =
+      group.controls.filter(
+        (control) =>
+          selectedVisibleControlKeys.includes(
+            visibleControlSelectionKey(
+              step,
+              group,
+              control,
+            ),
+          ) &&
+          hazardControlDecisions.find(
+            (decision) =>
+              decision.recommendationId ===
+              control.id,
+          )?.decision !==
+            "Accept",
+      );
+
+    if (
+      selectedControls.length ===
+      0
+    ) {
+      setHazardControlDecisionError(
+        "Select at least one unaccepted control.",
+      );
+      return;
+    }
+
+    setBulkVisibleControlSavingKey(
+      groupKey,
+    );
+    setHazardControlDecisionError("");
+    setStepError("");
+
+    let completed = 0;
+
+    try {
+      for (
+        const control of
+        selectedControls
+      ) {
+        await saveVisibleControlDecision(
+          step,
+          group,
+          control,
+          "Accept",
+          {
+            synchronizeDraft: false,
+            rethrow: true,
+          },
+        );
+
+        completed += 1;
+      }
+
+      clearVisibleControlSelection(
+        step,
+        group,
+      );
+
+      const draftSynchronized =
+        await generateDraftPlan();
+
+      if (!draftSynchronized) {
+        setHazardControlDecisionError(
+          `${completed} control decisions were saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.`,
+        );
+      }
+    } catch (error) {
+      setHazardControlDecisionError(
+        `${completed} of ${selectedControls.length} selected controls were saved. ${
+          error instanceof Error
+            ? error.message
+            : "The remaining control decisions could not be saved."
+        }`,
+      );
+    } finally {
+      setBulkVisibleControlSavingKey(
+        null,
+      );
+    }
   }
 
   async function markVisibleControlNotApplicable(
@@ -9379,6 +11541,7 @@ export default function CreatePlanningPage() {
   function openHazardControlReview(
     item: UnassignedUserControlReviewItem,
     mode: HazardControlReviewMode,
+    initialTargetHazardIds: string[] = [],
   ) {
     setActiveHazardControlReviewId(
       item.id,
@@ -9386,7 +11549,9 @@ export default function CreatePlanningPage() {
     setHazardControlReviewMode(
       mode,
     );
-    setSelectedTargetHazardId("");
+    setSelectedTargetHazardIds(
+      initialTargetHazardIds,
+    );
     setModifiedControlText(
       mode === "Modify"
         ? item.control.text
@@ -9396,10 +11561,27 @@ export default function CreatePlanningPage() {
     setStepError("");
   }
 
+  function toggleSelectedTargetHazard(
+    hazardId: string,
+  ) {
+    setSelectedTargetHazardIds(
+      (current) =>
+        current.includes(hazardId)
+          ? current.filter(
+              (id) =>
+                id !== hazardId,
+            )
+          : [
+              ...current,
+              hazardId,
+            ],
+    );
+  }
+
   function cancelHazardControlReview() {
     setActiveHazardControlReviewId(null);
     setHazardControlReviewMode(null);
-    setSelectedTargetHazardId("");
+    setSelectedTargetHazardIds([]);
     setModifiedControlText("");
     setHazardControlDecisionError("");
   }
@@ -9417,7 +11599,7 @@ export default function CreatePlanningPage() {
 
     if (
       decision === "Assign" &&
-      !selectedTargetHazardId
+      selectedTargetHazardIds.length === 0
     ) {
       setHazardControlDecisionError(
         "Select the hazard this control mitigates.",
@@ -9435,12 +11617,23 @@ export default function CreatePlanningPage() {
       return;
     }
 
+    const selectedTargetHazards =
+      selectedTargetHazardIds
+        .map((hazardId) =>
+          item.targetHazards.find(
+            (hazard) =>
+              hazard.id === hazardId,
+          ),
+        )
+        .filter(
+          (
+            hazard,
+          ): hazard is UnassignedUserControlReviewItem["targetHazards"][number] =>
+            Boolean(hazard),
+        );
+
     const selectedTargetHazard =
-      item.targetHazards.find(
-        (hazard) =>
-          hazard.id ===
-          selectedTargetHazardId,
-      ) ?? null;
+      selectedTargetHazards[0] ?? null;
 
     setHazardControlDecisionSavingId(
       item.id,
@@ -9472,8 +11665,13 @@ export default function CreatePlanningPage() {
                   : null,
               targetHazardId:
                 decision === "Assign"
-                  ? selectedTargetHazardId
+                  ? selectedTargetHazardIds[0] ??
+                    null
                   : null,
+              targetHazardIds:
+                decision === "Assign"
+                  ? selectedTargetHazardIds
+                  : [],
               canonicalHazardConceptId:
                 null,
               sourceType:
@@ -9499,6 +11697,11 @@ export default function CreatePlanningPage() {
                 targetHazardText:
                   selectedTargetHazard
                     ?.text ?? null,
+                targetHazardTexts:
+                  selectedTargetHazards.map(
+                    (hazard) =>
+                      hazard.text,
+                  ),
               },
               decidedByName:
                 reviewerName.trim() ||
@@ -9634,6 +11837,84 @@ export default function CreatePlanningPage() {
 
     setStepError("");
     setCurrentStep(step);
+  }
+
+  function reviewPlanningQualityCheck(
+    checkId: string,
+  ) {
+    const destinationStepByCheckId:
+      Record<string, number> = {
+        assignment: 1,
+        requirements: 3,
+        sources: 3,
+        scope: 4,
+        "critical-questions": 5,
+        "hazards-controls": 6,
+        "risk-levels": 6,
+        "high-risk": 6,
+        ppe: 6,
+        permits: 6,
+        emergency: 6,
+        "stop-work": 6,
+      };
+
+    const destinationStep =
+      destinationStepByCheckId[checkId] ??
+      6;
+
+    if (destinationStep !== currentStep) {
+      returnToStep(destinationStep);
+      return;
+    }
+
+    const intelligenceCheckIds =
+      new Set([
+        "ppe",
+        "permits",
+        "emergency",
+        "stop-work",
+      ]);
+
+    const targetId =
+      intelligenceCheckIds.has(checkId)
+        ? "step-five-planning-intelligence"
+        : "step-five-control-review";
+
+    const target =
+      document.getElementById(targetId);
+
+    if (!target) {
+      return;
+    }
+
+    if (
+      target instanceof
+        HTMLDetailsElement
+    ) {
+      target.open = true;
+    }
+
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+
+    target.animate(
+      [
+        {
+          boxShadow:
+            "0 0 0 4px rgba(102, 87, 232, 0.24)",
+        },
+        {
+          boxShadow:
+            "0 0 0 0 rgba(102, 87, 232, 0)",
+        },
+      ],
+      {
+        duration: 1400,
+        easing: "ease-out",
+      },
+    );
   }
 
   function openReviewComment(
@@ -10245,7 +12526,7 @@ export default function CreatePlanningPage() {
 
     if (!generatedPlanningDraft) {
       setStepError(
-        "The current Qoreva draft intelligence is not loaded. Return to Build Plan and regenerate the draft before completing pre-submission review.",
+        "The current Qoreva draft intelligence is not loaded. Return to Hazards & Readiness and regenerate the draft before completing pre-submission review.",
       );
       return;
     }
@@ -10949,8 +13230,22 @@ export default function CreatePlanningPage() {
 
     if (currentStep > 1) {
       setCurrentStep(
-        (current) =>
-          current - 1,
+        (current) => {
+          /*
+           * Internal Steps 1 and 2 now share the visible Plan Setup
+           * stage. Returning from Requirements must therefore land
+           * on the combined Step 1 screen rather than the retired
+           * standalone Assignment screen.
+           */
+          if (
+            current === 2 ||
+            current === 3
+          ) {
+            return 1;
+          }
+
+          return current - 1;
+        },
       );
     }
   }
@@ -11173,6 +13468,7 @@ export default function CreatePlanningPage() {
           >
             <div
               className="
+                rounded-t-[1.75rem]
                 border-b
                 border-[var(--qoreva-border)]
                 bg-[var(--qoreva-surface-muted)]
@@ -11192,9 +13488,9 @@ export default function CreatePlanningPage() {
               >
                 <StepHeading
                   number="01"
-                  eyebrow="Start Here"
-                  title="What are you planning?"
-                  description="Select the planning document required for the work. Qoreva will adjust the questions, requirements, hazards, controls, and review workflow based on this selection."
+                  eyebrow="Plan Setup"
+                  title="Set Up the Work Plan"
+                  description="Select the planning document, then connect it to the project, performing contractor, work location, and responsible supervisor."
                 />
 
                 <div className="w-full lg:max-w-xs">
@@ -11613,18 +13909,9 @@ export default function CreatePlanningPage() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    continueFromPlanType
-                  }
-                  className={
-                    primaryButtonClassName
-                  }
-                >
-                  Continue to Project
-                  & Contractor →
-                </button>
+                <span className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] px-5 py-2.5 text-sm font-black text-[var(--qoreva-violet-dark)]">
+                  Plan type selected
+                </span>
               </div>
             </section>
           ) : (
@@ -11654,8 +13941,9 @@ export default function CreatePlanningPage() {
         </>
       ) : null}
 
-      {/* STEP 2 */}
-      {currentStep === 2 ? (
+      {/* STEP 1 — PROJECT & CONTRACTOR ASSIGNMENT */}
+      {currentStep === 1 &&
+      selectedDefinition ? (
         <>
           <section
             className="
@@ -11677,10 +13965,10 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="02"
-                eyebrow="Work Assignment"
-                title="Where is the work happening?"
-                description="Connect this plan to the actual project and performing contractor. Qoreva will use these selections to determine the requirements and safety documents that apply in the next step."
+                number="01"
+                eyebrow="Plan Setup"
+                title="Where Is the Work Happening?"
+                description="Connect the selected plan to the project, performing contractor, work location, and responsible supervisor. Qoreva will use this context to identify applicable requirements and safety documents."
               />
             </div>
 
@@ -12025,7 +14313,7 @@ export default function CreatePlanningPage() {
                       text-[var(--qoreva-violet-dark)]
                     "
                   >
-                    03
+                    02
                   </div>
 
                   <div>
@@ -12088,9 +14376,11 @@ export default function CreatePlanningPage() {
           >
             <button
               type="button"
-              onClick={
-                goBackOneStep
-              }
+              onClick={() => {
+                setSelectedPlanType(null);
+                setStepError("");
+                scrollPlanningPageToTop();
+              }}
               className="
                 inline-flex
                 min-h-11
@@ -12109,7 +14399,7 @@ export default function CreatePlanningPage() {
                 hover:bg-[var(--qoreva-surface-muted)]
               "
             >
-              ← Back to Plan Type
+              Choose Different Plan Type
             </button>
 
             <button
@@ -12161,7 +14451,7 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="03"
+                number="02"
                 eyebrow="Source Intelligence"
                 title="Requirements & Safety Documents"
                 description="Review the requirements and source documents Qoreva found for this project and contractor. Select the documents Qoreva may reference while assisting with this plan."
@@ -12517,7 +14807,7 @@ export default function CreatePlanningPage() {
                 hover:bg-[var(--qoreva-surface-muted)]
               "
             >
-              ← Back to Assignment
+              ← Back to Plan Setup
             </button>
 
             <button
@@ -12555,9 +14845,9 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="04"
-                eyebrow="Define the Work"
-                title="Work Scope"
+                number="03"
+                eyebrow="Scope & Sequence"
+                title="Define the Work"
                 description="Describe what the crew will actually do. Qoreva will use this scope, the selected requirements, and the selected safety documents to guide hazard and control planning in the next step."
               />
             </div>
@@ -12913,7 +15203,7 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="05"
+                number="04"
                 eyebrow="Guided Planning"
                 title="Plan the Work Safely"
                 description="Confirm the activities Qoreva detected, then answer only the planning questions that apply. Questions can appear dynamically as prior answers trigger additional requirements. Qualified people remain responsible for the final safety decisions."
@@ -12928,64 +15218,105 @@ export default function CreatePlanningPage() {
                 sm:p-6
               "
             >
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <StepMetric
-                  label="Questions"
-                  value={planningProgress.total}
-                  detail="Applicable planning questions"
-                  tone="neutral"
-                />
+              <section className="overflow-hidden rounded-2xl border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                <div className="border-b border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
+                        Response Readiness
+                      </p>
 
-                <StepMetric
-                  label="Answered"
-                  value={planningProgress.answered}
-                  detail={`${planningProgress.percent}% complete`}
-                  tone={
-                    planningProgress.percent === 100
-                      ? "success"
-                      : "neutral"
-                  }
-                />
+                      <h3 className="mt-1 text-xl font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
+                        Planning Question Responses
+                      </h3>
 
-                <StepMetric
-                  label="Critical Open"
-                  value={planningProgress.criticalUnresolved}
-                  detail="Safety-critical questions unanswered"
-                  tone={
-                    planningProgress.criticalUnresolved > 0
-                      ? "warning"
-                      : "success"
-                  }
-                />
+                      <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                        Complete the unresolved planning questions that Qoreva cannot determine from the confirmed scope, activities, requirements, and prior answers.
+                      </p>
+                    </div>
 
-                <StepMetric
-                  label="Work Steps"
-                  value={
-                    workSequence.filter(
-                      (step) =>
-                        step.title.trim() ||
-                        step.description.trim(),
-                    ).length
-                  }
-                  detail="Steps requiring hazard review"
-                  tone="neutral"
-                />
-              </section>
-
-              <section className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-5">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-xs font-black text-white">
-                    Q
+                    <div className="flex shrink-0 items-center gap-3">
+                      <div className={`flex h-16 w-16 items-center justify-center rounded-full border-4 text-lg font-black ${
+                        planningProgress.percent === 100
+                          ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                          : "border-[rgba(102,87,232,0.22)] bg-white text-[var(--qoreva-violet-dark)]"
+                      }`}>
+                        {planningProgress.percent}%
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <h3 className="font-black text-[var(--qoreva-obsidian)]">
-                      Why these questions?
-                    </h3>
+                  <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-white">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-300 ${
+                        planningProgress.percent === 100
+                          ? "bg-[var(--qoreva-success)]"
+                          : "bg-[var(--qoreva-violet)]"
+                      }`}
+                      style={{
+                        width: `${planningProgress.percent}%`,
+                      }}
+                    />
+                  </div>
+                </div>
 
-                    <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      The question set is evaluated from the confirmed activities and your prior answers. Qoreva only reveals follow-up questions when their deterministic rules apply. Owner, GC, company, and project Requirement Packs can later add required questions without hardcoding one customer into the workflow.
-                    </p>
+                <div className="p-5 sm:p-6">
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <StepMetric
+                      label="Answered"
+                      value={planningProgress.answered}
+                      detail={`${planningProgress.total} applicable questions`}
+                      tone={
+                        planningProgress.percent === 100
+                          ? "success"
+                          : "neutral"
+                      }
+                    />
+
+                    <StepMetric
+                      label="Need Response"
+                      value={planningProgress.unanswered}
+                      detail="Still awaiting an answer"
+                      tone={
+                        planningProgress.unanswered > 0
+                          ? "warning"
+                          : "success"
+                      }
+                    />
+
+                    <StepMetric
+                      label="Critical Open"
+                      value={planningProgress.criticalUnresolved}
+                      detail="Safety-critical responses required"
+                      tone={
+                        planningProgress.criticalUnresolved > 0
+                          ? "danger"
+                          : "success"
+                      }
+                    />
+
+                    <StepMetric
+                      label="Conditional"
+                      value={planningProgress.conditional}
+                      detail="Triggered by scope or prior answers"
+                      tone="neutral"
+                    />
+                  </div>
+
+                  <div className="mt-5 flex items-start gap-3 rounded-xl border border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-4">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-xs font-black text-white">
+                      Q
+                    </div>
+
+                    <div>
+                      <h4 className="font-black text-[var(--qoreva-obsidian)]">
+                        How Qoreva selected these questions
+                      </h4>
+
+                      <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                        Deterministic rules evaluate the confirmed activities and prior answers. Follow-up questions appear only when applicable requirements or planning conditions trigger them.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -13080,213 +15411,6 @@ export default function CreatePlanningPage() {
                     })}
                   </div>
                 )}
-              </section>
-
-              <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                    Work-Step Hazard Review
-                  </p>
-
-                  <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                    Hazards & Controls by Work Step
-                  </h3>
-
-                  <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                    Review each major activity from the work sequence. Identify the credible hazards, select the work-step risk level, and document the controls that will be in place before the crew performs that step.
-                  </p>
-                </div>
-
-                <div className="mt-5 grid gap-4">
-                  {workSequence
-                    .filter(
-                      (step) =>
-                        step.title.trim() ||
-                        step.description.trim(),
-                    )
-                    .map((step, index) => {
-                      const planning =
-                        workStepPlanning[step.id] ?? {
-                          hazards: "",
-                          controls: "",
-                          safetyCritical: false,
-                          riskLevel: "",
-                          inherentRiskLevel: "",
-                          controlledRiskLevel: "",
-                        };
-
-                      return (
-                        <article
-                          key={step.id}
-                          className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
-                        >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="flex items-start gap-3">
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-obsidian)] text-[11px] font-black text-[#B9B0FF]">
-                                {index + 1}
-                              </span>
-
-                              <div>
-                                <h4 className="font-black text-[var(--qoreva-obsidian)]">
-                                  {step.title}
-                                </h4>
-
-                                {step.description ? (
-                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    {step.description}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateWorkStepPlanning(
-                                  step.id,
-                                  "safetyCritical",
-                                  !planning.safetyCritical,
-                                )
-                              }
-                              className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${
-                                planning.safetyCritical
-                                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
-                                  : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
-                              }`}
-                            >
-                              <span
-                                className={`flex h-5 w-5 items-center justify-center rounded-md border ${
-                                  planning.safetyCritical
-                                    ? "border-[var(--qoreva-danger)] bg-[var(--qoreva-danger)] text-white"
-                                    : "border-[var(--qoreva-border-strong)] bg-white text-transparent"
-                                }`}
-                              >
-                                <CheckIcon />
-                              </span>
-                              Safety-Critical Step
-                            </button>
-                          </div>
-
-                          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                            <TextareaControl
-                              label="Hazards / What Could Go Wrong?"
-                              value={planning.hazards}
-                              placeholder="Identify credible hazards for this step, including serious injury/fatality exposures."
-                              rows={4}
-                              onChange={(value) =>
-                                updateWorkStepPlanning(
-                                  step.id,
-                                  "hazards",
-                                  value,
-                                )
-                              }
-                            />
-
-                            <TextareaControl
-                              label="Controls / How Will the Crew Prevent It?"
-                              value={planning.controls}
-                              placeholder="Describe specific controls, verification steps, competent-person actions, barriers, permits, procedures, or PPE."
-                              rows={4}
-                              onChange={(value) =>
-                                updateWorkStepPlanning(
-                                  step.id,
-                                  "controls",
-                                  value,
-                                )
-                              }
-                            />
-                          </div>
-
-                          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                            <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-4">
-                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                                Inherent Risk
-                              </p>
-
-                              <p className="mt-1 min-h-10 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                Select the credible risk before planned controls are credited.
-                              </p>
-
-                              <div className="mt-3 grid grid-cols-3 gap-2">
-                                {(["Low", "Medium", "High"] as const).map(
-                                  (riskLevel) => {
-                                    const selected =
-                                      planning.inherentRiskLevel ===
-                                      riskLevel;
-
-                                    const riskClasses =
-                                      riskLevel === "Low"
-                                        ? selected
-                                          ? "border-[#8ED1B1] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
-                                          : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#8ED1B1]"
-                                        : riskLevel === "Medium"
-                                          ? selected
-                                            ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)] text-[#9B6212]"
-                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E8C276]"
-                                          : selected
-                                            ? "border-[#E99BA7] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
-                                            : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:border-[#E99BA7]";
-
-                                    return (
-                                      <button
-                                        key={riskLevel}
-                                        type="button"
-                                        onClick={() =>
-                                          updateWorkStepPlanning(
-                                            step.id,
-                                            "inherentRiskLevel",
-                                            riskLevel,
-                                          )
-                                        }
-                                        aria-pressed={selected}
-                                        className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${riskClasses}`}
-                                      >
-                                        {riskLevel}
-                                      </button>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-soft)] p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                                    Controlled Risk
-                                  </p>
-
-                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    Qoreva will evaluate the planned controls before recommending the remaining risk.
-                                  </p>
-                                </div>
-
-                                <span className="shrink-0 rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
-                                  Qoreva
-                                </span>
-                              </div>
-
-                              <div className="mt-3 rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-white px-3 py-3">
-                                <p className="text-xs font-black text-[var(--qoreva-text)]">
-                                  Qoreva recommendation pending control evaluation
-                                </p>
-
-                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                  The controlled risk will be recommended after Qoreva evaluates the selected controls and available planning evidence.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {planning.controlledRiskLevel === "High" ? (
-                            <div className="mt-3 rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
-                              High controlled risk should receive additional verification during pre-submission review and the configured approval workflow before the plan becomes an official field record.
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })}
-                </div>
               </section>
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
@@ -13619,7 +15743,7 @@ export default function CreatePlanningPage() {
                       </p>
 
                       <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                        Qoreva has the core scope information from Step 4. Confirm the detected activities above or return to Work Scope if more detail is needed.
+                        Qoreva has the core scope information from Step 3. Confirm the detected activities above or return to Scope & Sequence if more detail is needed.
                       </p>
                     </div>
                   ) : null}
@@ -13685,11 +15809,11 @@ export default function CreatePlanningPage() {
 
                   <div>
                     <h3 className="font-black text-[var(--qoreva-obsidian)]">
-                      Next: Build the Plan
+                      Next: Hazards & Readiness
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Step 6 will assemble the assignment, source requirements, scope, work sequence, hazards, controls, PPE, permits, and emergency planning into the actual planning record. Qoreva will assist with structure and quality checks while the qualified user remains responsible for the final content.
+                      Step 5 will qualify the hazards and controls for each work step, complete Critical Control and verification decisions, and confirm the work-step risk. Qoreva will preserve these planning responses as context while qualified people make the final safety decisions.
                     </p>
                   </div>
                 </div>
@@ -13764,7 +15888,6 @@ export default function CreatePlanningPage() {
         <>
           <section
             className="
-              overflow-hidden
               rounded-[1.75rem]
               border
               border-[var(--qoreva-border)]
@@ -13774,6 +15897,7 @@ export default function CreatePlanningPage() {
           >
             <div
               className="
+                rounded-t-[1.75rem]
                 border-b
                 border-[var(--qoreva-border)]
                 bg-[var(--qoreva-surface-muted)]
@@ -13782,9 +15906,9 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="06"
-                eyebrow="Qoreva Work-Step Intelligence"
-                title="Hazards & Controls"
+                number="05"
+                eyebrow="Hazards, Controls & Readiness"
+                title="Review the Work Controls"
                 description="Review each work step, confirm its hazards and controls, resolve missing intelligence, and document how critical controls will be verified. Qoreva assists with structure and analysis; qualified people make the safety decisions."
               />
             </div>
@@ -13792,13 +15916,14 @@ export default function CreatePlanningPage() {
             <div
               className="
                 space-y-6
+                rounded-b-[1.75rem]
                 bg-[var(--qoreva-porcelain)]
                 p-5
                 sm:p-6
               "
             >
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_21rem] xl:items-start">
-                <div className="min-w-0 space-y-6">
+                <div className="flex min-w-0 flex-col gap-6">
                   <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <StepMetric
                   label="Quality Score"
@@ -13867,25 +15992,1165 @@ export default function CreatePlanningPage() {
 
                   <button
                     type="button"
-                    onClick={generateDraftPlan}
-                    disabled={draftBuildSaving}
+                    onClick={async () => {
+                      /*
+                       * Initial generation retains the full planning
+                       * readiness gate. Once a draft exists, refreshing
+                       * it is a non-navigation recalculation and must
+                       * remain reusable while review work continues.
+                       */
+                      const saved =
+                        draftGenerated
+                          ? await persistGuidedPlanning({
+                              requireHazardReadinessPlanning:
+                                false,
+                              advanceToHazardReview:
+                                false,
+                              invalidateGeneratedDraft:
+                                false,
+                              validateQuestionReadiness:
+                                false,
+                            })
+                          : await saveHazardReadinessPlanning();
+
+                      if (saved) {
+                        await generateDraftPlan();
+                      }
+                    }}
+                    disabled={
+                      planningDraftSaving ||
+                      draftBuildSaving
+                    }
                     className={`
                       ${primaryButtonClassName}
                       disabled:cursor-not-allowed
                       disabled:opacity-60
                     `}
                   >
-                    {draftBuildSaving
-                      ? "Generating Draft..."
-                      : draftGenerated
-                        ? "Refresh Draft Plan"
-                        : `Generate Draft ${selectedPlanType ?? "Plan"}`}
+                    {planningDraftSaving
+                      ? "Saving Planning..."
+                      : draftBuildSaving
+                        ? "Generating Draft..."
+                        : draftGenerated
+                          ? "Save & Refresh Draft"
+                          : `Save & Generate ${selectedPlanType ?? "Plan"}`}
                   </button>
                 </div>
               </section>
 
               {generatedPlanningDraft ? (
-                <section className="overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+              <section id="step-five-control-review" className="order-2 overflow-hidden rounded-2xl border border-[rgba(102,87,232,0.20)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                <div className="border-b border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)] p-5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                    Step 5
+                  </p>
+
+                  <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
+                    Review Controls for Qualified Hazards
+                  </h3>
+
+                  <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                    Review the controls attached to each qualified hazard, complete Critical Control and verification decisions, then confirm Controlled Risk. Qoreva preserves supporting intelligence and sources without replacing qualified-person judgment.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 p-4 sm:p-5">
+                  {workSequence
+                    .filter(
+                      (step) =>
+                        step.title.trim() ||
+                        step.description.trim(),
+                    )
+                    .map((step, index) => {
+                      const planning =
+                        workStepPlanning[step.id] ?? {
+                          hazards: "",
+                          controls: "",
+                          safetyCritical: false,
+                          riskLevel: "",
+                          inherentRiskLevel: "",
+                          recommendedControlledRiskLevel: "",
+                          controlledRiskLevel: "",
+                        };
+
+                      const generatedStep =
+                        generatedPlanningDraft?.workSteps.find(
+                          (candidate) =>
+                            candidate.sequence ===
+                            index + 1,
+                        );
+
+                      const generatedHazardGroups =
+                        (
+                          generatedStep?.hazardControlGroups ??
+                          []
+                        ).filter(
+                          (group) =>
+                            group.hazard.text !==
+                            "User-entered controls requiring hazard assignment",
+                        );
+
+                      const activeControlCount =
+                        generatedHazardGroups.reduce(
+                          (total, group) =>
+                            total +
+                            group.controls.length,
+                          0,
+                        );
+
+                      const pendingHazardCount =
+                        generatedHazardGroups.filter(
+                          (group) =>
+                            group.controls.length === 0 ||
+                            group.controls.some(
+                              (control) =>
+                                hazardControlDecisions.find(
+                                  (decision) =>
+                                    decision.recommendationId ===
+                                    control.id,
+                                )?.decision !==
+                                  "Accept" ||
+                                !isControlVerificationReadyForCompletion(
+                                  index + 1,
+                                  group,
+                                  control,
+                                ),
+                            ),
+                        ).length;
+
+                      const stepControlEvaluations =
+                        guidedPlanningControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation.workStepId ===
+                              step.id ||
+                            evaluation.workStepSequence ===
+                              index + 1,
+                        );
+
+                      const riskCreditEligibleCount =
+                        stepControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation.riskCreditEligible,
+                        ).length;
+
+                      const verificationRequiredCount =
+                        stepControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation.verificationRequired,
+                        ).length;
+
+                      const criticalControlCount =
+                        stepControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation.criticalControlRecommended,
+                        ).length;
+
+                      const stepCriticalControlAwaitingCount =
+                        stepControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation.criticalControlRecommended &&
+                            !evaluation.criticalControlDecision,
+                        ).length;
+
+                      const stepCoreCriticalControls =
+                        stepControlEvaluations.filter(
+                          (evaluation) =>
+                            evaluation
+                              .criticalControlRecommended &&
+                            evaluation
+                              .criticalControlClassification ===
+                              "Core",
+                        );
+
+                      const stepCorePendingCriticalControls =
+                        stepCoreCriticalControls.filter(
+                          (evaluation) =>
+                            !evaluation
+                              .criticalControlDecision,
+                        );
+
+                      const stepCoreAcceptedCount =
+                        stepCoreCriticalControls.filter(
+                          (evaluation) =>
+                            hazardControlDecisions.find(
+                              (decision) =>
+                                decision.recommendationId ===
+                                evaluation.controlId,
+                            )?.decision ===
+                              "Accept",
+                        ).length;
+
+                      const allStepCoreControlsAccepted =
+                        stepCoreCriticalControls.length >
+                          0 &&
+                        stepCoreAcceptedCount ===
+                          stepCoreCriticalControls.length;
+
+                      const stepCoreReviewAttested =
+                        coreCriticalReviewAttestedByStep[
+                          step.id
+                        ] === true;
+
+                      /*
+                       * Risk-review readiness requires completed
+                       * hazard/control review, an actual Qoreva
+                       * recommendation, and an individual qualified-user
+                       * decision for every Critical Control candidate.
+                       */
+                      const readyForRiskReview =
+                        pendingHazardCount === 0 &&
+                        stepCriticalControlAwaitingCount ===
+                          0 &&
+                        Boolean(
+                          planning.recommendedControlledRiskLevel,
+                        );
+
+                      const stepComplete =
+                        generatedHazardGroups.length > 0 &&
+                        pendingHazardCount === 0 &&
+                        stepCriticalControlAwaitingCount ===
+                          0 &&
+                        Boolean(
+                          planning.controlledRiskLevel,
+                        );
+
+                      return (
+                        <details
+                          key={step.id}
+                          className="group overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white"
+                        >
+                          <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 p-4 transition hover:bg-[var(--qoreva-porcelain)] [&::-webkit-details-marker]:hidden">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-obsidian)] text-sm font-black text-[#B9B0FF]">
+                                {index + 1}
+                              </span>
+
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="font-black text-[var(--qoreva-obsidian)]">
+                                    {step.title}
+                                  </h4>
+
+                                  {planning.safetyCritical ? (
+                                    <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-danger)]">
+                                      Safety Critical
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                  {generatedHazardGroups.length} hazard
+                                  {generatedHazardGroups.length === 1
+                                    ? ""
+                                    : "s"}{" "}
+                                  • {activeControlCount} active controls
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-2">
+                              {stepComplete ? (
+                                <span className="rounded-full border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-success)]">
+                                  ✓ Complete
+                                </span>
+                              ) : (
+                                <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[#9B6212]">
+                                  {pendingHazardCount > 0
+                                    ? `${pendingHazardCount} need attention`
+                                    : "Needs Review"}
+                                </span>
+                              )}
+
+                              <span className="text-sm font-black text-[var(--qoreva-muted)] transition-transform group-open:rotate-180">
+                                ▾
+                              </span>
+                            </div>
+                          </summary>
+
+                          <div className="border-t border-[var(--qoreva-border)] p-4">
+                            {stepCoreCriticalControls.length > 0 ? (
+                              <div className="mb-4 rounded-2xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-faint)] p-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                                      Core Critical Control Review
+                                    </p>
+
+                                    <h5 className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      Confirm the Core controls for this work step
+                                    </h5>
+
+                                    <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                      Review each Core candidate in the hazard cards below. One attestation records a separate, revision-scoped designation for every unresolved Core relationship.
+                                    </p>
+                                  </div>
+
+                                  <span className="shrink-0 rounded-full border border-[rgba(102,87,232,0.22)] bg-white px-3 py-1 text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                    {stepCoreCriticalControls.length -
+                                      stepCorePendingCriticalControls.length}
+                                    {" / "}
+                                    {stepCoreCriticalControls.length}
+                                    {" complete"}
+                                  </span>
+                                </div>
+
+                                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                                  <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                      Core Candidates
+                                    </p>
+                                    <p className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                                      {stepCoreCriticalControls.length}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                      Accepted Controls
+                                    </p>
+                                    <p className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                                      {stepCoreAcceptedCount}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                      Awaiting Decision
+                                    </p>
+                                    <p className="mt-1 text-lg font-black text-[#9B6212]">
+                                      {stepCorePendingCriticalControls.length}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {stepCorePendingCriticalControls.length > 0 ? (
+                                  <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                    <label className="flex cursor-pointer items-start gap-3">
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          stepCoreReviewAttested
+                                        }
+                                        disabled={
+                                          !allStepCoreControlsAccepted ||
+                                          coreCriticalReviewSavingStepId ===
+                                            step.id
+                                        }
+                                        onChange={(event) => {
+                                          setCoreCriticalReviewAttestedByStep(
+                                            (current) => ({
+                                              ...current,
+                                              [step.id]:
+                                                event.target.checked,
+                                            }),
+                                          );
+
+                                          setCoreCriticalReviewError(
+                                            null,
+                                          );
+                                        }}
+                                        className="mt-0.5 h-4 w-4 rounded border-[var(--qoreva-border-strong)] text-[var(--qoreva-violet)]"
+                                      />
+
+                                      <span className="text-xs font-bold leading-5 text-[var(--qoreva-obsidian)]">
+                                        I reviewed each unresolved Core candidate for this work step and confirm that the accepted controls should be designated as Critical Controls.
+                                      </span>
+                                    </label>
+
+                                    {!allStepCoreControlsAccepted ? (
+                                      <p className="mt-2 text-[10px] font-bold leading-4 text-[#9B6212]">
+                                        Accept all Core candidate controls before completing this attestation.
+                                      </p>
+                                    ) : null}
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void confirmCoreCriticalControlsForStep({
+                                          stepId:
+                                            step.id,
+
+                                          evaluationWorkStepId:
+                                            stepCorePendingCriticalControls[0]
+                                              ?.workStepId ??
+                                            stepCoreCriticalControls[0]
+                                              .workStepId,
+
+                                          workStepSequence:
+                                            index + 1,
+                                        })
+                                      }
+                                      disabled={
+                                        !stepCoreReviewAttested ||
+                                        !allStepCoreControlsAccepted ||
+                                        coreCriticalReviewSavingStepId ===
+                                          step.id
+                                      }
+                                      className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--qoreva-success)] px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {coreCriticalReviewSavingStepId ===
+                                      step.id
+                                        ? "Confirming Core Controls..."
+                                        : `Confirm ${stepCorePendingCriticalControls.length} Core ${stepCorePendingCriticalControls.length === 1 ? "Control" : "Controls"}`}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="mt-3 rounded-xl border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] p-3">
+                                    <p className="text-xs font-black text-[var(--qoreva-success)]">
+                                      ✓ All Core Critical Control decisions are complete for this work step.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {coreCriticalReviewError?.stepId ===
+                                step.id ? (
+                                  <p className="mt-3 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
+                                    {coreCriticalReviewError.message}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            <div className="rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                    Inherent Risk
+                                  </span>
+
+                                  <span className="rounded-full border border-[#F0BDC4] bg-white px-3 py-1 text-xs font-black text-[var(--qoreva-danger)]">
+                                    {planning.inherentRiskLevel ||
+                                      "Pending"}
+                                  </span>
+
+                                  <span className="text-lg font-black text-[var(--qoreva-violet)]">
+                                    →
+                                  </span>
+
+                                  <span className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                    Controlled Risk
+                                  </span>
+
+                                  <span className="rounded-full border border-[#E8C276] bg-white px-3 py-1 text-xs font-black text-[#9B6212]">
+                                    {planning.controlledRiskLevel ||
+                                      "Pending"}
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-[0.05em]">
+                                  <span className="rounded-full border border-[#B9DCCB] bg-white px-2 py-1 text-[var(--qoreva-success)]">
+                                    {riskCreditEligibleCount} risk-credit eligible
+                                  </span>
+
+                                  <span className="rounded-full border border-[rgba(102,87,232,0.20)] bg-white px-2 py-1 text-[var(--qoreva-violet-dark)]">
+                                    {verificationRequiredCount} verification
+                                  </span>
+
+                                  <span className="rounded-full border border-[#E8C276] bg-white px-2 py-1 text-[#9B6212]">
+                                    {criticalControlCount} critical
+                                  </span>
+                                </div>
+                              </div>
+
+                              <p className="mt-2 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                Qoreva evaluates control evidence. The qualified user confirms the final controlled risk.
+                              </p>
+                            </div>
+
+                            {generatedHazardGroups.length > 0 ? (
+                              <div className="mt-4 grid gap-2">
+                                {generatedHazardGroups
+                                  .slice()
+                                  .sort(
+                                    (left, right) => {
+                                      const leftPending =
+                                        left.controls.length === 0 ||
+                                        left.controls.some(
+                                          (control) =>
+                                            hazardControlDecisions.find(
+                                              (decision) =>
+                                                decision.recommendationId ===
+                                                control.id,
+                                            )?.decision !==
+                                              "Accept" ||
+                                            !isControlVerificationReadyForCompletion(
+                                              index + 1,
+                                              left,
+                                              control,
+                                            ),
+                                        );
+
+                                      const rightPending =
+                                        right.controls.length === 0 ||
+                                        right.controls.some(
+                                          (control) =>
+                                            hazardControlDecisions.find(
+                                              (decision) =>
+                                                decision.recommendationId ===
+                                                control.id,
+                                            )?.decision !==
+                                              "Accept" ||
+                                            !isControlVerificationReadyForCompletion(
+                                              index + 1,
+                                              right,
+                                              control,
+                                            ),
+                                        );
+
+                                      return Number(
+                                        rightPending,
+                                      ) -
+                                      Number(
+                                        leftPending,
+                                      );
+                                    },
+                                  )
+                                  .map((group) => {
+                                    const acceptedControls =
+                                      group.controls.filter(
+                                        (control) =>
+                                          hazardControlDecisions.find(
+                                            (decision) =>
+                                              decision.recommendationId ===
+                                              control.id,
+                                          )?.decision ===
+                                          "Accept",
+                                      ).length;
+
+                                    const verificationPendingControls =
+                                      group.controls.filter(
+                                        (control) =>
+                                          hazardControlDecisions.find(
+                                            (decision) =>
+                                              decision.recommendationId ===
+                                              control.id,
+                                          )?.decision ===
+                                            "Accept" &&
+                                          !isControlVerificationReadyForCompletion(
+                                            index + 1,
+                                            group,
+                                            control,
+                                          ),
+                                      ).length;
+
+                                    const hazardPending =
+                                      group.controls.length === 0 ||
+                                      acceptedControls <
+                                        group.controls.length ||
+                                      verificationPendingControls >
+                                        0;
+
+                                    return (
+                                      <div
+                                        key={group.id}
+                                        className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${
+                                          hazardPending
+                                            ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
+                                            : "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
+                                        }`}
+                                      >
+                                        <div className="flex min-w-0 items-start gap-3">
+                                          <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white ${
+                                            hazardPending
+                                              ? "bg-[#D78A13]"
+                                              : "bg-[var(--qoreva-success)]"
+                                          }`}>
+                                            {hazardPending
+                                              ? "!"
+                                              : "✓"}
+                                          </span>
+
+                                          <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                                {group.hazard.text}
+                                              </p>
+
+                                              {group.hazard.source !==
+                                              "User" ? (
+                                                <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-violet-dark)]">
+                                                  Qoreva Suggested
+                                                </span>
+                                              ) : null}
+                                            </div>
+
+                                            <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                              {acceptedControls} of{" "}
+                                              {group.controls.length} controls accepted
+                                              {verificationPendingControls > 0
+                                                ? ` • ${verificationPendingControls} verification pending`
+                                                : ""}
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openGeneratedHazardReview(
+                                              group.hazard.id,
+                                            )
+                                          }
+                                          className={`inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border px-3 py-1.5 text-xs font-black ${
+                                            hazardPending
+                                              ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                                              : "border-[#B9DCCB] bg-white text-[var(--qoreva-success)]"
+                                          }`}
+                                        >
+                                          {hazardPending
+                                            ? "Review"
+                                            : "Confirmed"}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            ) : (
+                              <div className="mt-4 rounded-xl border border-dashed border-[var(--qoreva-border-strong)] bg-[var(--qoreva-surface-muted)] p-4">
+                                <p className="text-xs font-black text-[var(--qoreva-text)]">
+                                  Qoreva hazard review will appear after the draft is generated.
+                                </p>
+                              </div>
+                            )}
+
+                            <details className="group/details mt-4 rounded-xl border border-[var(--qoreva-border)] bg-white">
+                              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-xs font-black text-[var(--qoreva-violet-dark)] [&::-webkit-details-marker]:hidden">
+                                <span>Edit Step Details & Confirm Risk</span>
+                                <span className="transition-transform group-open/details:rotate-180">
+                                  ▾
+                                </span>
+                              </summary>
+
+                              <div className="border-t border-[var(--qoreva-border)] p-4">
+                                <div className="rounded-xl border border-[rgba(102,87,232,0.20)] bg-[var(--qoreva-violet-faint)] p-4">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                      <p className="text-[10px] font-black uppercase tracking-[0.09em] text-[var(--qoreva-violet)]">
+                                        Qoreva Step Summary
+                                      </p>
+
+                                      <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                        Structured hazard and control review
+                                      </p>
+
+                                      <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                        The detailed hazard cards below are the authoritative planning record. Add, edit, change, remove, and review hazards or controls there before confirming risk.
+                                      </p>
+                                    </div>
+
+                                    {!readyForRiskReview ? (
+                                      <DocumentStatusBadge
+                                        label={
+                                          pendingHazardCount > 0
+                                            ? "Action Required"
+                                            : "Recommendation Pending"
+                                        }
+                                        tone={
+                                          pendingHazardCount > 0
+                                            ? "danger"
+                                            : "warning"
+                                        }
+                                      />
+                                    ) : (
+                                      <DocumentStatusBadge
+                                        label="Ready for Risk Review"
+                                        tone="success"
+                                      />
+                                    )}
+                                  </div>
+
+                                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
+                                        Hazards
+                                      </p>
+
+                                      <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
+                                        {generatedHazardGroups.length}
+                                      </p>
+
+                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                        Structured hazards assigned to this work step
+                                      </p>
+                                    </div>
+
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
+                                        Mapped Controls
+                                      </p>
+
+                                      <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
+                                        {activeControlCount}
+                                      </p>
+
+                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                        Controls currently connected to specific hazards
+                                      </p>
+                                    </div>
+
+                                    <div
+                                      className={`rounded-xl border bg-white p-3 ${
+                                        pendingHazardCount > 0
+                                          ? "border-[#F0BDC4]"
+                                          : "border-[#B9DCCB]"
+                                      }`}
+                                    >
+                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
+                                        Missing Coverage
+                                      </p>
+
+                                      <p
+                                        className={`mt-1 text-xl font-black ${
+                                          pendingHazardCount > 0
+                                            ? "text-[var(--qoreva-danger)]"
+                                            : "text-[var(--qoreva-success)]"
+                                        }`}
+                                      >
+                                        {
+                                          generatedHazardGroups.filter(
+                                            (group) =>
+                                              group.controls.length === 0,
+                                          ).length
+                                        }
+                                      </p>
+
+                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                        Hazards that still require at least one control
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {generatedHazardGroups.length === 0 ? (
+                                    <div className="mt-3 rounded-lg border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-3 py-2">
+                                      <p className="text-xs font-black text-[#8A5A12]">
+                                        No structured hazards are available
+                                      </p>
+
+                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                        Return to the hazard review surface and add at least one credible hazard before confirming risk.
+                                      </p>
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                  <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+                                    <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                      Inherent Risk
+                                    </p>
+
+                                    <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                      Select the credible risk before planned controls are credited.
+                                    </p>
+
+                                    <div className="mt-3 grid grid-cols-3 gap-2">
+                                      {(
+                                        [
+                                          "Low",
+                                          "Medium",
+                                          "High",
+                                        ] as const
+                                      ).map(
+                                        (
+                                          riskLevel,
+                                        ) => {
+                                          const selected =
+                                            planning.inherentRiskLevel ===
+                                            riskLevel;
+
+                                          return (
+                                            <button
+                                              key={
+                                                riskLevel
+                                              }
+                                              type="button"
+                                              onClick={() =>
+                                                updateWorkStepPlanning(
+                                                  step.id,
+                                                  "inherentRiskLevel",
+                                                  riskLevel,
+                                                )
+                                              }
+                                              aria-pressed={
+                                                selected
+                                              }
+                                              className={`min-h-10 rounded-lg border px-2 py-1.5 text-xs font-black transition ${
+                                                selected
+                                                  ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                                                  : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)]"
+                                              }`}
+                                            >
+                                              {riskLevel}
+                                            </button>
+                                          );
+                                        },
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-faint)] p-3">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                          Qoreva Controlled Risk
+                                        </p>
+
+                                        <p className="mt-1 text-xs font-black text-[var(--qoreva-obsidian)]">
+                                          Post-control recommendation
+                                        </p>
+                                      </div>
+
+                                      <span
+                                        className={`rounded-full border px-3 py-1 text-xs font-black ${
+                                          planning.recommendedControlledRiskLevel ===
+                                          "Low"
+                                            ? "border-[#B9DCCB] bg-white text-[var(--qoreva-success)]"
+                                            : planning.recommendedControlledRiskLevel ===
+                                                "Medium"
+                                              ? "border-[#E8C276] bg-white text-[#9B6212]"
+                                              : planning.recommendedControlledRiskLevel ===
+                                                  "High"
+                                                ? "border-[#F0BDC4] bg-white text-[var(--qoreva-danger)]"
+                                                : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
+                                        }`}
+                                      >
+                                        {planning.recommendedControlledRiskLevel ||
+                                          (controlledRiskDecisionSavingId ===
+                                          step.id
+                                            ? "Evaluating..."
+                                            : !planning.inherentRiskLevel
+                                              ? "Select Inherent Risk"
+                                              : controlledRiskDecisionError?.stepId ===
+                                                  step.id
+                                                ? "Needs Attention"
+                                                : "Pending")}
+                                      </span>
+                                    </div>
+
+                                    {planning.recommendedControlledRiskLevel ? (
+                                      <>
+                                        <p className="mt-3 text-[11px] font-medium leading-5 text-[var(--qoreva-muted)]">
+                                          Qoreva evaluated the selected controls, protective coverage, risk-credit eligibility, and available verification evidence. A qualified user must confirm or override this recommendation.
+                                        </p>
+
+                                        {planning.controlledRiskLevel ? (
+                                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-3 py-2">
+                                            <span className="text-xs font-black text-[var(--qoreva-success)]">
+                                              ✓ Controlled Risk confirmed:{" "}
+                                              {planning.controlledRiskLevel}
+                                            </span>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setControlledRiskOverrideStepId(
+                                                  step.id,
+                                                );
+
+                                                setControlledRiskOverrideLevel(
+                                                  planning.controlledRiskLevel,
+                                                );
+
+                                                setControlledRiskOverrideReason(
+                                                  "",
+                                                );
+
+                                                setControlledRiskDecisionError(
+                                                  null,
+                                                );
+                                              }}
+                                              className="rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)]"
+                                            >
+                                              Override
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="mt-3 flex flex-wrap gap-2">
+                                            {stepCriticalControlAwaitingCount >
+                                            0 ? (
+                                              <p className="w-full rounded-lg border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-3 py-2 text-[10px] font-bold leading-4 text-[#8A5A12]">
+                                                Complete{" "}
+                                                {
+                                                  stepCriticalControlAwaitingCount
+                                                }{" "}
+                                                Critical Control candidate{" "}
+                                                {stepCriticalControlAwaitingCount ===
+                                                1
+                                                  ? "decision"
+                                                  : "decisions"}{" "}
+                                                before confirming or overriding Controlled Risk.
+                                              </p>
+                                            ) : null}
+
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void saveControlledRiskDecision(
+                                                  step.id,
+                                                  "Confirm",
+                                                )
+                                              }
+                                              disabled={
+                                                controlledRiskDecisionSavingId ===
+                                                  step.id ||
+                                                stepCriticalControlAwaitingCount >
+                                                  0
+                                              }
+                                              className={`${primaryButtonClassName} min-h-10 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
+                                            >
+                                              {controlledRiskDecisionSavingId ===
+                                              step.id
+                                                ? "Saving..."
+                                                : "Confirm Recommendation"}
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setControlledRiskOverrideStepId(
+                                                  step.id,
+                                                );
+
+                                                setControlledRiskOverrideLevel(
+                                                  "",
+                                                );
+
+                                                setControlledRiskOverrideReason(
+                                                  "",
+                                                );
+
+                                                setControlledRiskDecisionError(
+                                                  null,
+                                                );
+                                              }}
+                                              disabled={
+                                                controlledRiskDecisionSavingId ===
+                                                  step.id ||
+                                                stepCriticalControlAwaitingCount >
+                                                  0
+                                              }
+                                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                              Override
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        {controlledRiskOverrideStepId ===
+                                        step.id ? (
+                                          <div className="mt-3 rounded-xl border border-[#E8C276] bg-white p-3">
+                                            <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                              Override Qoreva’s recommendation
+                                            </p>
+
+                                            <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                              Select the official Controlled Risk and document why it differs from Qoreva.
+                                            </p>
+
+                                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                              {(
+                                                [
+                                                  "Low",
+                                                  "Medium",
+                                                  "High",
+                                                ] as const
+                                              ).map(
+                                                (
+                                                  riskLevel,
+                                                ) => {
+                                                  const selected =
+                                                    controlledRiskOverrideLevel ===
+                                                    riskLevel;
+
+                                                  const matchesRecommendation =
+                                                    planning.recommendedControlledRiskLevel ===
+                                                    riskLevel;
+
+                                                  return (
+                                                    <button
+                                                      key={
+                                                        riskLevel
+                                                      }
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setControlledRiskOverrideLevel(
+                                                          riskLevel,
+                                                        )
+                                                      }
+                                                      disabled={
+                                                        matchesRecommendation
+                                                      }
+                                                      aria-pressed={
+                                                        selected
+                                                      }
+                                                      className={`min-h-9 rounded-lg border px-2 py-1.5 text-xs font-black transition ${
+                                                        selected
+                                                          ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                                                          : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)]"
+                                                      } disabled:cursor-not-allowed disabled:opacity-40`}
+                                                    >
+                                                      {riskLevel}
+                                                    </button>
+                                                  );
+                                                },
+                                              )}
+                                            </div>
+
+                                            <textarea
+                                              value={
+                                                controlledRiskOverrideReason
+                                              }
+                                              rows={3}
+                                              placeholder="Explain the field conditions, evidence, or professional judgment supporting this override."
+                                              onChange={(
+                                                event,
+                                              ) => {
+                                                setControlledRiskOverrideReason(
+                                                  event.target.value,
+                                                );
+
+                                                setControlledRiskDecisionError(
+                                                  null,
+                                                );
+                                              }}
+                                              className={`mt-3 ${textareaClassName}`}
+                                            />
+
+                                            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setControlledRiskOverrideStepId(
+                                                    null,
+                                                  );
+
+                                                  setControlledRiskOverrideLevel(
+                                                    "",
+                                                  );
+
+                                                  setControlledRiskOverrideReason(
+                                                    "",
+                                                  );
+
+                                                  setControlledRiskDecisionError(
+                                                    null,
+                                                  );
+                                                }}
+                                                disabled={
+                                                  controlledRiskDecisionSavingId ===
+                                                  step.id
+                                                }
+                                                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+                                              >
+                                                Cancel
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  void saveControlledRiskDecision(
+                                                    step.id,
+                                                    "Override",
+                                                  )
+                                                }
+                                                disabled={
+                                                  controlledRiskDecisionSavingId ===
+                                                    step.id ||
+                                                  !controlledRiskOverrideLevel ||
+                                                  controlledRiskOverrideReason
+                                                    .trim()
+                                                    .split(
+                                                      /\s+/g,
+                                                    )
+                                                    .filter(
+                                                      Boolean,
+                                                    )
+                                                    .length <
+                                                    3
+                                                }
+                                                className={`${primaryButtonClassName} min-h-10 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
+                                              >
+                                                {controlledRiskDecisionSavingId ===
+                                                step.id
+                                                  ? "Saving..."
+                                                  : "Save Override"}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      <div className="mt-3 rounded-lg border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-3 py-2">
+                                        <p className="text-xs font-black text-[#8A5A12]">
+                                          Recommendation pending
+                                        </p>
+
+                                        <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                          Select Inherent Risk and complete the remaining control, Critical Control, and verification decisions. Qoreva will evaluate automatically when the step is ready.
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    {controlledRiskDecisionError?.stepId ===
+                                    step.id ? (
+                                      <p className="mt-3 text-xs font-bold text-[var(--qoreva-danger)]">
+                                        {
+                                          controlledRiskDecisionError.message
+                                        }
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateWorkStepPlanning(
+                                      step.id,
+                                      "safetyCritical",
+                                      !planning.safetyCritical,
+                                    )
+                                  }
+                                  className={`mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${
+                                    planning.safetyCritical
+                                      ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
+                                      : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
+                                  }`}
+                                >
+                                  <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${
+                                    planning.safetyCritical
+                                      ? "border-[var(--qoreva-danger)] bg-[var(--qoreva-danger)] text-white"
+                                      : "border-[var(--qoreva-border-strong)] bg-white text-transparent"
+                                  }`}>
+                                    <CheckIcon />
+                                  </span>
+                                  Safety-Critical Step
+                                </button>
+                              </div>
+                            </details>
+
+                            <details className="group/sources mt-3">
+                              <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)] [&::-webkit-details-marker]:hidden">
+                                Sources & evaluation details ▾
+                              </summary>
+
+                              <div className="mt-2 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                {stepControlEvaluations.length > 0
+                                  ? `${riskCreditEligibleCount} of ${stepControlEvaluations.length} evaluated control relationships are currently eligible for Qoreva Risk Credit. ${verificationRequiredCount} require field verification and ${criticalControlCount} are critical-control candidates.`
+                                  : "Qoreva evaluation details will appear after the working draft and control evidence are available."}
+                              </div>
+                            </details>
+                          </div>
+                        </details>
+                      );
+                    })}
+                </div>
+              </section>
+
+              ) : null}
+
+              {generatedPlanningDraft ? (
+                <section className="order-1 overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
                   <div className="border-b border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div>
@@ -13894,7 +17159,7 @@ export default function CreatePlanningPage() {
                         </p>
 
                         <h3 className="mt-1 text-xl font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
-                          Hazards & Controls
+                          Review and Qualify Hazards by Work Step
                         </h3>
 
                         <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
@@ -14233,15 +17498,14 @@ export default function CreatePlanningPage() {
                                             </p>
 
                                             <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                              Start with Qoreva's most relevant hazards. Choose View all only if the correct hazard is not shown.
+                                              Select every hazard this control mitigates. The first selection is primary; each additional relationship receives its own Qoreva Risk Credit evaluation.
                                             </p>
 
                                             {item.targetHazards.length > 0 ? (
                                               <div className="mt-3 grid gap-2">
                                                 {suggestedHazards.map((hazard) => {
                                                   const selected =
-                                                    selectedTargetHazardId ===
-                                                    hazard.id;
+                                                    selectedTargetHazardIds.includes(hazard.id);
 
                                                   const presentation =
                                                     getHazardPresentation(
@@ -14254,9 +17518,7 @@ export default function CreatePlanningPage() {
                                                       key={hazard.id}
                                                       type="button"
                                                       onClick={() =>
-                                                        setSelectedTargetHazardId(
-                                                          hazard.id,
-                                                        )
+                                                        toggleSelectedTargetHazard(hazard.id)
                                                       }
                                                       aria-pressed={selected}
                                                       className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left transition ${
@@ -14305,8 +17567,7 @@ export default function CreatePlanningPage() {
                                                       {additionalHazards.map(
                                                         (hazard) => {
                                                           const selected =
-                                                            selectedTargetHazardId ===
-                                                            hazard.id;
+                                                            selectedTargetHazardIds.includes(hazard.id);
 
                                                           const presentation =
                                                             getHazardPresentation(
@@ -14319,9 +17580,7 @@ export default function CreatePlanningPage() {
                                                               key={hazard.id}
                                                               type="button"
                                                               onClick={() =>
-                                                                setSelectedTargetHazardId(
-                                                                  hazard.id,
-                                                                )
+                                                                toggleSelectedTargetHazard(hazard.id)
                                                               }
                                                               aria-pressed={selected}
                                                               className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left transition ${
@@ -14376,7 +17635,7 @@ export default function CreatePlanningPage() {
                                                 }
                                                 disabled={
                                                   saving ||
-                                                  !selectedTargetHazardId
+                                                  selectedTargetHazardIds.length === 0
                                                 }
                                                 className={`${primaryButtonClassName} min-h-10 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
                                               >
@@ -14562,7 +17821,7 @@ export default function CreatePlanningPage() {
                           </p>
 
                           <h4 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                            Review and qualify hazards by work step
+                            Qualify each hazard by work step
                           </h4>
 
                           <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
@@ -14843,6 +18102,57 @@ export default function CreatePlanningPage() {
                                         hazardControlOverrideSavingId ===
                                           group.hazard.id;
 
+                                      const acceptedControlCount =
+                                        group.controls.filter(
+                                          (control) =>
+                                            hazardControlDecisions.find(
+                                              (decision) =>
+                                                decision.recommendationId ===
+                                                control.id,
+                                            )?.decision ===
+                                            "Accept",
+                                        ).length;
+
+                                      const pendingControlCount =
+                                        Math.max(
+                                          0,
+                                          group.controls.length -
+                                            acceptedControlCount,
+                                        );
+
+                                      const verificationPendingControlCount =
+                                        group.controls.filter(
+                                          (control) =>
+                                            hazardControlDecisions.find(
+                                              (decision) =>
+                                                decision.recommendationId ===
+                                                control.id,
+                                            )?.decision ===
+                                              "Accept" &&
+                                            !isControlVerificationReadyForCompletion(
+                                              step.sequence,
+                                              group,
+                                              control,
+                                            ),
+                                        ).length;
+
+                                      const notApplicableControlCount =
+                                        hazardControlDecisions.filter(
+                                          (decision) =>
+                                            decision.itemType ===
+                                              "Control" &&
+                                            decision.decision ===
+                                              "NotApplicable" &&
+                                            decision.targetHazardId ===
+                                              group.hazard.id,
+                                        ).length;
+
+                                      const controlReviewComplete =
+                                        group.controls.length > 0 &&
+                                        pendingControlCount === 0 &&
+                                        verificationPendingControlCount ===
+                                          0;
+
                                       const unresolvedControlRelationship =
                                         group.hazard.source === "User" &&
                                         group.controls.length === 0;
@@ -14899,13 +18209,46 @@ export default function CreatePlanningPage() {
                                                   </h5>
                                                 </div>
 
-                                                <div className="flex shrink-0 items-center gap-2">
+                                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                                   <span className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
-                                                    {group.controls.length} control
+                                                    {group.controls.length} active control
                                                     {group.controls.length === 1
                                                       ? ""
                                                       : "s"}
                                                   </span>
+
+                                                  {group.controls.length > 0 ? (
+                                                    <>
+                                                      <span className="rounded-full border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-success)]">
+                                                        {acceptedControlCount} accepted
+                                                      </span>
+
+                                                      {pendingControlCount > 0 ? (
+                                                        <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[#8A5A12]">
+                                                          {pendingControlCount} pending
+                                                        </span>
+                                                      ) : null}
+
+                                                      {verificationPendingControlCount >
+                                                      0 ? (
+                                                        <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[#8A5A12]">
+                                                          {verificationPendingControlCount} verification pending
+                                                        </span>
+                                                      ) : null}
+
+                                                      {notApplicableControlCount > 0 ? (
+                                                        <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                                          {notApplicableControlCount} N/A
+                                                        </span>
+                                                      ) : null}
+
+                                                      {controlReviewComplete ? (
+                                                        <span className="rounded-full border border-[#B9DCCB] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-success)]">
+                                                          Complete
+                                                        </span>
+                                                      ) : null}
+                                                    </>
+                                                  ) : null}
 
                                                   {unresolvedControlRelationship ? (
                                                     <DocumentStatusBadge
@@ -15540,6 +18883,100 @@ export default function CreatePlanningPage() {
 
                                               {group.controls.length > 0 ? (
                                                 <div className="mt-4 grid gap-2">
+                                                  <div className="flex flex-col gap-3 rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div>
+                                                      <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                                        Select controls to accept
+                                                      </p>
+                                                      <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                                        Approve several controls while preserving an individual audit decision for each.
+                                                      </p>
+                                                    </div>
+
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          selectAllVisibleControls(
+                                                            step,
+                                                            group,
+                                                          )
+                                                        }
+                                                        disabled={
+                                                          hazardControlDecisionSavingId !==
+                                                            null ||
+                                                          bulkVisibleControlSavingKey !==
+                                                            null
+                                                        }
+                                                        className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1 text-[10px] font-black text-[var(--qoreva-text)] disabled:opacity-60"
+                                                      >
+                                                        Select All
+                                                      </button>
+
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          clearVisibleControlSelection(
+                                                            step,
+                                                            group,
+                                                          )
+                                                        }
+                                                        disabled={
+                                                          hazardControlDecisionSavingId !==
+                                                            null ||
+                                                          bulkVisibleControlSavingKey !==
+                                                            null
+                                                        }
+                                                        className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1 text-[10px] font-black text-[var(--qoreva-text)] disabled:opacity-60"
+                                                      >
+                                                        Clear
+                                                      </button>
+
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          void acceptSelectedVisibleControls(
+                                                            step,
+                                                            group,
+                                                          )
+                                                        }
+                                                        disabled={
+                                                          hazardControlDecisionSavingId !==
+                                                            null ||
+                                                          bulkVisibleControlSavingKey !==
+                                                            null ||
+                                                          !group.controls.some(
+                                                            (control) =>
+                                                              selectedVisibleControlKeys.includes(
+                                                                visibleControlSelectionKey(
+                                                                  step,
+                                                                  group,
+                                                                  control,
+                                                                ),
+                                                              ),
+                                                          )
+                                                        }
+                                                        className="inline-flex min-h-8 items-center justify-center rounded-lg bg-[var(--qoreva-violet)] px-3 py-1 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                      >
+                                                        {bulkVisibleControlSavingKey ===
+                                                        `${step.sequence}:${group.hazard.id}`
+                                                          ? "Accepting..."
+                                                          : `Accept Selected (${
+                                                              group.controls.filter(
+                                                                (control) =>
+                                                                  selectedVisibleControlKeys.includes(
+                                                                    visibleControlSelectionKey(
+                                                                      step,
+                                                                      group,
+                                                                      control,
+                                                                    ),
+                                                                  ),
+                                                              ).length
+                                                            })`}
+                                                      </button>
+                                                    </div>
+                                                  </div>
+
                                                   {group.controls.map(
                                                     (control) => {
                                                       const controlEvaluation =
@@ -15582,15 +19019,88 @@ export default function CreatePlanningPage() {
                                                         savedControlDecision?.decision ===
                                                         "Accept";
 
+                                                      const controlSelectionKey =
+                                                        visibleControlSelectionKey(
+                                                          step,
+                                                          group,
+                                                          control,
+                                                        );
+
+                                                      const controlSelected =
+                                                        selectedVisibleControlKeys.includes(
+                                                          controlSelectionKey,
+                                                        );
+
+                                                      const visibleControlAssignmentItem:
+                                                        UnassignedUserControlReviewItem = {
+                                                          id:
+                                                            `visible-assignment:${step.sequence}:${control.id}`,
+                                                          stepSequence:
+                                                            step.sequence,
+                                                          stepTitle:
+                                                            step.title,
+                                                          control,
+                                                          targetHazards:
+                                                            (
+                                                              step.hazardControlGroups ??
+                                                              []
+                                                            )
+                                                              .filter(
+                                                                (candidateGroup) =>
+                                                                  candidateGroup.hazard.text !==
+                                                                  "User-entered controls requiring hazard assignment",
+                                                              )
+                                                              .map(
+                                                                (candidateGroup) =>
+                                                                  candidateGroup.hazard,
+                                                              ),
+                                                        };
+
+                                                      const visibleAssignmentActive =
+                                                        activeHazardControlReviewId ===
+                                                          visibleControlAssignmentItem.id &&
+                                                        hazardControlReviewMode ===
+                                                          "Assign";
+
+                                                      const savedTargetHazardIds =
+                                                        savedControlDecision?.targets &&
+                                                        savedControlDecision.targets.length >
+                                                          0
+                                                          ? savedControlDecision.targets.map(
+                                                              (target) =>
+                                                                target.hazardId,
+                                                            )
+                                                          : [
+                                                              group.hazard.id,
+                                                            ];
+
                                                       return (
                                                       <div
                                                         key={control.id}
                                                         className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-porcelain)] p-3"
                                                       >
                                                         <div className="flex items-start gap-2.5">
-                                                          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-success-soft)] text-[10px] font-black text-[var(--qoreva-success)]">
-                                                            ✓
-                                                          </span>
+                                                          <input
+                                                            type="checkbox"
+                                                            checked={
+                                                              controlSelected ||
+                                                              controlAccepted
+                                                            }
+                                                            onChange={() =>
+                                                              toggleVisibleControlSelection(
+                                                                controlSelectionKey,
+                                                              )
+                                                            }
+                                                            disabled={
+                                                              controlAccepted ||
+                                                              hazardControlDecisionSavingId !==
+                                                                null ||
+                                                              bulkVisibleControlSavingKey !==
+                                                                null
+                                                            }
+                                                            aria-label={`Select control: ${control.text}`}
+                                                            className="mt-1 h-5 w-5 shrink-0 accent-[var(--qoreva-violet)]"
+                                                          />
 
                                                           <div className="min-w-0 flex-1">
                                                             <p className="text-sm font-medium leading-5 text-[var(--qoreva-obsidian)]">
@@ -15621,14 +19131,44 @@ export default function CreatePlanningPage() {
                                                                   </span>
 
                                                                   {controlEvaluation.verificationRequired ? (
-                                                                    <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[#8A5A12]">
-                                                                      Verification Required
+                                                                    <span
+                                                                      className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] ${
+                                                                        controlEvaluation.verificationCompleted
+                                                                          ? "border-[#B9DCCB] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                                                          : "border-[#E8C276] bg-[var(--qoreva-warning-soft)] text-[#8A5A12]"
+                                                                      }`}
+                                                                    >
+                                                                      {controlEvaluation.verificationCompleted
+                                                                        ? "Verified"
+                                                                        : "Verification Required"}
                                                                     </span>
                                                                   ) : null}
 
                                                                   {controlEvaluation.criticalControlRecommended ? (
-                                                                    <span className="rounded-full border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
-                                                                      Qoreva Critical-Control Candidate
+                                                                    <span
+                                                                      className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] ${
+                                                                        controlEvaluation.criticalControlDecision ===
+                                                                        "Confirmed"
+                                                                          ? "border-[#B9DCCB] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                                                          : controlEvaluation.criticalControlDecision ===
+                                                                              "Declined"
+                                                                            ? "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                                                                            : "border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] text-[var(--qoreva-violet-dark)]"
+                                                                      }`}
+                                                                    >
+                                                                      {controlEvaluation.criticalControlDecision ===
+                                                                      "Confirmed"
+                                                                        ? "Critical Control Confirmed"
+                                                                        : controlEvaluation.criticalControlDecision ===
+                                                                            "Declined"
+                                                                          ? "Critical Designation Declined"
+                                                                          : controlEvaluation.criticalControlDecision ===
+                                                                              "NotApplicable"
+                                                                            ? "Contextual Trigger Not Applicable"
+                                                                            : controlEvaluation.criticalControlClassification ===
+                                                                                "Contextual"
+                                                                              ? "Contextual Critical Candidate"
+                                                                              : "Core Critical Candidate"}
                                                                     </span>
                                                                   ) : null}
                                                                 </div>
@@ -15643,6 +19183,506 @@ export default function CreatePlanningPage() {
                                                                       {controlEvaluation.evaluationReason}
                                                                     </p>
                                                                   </details>
+                                                                ) : null}
+                                                              </div>
+                                                            ) : null}
+
+                                                            {controlEvaluationMatchesWorkingSnapshot &&
+                                                            controlEvaluation?.criticalControlRecommended ? (
+                                                              <div
+                                                                className={`mt-2 rounded-xl border p-3 ${
+                                                                  controlEvaluation.criticalControlDecision ===
+                                                                  "Confirmed"
+                                                                    ? "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
+                                                                    : controlEvaluation.criticalControlDecision ===
+                                                                        "Declined"
+                                                                      ? "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                                                                      : "border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)]"
+                                                                }`}
+                                                              >
+                                                                <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                                                  {controlEvaluation.criticalControlDecision ===
+                                                                  "Confirmed"
+                                                                    ? "Critical Control designation confirmed"
+                                                                    : controlEvaluation.criticalControlDecision ===
+                                                                        "Declined"
+                                                                      ? "Critical Control designation declined"
+                                                                      : controlEvaluation.criticalControlDecision ===
+                                                                          "NotApplicable"
+                                                                        ? "Contextual trigger does not apply"
+                                                                        : controlEvaluation.criticalControlClassification ===
+                                                                            "Contextual"
+                                                                          ? "Contextual Critical Control review required"
+                                                                          : "Core Critical Control review required"}
+                                                                </p>
+
+                                                                {controlEvaluation.criticalControlClassification ===
+                                                                  "Contextual" &&
+                                                                controlEvaluation.criticalControlTrigger ? (
+                                                                  <p className="mt-1 text-[10px] font-bold leading-4 text-[var(--qoreva-violet-dark)]">
+                                                                    Applies when:{" "}
+                                                                    {controlEvaluation.criticalControlTrigger}
+                                                                  </p>
+                                                                ) : null}
+
+                                                                <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                                                  {controlEvaluation.criticalControlDecision ===
+                                                                  "Confirmed"
+                                                                    ? `Confirmed by ${controlEvaluation.criticalControlDecidedByName ?? "a qualified user"}.`
+                                                                    : controlEvaluation.criticalControlDecision ===
+                                                                        "Declined"
+                                                                      ? controlEvaluation.criticalControlDecisionReason
+                                                                      : controlEvaluation.criticalControlDecision ===
+                                                                          "NotApplicable"
+                                                                        ? controlEvaluation.criticalControlDecisionReason
+                                                                        : controlAccepted
+                                                                          ? controlEvaluation.criticalControlClassification ===
+                                                                              "Contextual"
+                                                                            ? "Confirm this control as Critical when the stated trigger applies, or document that the trigger does not apply."
+                                                                            : "Review this accepted control through the step-level Core attestation above, or document why it should not be designated Critical."
+                                                                          : "Accept this control before making its Critical Control designation."}
+                                                                </p>
+
+                                                                {controlAccepted ? (
+                                                                  <div className="mt-3 flex flex-wrap gap-2">
+                                                                    {controlEvaluation.criticalControlDecision !==
+                                                                      "Confirmed" &&
+                                                                    (
+                                                                      controlEvaluation.criticalControlClassification ===
+                                                                        "Contextual" ||
+                                                                      controlEvaluation.criticalControlDecision ===
+                                                                        "Declined"
+                                                                    ) ? (
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                          void saveCriticalControlDecision(
+                                                                            controlEvaluation,
+                                                                            "Confirmed",
+                                                                          )
+                                                                        }
+                                                                        disabled={
+                                                                          criticalControlDecisionSavingKey ===
+                                                                          controlVerificationKey(
+                                                                            controlEvaluation,
+                                                                          )
+                                                                        }
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--qoreva-success)] px-3 py-1.5 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                                      >
+                                                                        {criticalControlDecisionSavingKey ===
+                                                                        controlVerificationKey(
+                                                                          controlEvaluation,
+                                                                        )
+                                                                          ? "Saving..."
+                                                                          : "Confirm Critical"}
+                                                                      </button>
+                                                                    ) : null}
+
+                                                                    {controlEvaluation.criticalControlDecision !==
+                                                                    "Declined" ? (
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                          setCriticalControlDeclineEditorKey(
+                                                                            controlVerificationKey(
+                                                                              controlEvaluation,
+                                                                            ),
+                                                                          );
+                                                                          setCriticalControlDeclineReason(
+                                                                            "",
+                                                                          );
+                                                                          setCriticalControlDecisionError(
+                                                                            null,
+                                                                          );
+                                                                        }}
+                                                                        disabled={
+                                                                          criticalControlDecisionSavingKey ===
+                                                                          controlVerificationKey(
+                                                                            controlEvaluation,
+                                                                          )
+                                                                        }
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-text)] disabled:cursor-not-allowed disabled:opacity-60"
+                                                                      >
+                                                                        {controlEvaluation.criticalControlClassification ===
+                                                                        "Contextual"
+                                                                          ? "Trigger Does Not Apply"
+                                                                          : "Not Critical"}
+                                                                      </button>
+                                                                    ) : null}
+                                                                  </div>
+                                                                ) : null}
+
+                                                                {criticalControlDeclineEditorKey ===
+                                                                controlVerificationKey(
+                                                                  controlEvaluation,
+                                                                ) ? (
+                                                                  <div className="mt-3 rounded-lg border border-[var(--qoreva-border)] bg-white p-3">
+                                                                    <label className="text-[10px] font-black text-[var(--qoreva-obsidian)]">
+                                                                      {controlEvaluation.criticalControlClassification ===
+                                                                      "Contextual"
+                                                                        ? "Why does this trigger not apply to this work step?"
+                                                                        : "Why is this control not being designated Critical?"}
+                                                                    </label>
+
+                                                                    <textarea
+                                                                      value={
+                                                                        criticalControlDeclineReason
+                                                                      }
+                                                                      rows={3}
+                                                                      onChange={(
+                                                                        event,
+                                                                      ) =>
+                                                                        setCriticalControlDeclineReason(
+                                                                          event.target.value,
+                                                                        )
+                                                                      }
+                                                                      placeholder="Document the field conditions and qualified judgment supporting this decision."
+                                                                      className="mt-2 w-full rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-2 text-xs text-[var(--qoreva-text)] outline-none focus:border-[var(--qoreva-violet)]"
+                                                                    />
+
+                                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                          void saveCriticalControlDecision(
+                                                                            controlEvaluation,
+                                                                            "Declined",
+                                                                          )
+                                                                        }
+                                                                        disabled={
+                                                                          criticalControlDecisionSavingKey ===
+                                                                          controlVerificationKey(
+                                                                            controlEvaluation,
+                                                                          )
+                                                                        }
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--qoreva-obsidian)] px-3 py-1.5 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                                      >
+                                                                        {criticalControlDecisionSavingKey ===
+                                                                        controlVerificationKey(
+                                                                          controlEvaluation,
+                                                                        )
+                                                                          ? "Saving..."
+                                                                          : "Save Not Critical"}
+                                                                      </button>
+
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                          setCriticalControlDeclineEditorKey(
+                                                                            null,
+                                                                          );
+                                                                          setCriticalControlDeclineReason(
+                                                                            "",
+                                                                          );
+                                                                          setCriticalControlDecisionError(
+                                                                            null,
+                                                                          );
+                                                                        }}
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--qoreva-border)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-muted)]"
+                                                                      >
+                                                                        Cancel
+                                                                      </button>
+                                                                    </div>
+                                                                  </div>
+                                                                ) : null}
+
+                                                                {criticalControlDecisionError?.key ===
+                                                                controlVerificationKey(
+                                                                  controlEvaluation,
+                                                                ) ? (
+                                                                  <p className="mt-2 text-[10px] font-bold text-[var(--qoreva-danger)]">
+                                                                    {
+                                                                      criticalControlDecisionError.message
+                                                                    }
+                                                                  </p>
+                                                                ) : null}
+                                                              </div>
+                                                            ) : null}
+
+                                                            {controlEvaluationMatchesWorkingSnapshot &&
+                                                            controlEvaluation &&
+                                                            (
+                                                              controlEvaluation.verificationExpectation ===
+                                                                "Required" ||
+                                                              controlEvaluation.verificationExpectation ===
+                                                                "Conditional"
+                                                            ) ? (
+                                                              <div
+                                                                className={`mt-2 rounded-xl border p-3 ${
+                                                                  controlEvaluation.verificationCompleted ||
+                                                                  controlEvaluation.verificationRequiredForCurrentContext ===
+                                                                    false
+                                                                    ? "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
+                                                                    : "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
+                                                                }`}
+                                                              >
+                                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                                  <div>
+                                                                    <p
+                                                                      className={`text-xs font-black ${
+                                                                        controlEvaluation.verificationCompleted ||
+                                                                        controlEvaluation.verificationRequiredForCurrentContext ===
+                                                                          false
+                                                                          ? "text-[var(--qoreva-success)]"
+                                                                          : "text-[#8A5A12]"
+                                                                      }`}
+                                                                    >
+                                                                      {controlEvaluation.verificationCompleted
+                                                                        ? "✓ Field verification completed"
+                                                                        : controlEvaluation.verificationRequiredForCurrentContext ===
+                                                                            false
+                                                                          ? "✓ Verification not required for this context"
+                                                                          : "Field verification required"}
+                                                                    </p>
+
+                                                                    <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                                                      {controlEvaluation.verificationCompleted
+                                                                        ? `Evidence recorded${
+                                                                            controlEvaluation.verificationEvidenceMethod
+                                                                              ? ` using ${controlEvaluation.verificationEvidenceMethod}`
+                                                                              : ""
+                                                                          }. This control is ${
+                                                                            controlEvaluation.riskCreditEligible
+                                                                              ? "eligible"
+                                                                              : "being evaluated"
+                                                                          } for Qoreva Risk Credit.`
+                                                                        : controlEvaluation.verificationRequiredForCurrentContext ===
+                                                                            false
+                                                                          ? "A qualified user documented why separate verification is not required for this work-step context."
+                                                                          : controlEvaluation.verificationMethod
+                                                                            ? `Expected method: ${controlEvaluation.verificationMethod}`
+                                                                            : "Qoreva requires qualified-user evidence before this control can receive Risk Credit."}
+                                                                    </p>
+
+                                                                    {controlEvaluation.verifiedByName &&
+                                                                    controlEvaluation.verifiedAt ? (
+                                                                      <p className="mt-1 text-[9px] font-bold text-[var(--qoreva-muted)]">
+                                                                        Recorded by{" "}
+                                                                        {controlEvaluation.verifiedByName}{" "}
+                                                                        on{" "}
+                                                                        {new Date(
+                                                                          controlEvaluation.verifiedAt,
+                                                                        ).toLocaleString()}
+                                                                      </p>
+                                                                    ) : null}
+                                                                  </div>
+
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      openControlVerificationEditor(
+                                                                        controlEvaluation,
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      !controlAccepted ||
+                                                                      controlVerificationSavingKey !==
+                                                                        null
+                                                                    }
+                                                                    className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-[var(--qoreva-violet)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                                  >
+                                                                    {controlEvaluation.verificationCompleted ||
+                                                                    controlEvaluation.verificationRequiredForCurrentContext ===
+                                                                      false
+                                                                      ? "Update Verification"
+                                                                      : controlAccepted
+                                                                        ? "Record Verification"
+                                                                        : "Accept Control First"}
+                                                                  </button>
+                                                                </div>
+
+                                                                {controlVerificationEditorKey ===
+                                                                controlVerificationKey(
+                                                                  controlEvaluation,
+                                                                ) ? (
+                                                                  <div className="mt-3 rounded-xl border border-[rgba(102,87,232,0.20)] bg-white p-3">
+                                                                    {controlEvaluation.verificationExpectation ===
+                                                                    "Conditional" ? (
+                                                                      <div>
+                                                                        <p className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                          Is verification required for this work-step context?
+                                                                        </p>
+
+                                                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                                                          {[
+                                                                            {
+                                                                              label:
+                                                                                "Yes, Required",
+                                                                              value:
+                                                                                true,
+                                                                            },
+                                                                            {
+                                                                              label:
+                                                                                "No, Not Required",
+                                                                              value:
+                                                                                false,
+                                                                            },
+                                                                          ].map(
+                                                                            (
+                                                                              option,
+                                                                            ) => (
+                                                                              <button
+                                                                                key={
+                                                                                  option.label
+                                                                                }
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                  setControlVerificationRequiredForContext(
+                                                                                    option.value,
+                                                                                  );
+
+                                                                                  setControlVerificationError(
+                                                                                    null,
+                                                                                  );
+                                                                                }}
+                                                                                aria-pressed={
+                                                                                  controlVerificationRequiredForContext ===
+                                                                                  option.value
+                                                                                }
+                                                                                className={`min-h-10 rounded-lg border px-3 py-2 text-xs font-black ${
+                                                                                  controlVerificationRequiredForContext ===
+                                                                                  option.value
+                                                                                    ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white"
+                                                                                    : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)]"
+                                                                                }`}
+                                                                              >
+                                                                                {
+                                                                                  option.label
+                                                                                }
+                                                                              </button>
+                                                                            ),
+                                                                          )}
+                                                                        </div>
+                                                                      </div>
+                                                                    ) : null}
+
+                                                                    {controlVerificationRequiredForContext !==
+                                                                    false ? (
+                                                                      <div className="mt-3">
+                                                                        <label className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                          Verification method used
+                                                                        </label>
+
+                                                                        <input
+                                                                          value={
+                                                                            controlVerificationEvidenceMethod
+                                                                          }
+                                                                          onChange={(
+                                                                            event,
+                                                                          ) => {
+                                                                            setControlVerificationEvidenceMethod(
+                                                                              event.target.value,
+                                                                            );
+
+                                                                            setControlVerificationError(
+                                                                              null,
+                                                                            );
+                                                                          }}
+                                                                          placeholder="Example: Visual inspection, test result, permit review"
+                                                                          className={`mt-2 ${textareaClassName}`}
+                                                                        />
+                                                                      </div>
+                                                                    ) : null}
+
+                                                                    <div className="mt-3">
+                                                                      <label className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                        {controlVerificationRequiredForContext ===
+                                                                        false
+                                                                          ? "Why separate verification is not required"
+                                                                          : "Observed evidence"}
+                                                                      </label>
+
+                                                                      <textarea
+                                                                        value={
+                                                                          controlVerificationEvidence
+                                                                        }
+                                                                        onChange={(
+                                                                          event,
+                                                                        ) => {
+                                                                          setControlVerificationEvidence(
+                                                                            event.target.value,
+                                                                          );
+
+                                                                          setControlVerificationError(
+                                                                            null,
+                                                                          );
+                                                                        }}
+                                                                        rows={3}
+                                                                        placeholder={
+                                                                          controlVerificationRequiredForContext ===
+                                                                          false
+                                                                            ? "Document the current field conditions supporting this decision."
+                                                                            : "Document what was inspected, observed, tested, or confirmed."
+                                                                        }
+                                                                        className={`mt-2 ${textareaClassName}`}
+                                                                      />
+                                                                    </div>
+
+                                                                    {controlVerificationError?.key ===
+                                                                    controlVerificationKey(
+                                                                      controlEvaluation,
+                                                                    ) ? (
+                                                                      <p className="mt-2 text-xs font-bold text-[var(--qoreva-danger)]">
+                                                                        {
+                                                                          controlVerificationError.message
+                                                                        }
+                                                                      </p>
+                                                                    ) : null}
+
+                                                                    <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={
+                                                                          closeControlVerificationEditor
+                                                                        }
+                                                                        disabled={
+                                                                          controlVerificationSavingKey !==
+                                                                          null
+                                                                        }
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-text)]"
+                                                                      >
+                                                                        Cancel
+                                                                      </button>
+
+                                                                      <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                          void saveControlVerification(
+                                                                            controlEvaluation,
+                                                                          )
+                                                                        }
+                                                                        disabled={
+                                                                          controlVerificationSavingKey !==
+                                                                            null ||
+                                                                          controlVerificationRequiredForContext ===
+                                                                            null ||
+                                                                          (
+                                                                            controlVerificationRequiredForContext !==
+                                                                              false &&
+                                                                            !controlVerificationEvidenceMethod.trim()
+                                                                          ) ||
+                                                                          controlVerificationEvidence
+                                                                            .trim()
+                                                                            .split(
+                                                                              /\s+/g,
+                                                                            )
+                                                                            .filter(
+                                                                              Boolean,
+                                                                            )
+                                                                            .length <
+                                                                            3
+                                                                        }
+                                                                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--qoreva-violet)] px-4 py-1.5 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                                      >
+                                                                        {controlVerificationSavingKey ===
+                                                                        controlVerificationKey(
+                                                                          controlEvaluation,
+                                                                        )
+                                                                          ? "Saving & Recalculating..."
+                                                                          : "Save Verification"}
+                                                                      </button>
+                                                                    </div>
+                                                                  </div>
                                                                 ) : null}
                                                               </div>
                                                             ) : null}
@@ -15678,6 +19718,33 @@ export default function CreatePlanningPage() {
                                                                   : controlAccepted
                                                                     ? "✓ Accepted"
                                                                     : "✓ Accept"}
+                                                              </button>
+
+                                                              <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                  openHazardControlReview(
+                                                                    visibleControlAssignmentItem,
+                                                                    "Assign",
+                                                                    savedTargetHazardIds,
+                                                                  )
+                                                                }
+                                                                disabled={
+                                                                  hazardControlDecisionSavingId !==
+                                                                    null ||
+                                                                  hazardControlOverrideSavingId !==
+                                                                    null
+                                                                }
+                                                                aria-pressed={
+                                                                  visibleAssignmentActive
+                                                                }
+                                                                className={`inline-flex min-h-8 items-center justify-center rounded-lg border px-2.5 py-1 text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                                  visibleAssignmentActive
+                                                                    ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)] text-[var(--qoreva-violet-dark)]"
+                                                                    : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
+                                                                }`}
+                                                              >
+                                                                Change Assignment
                                                               </button>
 
                                                               <button
@@ -15763,6 +19830,110 @@ export default function CreatePlanningPage() {
                                                                 </span>
                                                               ) : null}
                                                             </div>
+
+                                                            {visibleAssignmentActive ? (
+                                                              <div className="mt-3 rounded-xl border border-[rgba(102,87,232,0.22)] bg-white p-3">
+                                                                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                                                  <div>
+                                                                    <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                                                      Which hazards does this control mitigate?
+                                                                    </p>
+                                                                    <p className="mt-1 text-[10px] font-bold leading-4 text-[var(--qoreva-muted)]">
+                                                                      Select all that apply. The first selected hazard is the Primary relationship.
+                                                                    </p>
+                                                                  </div>
+
+                                                                  <span className="text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                                                    {selectedTargetHazardIds.length} selected
+                                                                  </span>
+                                                                </div>
+
+                                                                <div className="mt-3 grid gap-2">
+                                                                  {visibleControlAssignmentItem.targetHazards.map(
+                                                                    (hazard) => {
+                                                                      const selected =
+                                                                        selectedTargetHazardIds.includes(
+                                                                          hazard.id,
+                                                                        );
+
+                                                                      const selectedIndex =
+                                                                        selectedTargetHazardIds.indexOf(
+                                                                          hazard.id,
+                                                                        );
+
+                                                                      return (
+                                                                        <button
+                                                                          key={hazard.id}
+                                                                          type="button"
+                                                                          onClick={() =>
+                                                                            toggleSelectedTargetHazard(
+                                                                              hazard.id,
+                                                                            )
+                                                                          }
+                                                                          aria-pressed={selected}
+                                                                          className={`flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                                                                            selected
+                                                                              ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)]"
+                                                                              : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] hover:border-[rgba(102,87,232,0.28)]"
+                                                                          }`}
+                                                                        >
+                                                                          <span className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                                                            {hazard.text}
+                                                                          </span>
+
+                                                                          {selected ? (
+                                                                            <span className="shrink-0 rounded-full bg-[var(--qoreva-violet)] px-2 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-white">
+                                                                              {selectedIndex ===
+                                                                              0
+                                                                                ? "Primary"
+                                                                                : "Selected"}
+                                                                            </span>
+                                                                          ) : null}
+                                                                        </button>
+                                                                      );
+                                                                    },
+                                                                  )}
+                                                                </div>
+
+                                                                <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={
+                                                                      cancelHazardControlReview
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlDecisionSavingId !==
+                                                                      null
+                                                                    }
+                                                                    className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-text)]"
+                                                                  >
+                                                                    Cancel
+                                                                  </button>
+
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      void saveHazardControlDecision(
+                                                                        visibleControlAssignmentItem,
+                                                                        "Assign",
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlDecisionSavingId !==
+                                                                        null ||
+                                                                      selectedTargetHazardIds.length ===
+                                                                        0
+                                                                    }
+                                                                    className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--qoreva-violet)] px-3 py-1.5 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                                  >
+                                                                    {hazardControlDecisionSavingId ===
+                                                                    control.id
+                                                                      ? "Saving..."
+                                                                      : "Save Assignment"}
+                                                                  </button>
+                                                                </div>
+                                                              </div>
+                                                            ) : null}
 
                                                             {activeControlEditor?.mode ===
                                                               "Edit" &&
@@ -15991,7 +20162,7 @@ export default function CreatePlanningPage() {
                       </div>
                     </section>
 
-                    <details className="rounded-2xl border border-[var(--qoreva-border)] bg-white">
+                    <details id="step-five-planning-intelligence" className="rounded-2xl border border-[var(--qoreva-border)] bg-white">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-black text-[var(--qoreva-obsidian)] [&::-webkit-details-marker]:hidden">
                         <span>Additional planning intelligence</span>
                         <span className="text-xs font-bold text-[var(--qoreva-muted)]">
@@ -16112,449 +20283,15 @@ export default function CreatePlanningPage() {
               ) : null}
 
 
-              <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                      Planning Quality Check
-                    </p>
-
-                    <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                      Review Gaps Before Pre-Submission Review
-                    </h3>
-
-                    <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      These checks are deterministic completeness and consistency checks. They help surface gaps; they do not replace professional judgment or project-specific review.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <DocumentStatusBadge
-                      label={`${planningQualitySummary.passed} Passed`}
-                      tone="success"
-                    />
-
-                    <DocumentStatusBadge
-                      label={`${planningQualitySummary.warnings} Warnings`}
-                      tone={
-                        planningQualitySummary.warnings > 0
-                          ? "warning"
-                          : "neutral"
-                      }
-                    />
-
-                    <DocumentStatusBadge
-                      label={`${planningQualitySummary.actionRequired} Action Required`}
-                      tone={
-                        planningQualitySummary.actionRequired > 0
-                          ? "danger"
-                          : "neutral"
-                      }
-                    />
-                  </div>
                 </div>
 
-                <div className="mt-5 grid gap-3">
-                  {planningQualityChecks.map((check) => (
-                    <QualityCheckRow
-                      key={check.id}
-                      check={check}
-                    />
-                  ))}
-                </div>
-              </section>
-
-              {!draftGenerated ? (
-                <section className="rounded-2xl border border-dashed border-[var(--qoreva-border-strong)] bg-white px-6 py-12 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--qoreva-violet-soft)] text-sm font-black text-[var(--qoreva-violet-dark)]">
-                    06
-                  </div>
-
-                  <h3 className="mt-4 text-xl font-black text-[var(--qoreva-obsidian)]">
-                    Draft plan not generated yet
-                  </h3>
-
-                  <p className="mx-auto mt-2 max-w-2xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                    Run the Draft Builder above to assemble the current planning information into the structured plan preview.
-                  </p>
-                </section>
-              ) : (
-                <section className="overflow-hidden rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]">
-                  <div className="border-b border-[var(--qoreva-border)] bg-[var(--qoreva-obsidian)] p-5 text-white sm:p-6">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#B9B0FF]">
-                          Draft Planning Record
-                        </p>
-
-                        <h3 className="mt-1 text-2xl font-black tracking-[-0.03em]">
-                          {scopeTitle || "Untitled Planning Record"}
-                        </h3>
-
-                        <p className="mt-2 text-sm font-medium text-white/65">
-                          {selectedPlanType ?? "Planning Record"} •{" "}
-                          {selectedProject?.name || "Project"} •{" "}
-                          {selectedContractor?.name || "Contractor"}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black">
-                          Draft
-                        </span>
-
-                        <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black">
-                          Quality {planningQualitySummary.score}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-7 p-5 sm:p-6">
-                    <PlanPreviewSection
-                      eyebrow="Assignment"
-                      title="Project & Work Information"
-                    >
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <PreviewField
-                          label="Project"
-                          value={
-                            selectedProject?.name ||
-                            "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Contractor"
-                          value={
-                            selectedContractor?.name ||
-                            "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Responsible Supervisor"
-                          value={
-                            responsibleSupervisor ||
-                            "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Planned Start"
-                          value={
-                            plannedStartDate
-                              ? formatSimpleDate(
-                                  plannedStartDate,
-                                )
-                              : "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Work Location"
-                          value={
-                            workLocation ||
-                            "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Crew Size"
-                          value={
-                            crewSize ||
-                            "Not entered"
-                          }
-                        />
-
-                        <PreviewField
-                          label="Shift"
-                          value={shift || "Not entered"}
-                        />
-
-                        <PreviewField
-                          label="Plan Type"
-                          value={
-                            selectedPlanType ||
-                            "Not selected"
-                          }
-                        />
-                      </div>
-                    </PlanPreviewSection>
-
-                    <PlanPreviewSection
-                      eyebrow="Scope"
-                      title="Scope of Work"
-                    >
-                      <p className="whitespace-pre-wrap text-sm font-medium leading-6 text-[var(--qoreva-text)]">
-                        {scopeDescription ||
-                          "No scope entered."}
-                      </p>
-                    </PlanPreviewSection>
-
-                    <PlanPreviewSection
-                      eyebrow="Work Sequence"
-                      title="Hazards, Controls & Risk by Work Step"
-                    >
-                      <div className="grid gap-4">
-                        {activeWorkSteps.map(
-                          (step, index) => {
-                            const planning =
-                              workStepPlanning[
-                                step.id
-                              ];
-
-                            return (
-                              <article
-                                key={step.id}
-                                className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
-                              >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="flex items-start gap-3">
-                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-obsidian)] text-[11px] font-black text-[#B9B0FF]">
-                                      {index + 1}
-                                    </span>
-
-                                    <div>
-                                      <h4 className="font-black text-[var(--qoreva-obsidian)]">
-                                        {step.title}
-                                      </h4>
-
-                                      {step.description ? (
-                                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                          {step.description}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2">
-                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-text)]">
-                                      Inherent{" "}
-                                      <span className="text-[var(--qoreva-obsidian)]">
-                                        {planning?.inherentRiskLevel ||
-                                          "Needs Input"}
-                                      </span>
-                                      {" → "}
-                                      Controlled{" "}
-                                      <span className="text-[var(--qoreva-obsidian)]">
-                                        {planning?.controlledRiskLevel ||
-                                          planning?.riskLevel ||
-                                          "Needs Input"}
-                                      </span>
-                                    </div>
-
-                                    {planning?.safetyCritical ? (
-                                      <DocumentStatusBadge
-                                        label="Safety-Critical"
-                                        tone="danger"
-                                      />
-                                    ) : null}
-                                  </div>
-                                </div>
-
-                                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                                  <PreviewTextBlock
-                                    label="Hazards / What Could Go Wrong?"
-                                    value={
-                                      planning?.hazards ||
-                                      "Needs input"
-                                    }
-                                  />
-
-                                  <PreviewTextBlock
-                                    label="Controls / How Will the Crew Prevent It?"
-                                    value={
-                                      planning?.controls ||
-                                      "Needs input"
-                                    }
-                                  />
-                                </div>
-                              </article>
-                            );
-                          },
-                        )}
-                      </div>
-                    </PlanPreviewSection>
-
-                    <PlanPreviewSection
-                      eyebrow="Planning Controls"
-                      title="PPE, Permits & Emergency Planning"
-                    >
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <PreviewTextBlock
-                          label="Task-Specific PPE"
-                          value={
-                            requiredPpe ||
-                            "No task-specific PPE entered."
-                          }
-                        />
-
-                        <PreviewTextBlock
-                          label="Permits / Authorizations"
-                          value={
-                            requiredPermits ||
-                            "No task-specific permits entered."
-                          }
-                        />
-
-                        <PreviewTextBlock
-                          label="Emergency Response"
-                          value={
-                            emergencyPlan ||
-                            "Needs input"
-                          }
-                        />
-
-                        <PreviewTextBlock
-                          label="Stop-Work Triggers"
-                          value={
-                            stopWorkTriggers ||
-                            "No task-specific stop-work triggers entered."
-                          }
-                        />
-                      </div>
-                    </PlanPreviewSection>
-
-                    <PlanPreviewSection
-                      eyebrow="Guided Planning"
-                      title="Planning Question Responses"
-                    >
-                      <div className="grid gap-3">
-                        {guidedPlanningQuestions.map(
-                          (question) => {
-                            const answer =
-                              planningAnswers[
-                                question.questionCode
-                              ] ?? {
-                                value: "",
-                                notes: "",
-                              };
-
-                            return (
-                              <article
-                                key={question.id}
-                                className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
-                              >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div>
-                                    <p className="text-[9px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
-                                      {question.category}
-                                    </p>
-
-                                    <p className="mt-1 text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
-                                      {question.questionText}
-                                    </p>
-                                  </div>
-
-                                  <DocumentStatusBadge
-                                    label={
-                                      formatDynamicAnswer(
-                                        question,
-                                        answer.value,
-                                      ) || "Needs Input"
-                                    }
-                                    tone={
-                                      answer.value
-                                        ? "success"
-                                        : "danger"
-                                    }
-                                  />
-                                </div>
-
-                                {answer.notes ? (
-                                  <p className="mt-3 whitespace-pre-wrap text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    {answer.notes}
-                                  </p>
-                                ) : null}
-                              </article>
-                            );
-                          },
-                        )}
-                      </div>
-                    </PlanPreviewSection>
-
-                    <PlanPreviewSection
-                      eyebrow="Source Context"
-                      title="Requirements & Supporting Sources"
-                    >
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <PreviewField
-                          label="Required Items"
-                          value={String(
-                            requirementsData
-                              ?.summary
-                              .requiredRequirements ??
-                              0,
-                          )}
-                        />
-
-                        <PreviewField
-                          label="Approved Matches"
-                          value={String(
-                            requirementsData
-                              ?.summary
-                              .requirementsWithApprovedDocuments ??
-                              0,
-                          )}
-                        />
-
-                        <PreviewField
-                          label="Selected Contractor Sources"
-                          value={String(
-                            selectedDocumentIds.length,
-                          )}
-                        />
-
-                        <PreviewField
-                          label="Plan-Specific Files"
-                          value={String(
-                            planSpecificDocuments.length,
-                          )}
-                        />
-                      </div>
-                    </PlanPreviewSection>
-
-                    {planningNotes.trim() ? (
-                      <PlanPreviewSection
-                        eyebrow="Additional Notes"
-                        title="Planning Notes"
-                      >
-                        <p className="whitespace-pre-wrap text-sm font-medium leading-6 text-[var(--qoreva-text)]">
-                          {planningNotes}
-                        </p>
-                      </PlanPreviewSection>
-                    ) : null}
-
-                    <section className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-5">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-xs font-black text-white">
-                          07
-                        </div>
-
-                        <div>
-                          <h3 className="font-black text-[var(--qoreva-obsidian)]">
-                            Draft ready for pre-submission review
-                          </h3>
-
-                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                            Step 7 lets the plan creator or designated preparer perform the final pre-submission check, return to earlier sections when changes are needed, resolve warnings, and confirm the plan is ready to be sent into the configured review and signature workflow.
-                          </p>
-                        </div>
-                      </div>
-                    </section>
-                  </div>
-                </section>
-              )}
-                </div>
-
-                <aside className="hidden xl:sticky xl:top-5 xl:block">
-                  <div className="overflow-hidden rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]">
-                    <div className="border-b border-[var(--qoreva-border)] p-5">
+                <aside ref={stepFiveReadinessRailRef} className="hidden xl:block">
+                  <div ref={stepFiveReadinessCardRef} className="overflow-hidden rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                    <div className="sticky top-0 z-10 border-b border-[var(--qoreva-border)] bg-white p-5">
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
-                            Readiness
+                            Control Evidence Readiness
                           </p>
 
                           <p className="mt-1 text-3xl font-black text-[var(--qoreva-obsidian)]">
@@ -16590,8 +20327,36 @@ export default function CreatePlanningPage() {
                       <ReadinessItem
                         label="Critical-control candidates"
                         value={controlReadinessSummary.criticalCandidates}
-                        detail="Require qualified review"
+                        detail="Recommended by Qoreva"
+                        tone="neutral"
+                      />
+
+                      <ReadinessItem
+                        label="Awaiting critical review"
+                        value={controlReadinessSummary.criticalAwaitingReview}
+                        detail="Require individual qualified-user decisions"
                         tone="danger"
+                      />
+
+                      <ReadinessItem
+                        label="Confirmed critical controls"
+                        value={controlReadinessSummary.criticalConfirmed}
+                        detail="Designated by qualified users"
+                        tone="success"
+                      />
+
+                      <ReadinessItem
+                        label="Not designated critical"
+                        value={controlReadinessSummary.criticalDeclined}
+                        detail="Declined with documented reasons"
+                        tone="neutral"
+                      />
+
+                      <ReadinessItem
+                        label="Contextual trigger not applicable"
+                        value={controlReadinessSummary.criticalNotApplicable}
+                        detail="Resolved with documented field basis"
+                        tone="neutral"
                       />
 
                       <ReadinessItem
@@ -16609,9 +20374,9 @@ export default function CreatePlanningPage() {
                       />
 
                       <ReadinessItem
-                        label="Ready for qualified review"
+                        label="Risk-credit eligible"
                         value={controlReadinessSummary.readyForQualifiedRiskReview}
-                        detail={`of ${controlReadinessSummary.total} evaluated controls`}
+                        detail={`of ${controlReadinessSummary.total} evaluated control relationships`}
                         tone="success"
                       />
                     </div>
@@ -16632,7 +20397,7 @@ export default function CreatePlanningPage() {
                         onClick={continueFromBuildPlan}
                         className={primaryButtonClassName}
                       >
-                        Continue to Risk & Readiness →
+                        Continue to Review & Submit →
                       </button>
 
                       <button
@@ -16645,6 +20410,10 @@ export default function CreatePlanningPage() {
                     </div>
                   </div>
                 </aside>
+              </div>
+
+              <div className="space-y-6">
+              <div ref={planningQualityCheckRef} aria-hidden="true" />
               </div>
             </div>
           </section>
@@ -16694,7 +20463,7 @@ export default function CreatePlanningPage() {
               onClick={continueFromBuildPlan}
               className={primaryButtonClassName}
             >
-              Continue to Risk & Readiness →
+              Continue to Review & Submit →
             </button>
           </section>
         </>
@@ -16724,8 +20493,8 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="07"
-                eyebrow="Pre-Submission Review"
+                number="06"
+                eyebrow="Review & Submit"
                 title="Final Check Before Submission"
                 description="Complete the creator/preparer's final check of the assembled draft before sending it to the configured reviewer(s) for approval, signatures, and finalization. Completing this step does not approve the PTP."
               />
@@ -16799,380 +20568,13 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Qoreva can structure the draft, surface gaps, and recommend controls. The person completing this pre-submission review confirms that the plan reflects the work as currently planned. Formal approval occurs only after Step 8 sends the PTP through the configured reviewer and signature workflow.
+                      Qoreva can structure the draft, surface gaps, and recommend controls. The person completing this pre-submission review confirms that the plan reflects the work as currently planned. Formal approval occurs only after the PTP is submitted through the configured reviewer and signature workflow.
                     </p>
                   </div>
                 </div>
               </section>
 
-              {generatedPlanningDraft ? (
-                <section className="overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
-                  <div className="border-b border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
-                          Qoreva Intelligence
-                        </p>
-
-                        <h3 className="mt-1 text-xl font-black tracking-[-0.02em] text-[var(--qoreva-obsidian)]">
-                          Pre-Submission Review Intelligence
-                        </h3>
-
-                        <p className="mt-2 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                          Review the planning intelligence carried forward from the Draft Builder before sending the PTP for formal review. Qoreva recommendations are advisory and do not replace qualified professional judgment.
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <DocumentStatusBadge
-                          label={`${generatedPlanningDraft.metadata.activityCount} Activities`}
-                          tone="neutral"
-                        />
-
-                        <DocumentStatusBadge
-                          label={`${generatedPlanningDraft.metadata.questionCount} Questions`}
-                          tone="neutral"
-                        />
-
-                        <DocumentStatusBadge
-                          label={`${generatedPlanningDraft.metadata.requirementCount} Requirements`}
-                          tone={
-                            generatedPlanningDraft.metadata.requirementCount > 0
-                              ? "success"
-                              : "neutral"
-                          }
-                        />
-
-                        <DocumentStatusBadge
-                          label={`${generatedPlanningDraft.metadata.sourceDocumentCount} Sources`}
-                          tone={
-                            generatedPlanningDraft.metadata.sourceDocumentCount > 0
-                              ? "success"
-                              : "neutral"
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6 p-5 sm:p-6">
-                    <div>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
-                            Qoreva Review Flags
-                          </p>
-
-                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                            These flags explain where the generated draft deserves additional attention before submission.
-                          </p>
-                        </div>
-
-                        <DocumentStatusBadge
-                          label={`${generatedPlanningDraft.reviewFlags.length} Flag${
-                            generatedPlanningDraft.reviewFlags.length === 1
-                              ? ""
-                              : "s"
-                          }`}
-                          tone={
-                            generatedPlanningDraft.reviewFlags.some(
-                              (flag) => flag.severity === "Critical",
-                            )
-                              ? "danger"
-                              : generatedPlanningDraft.reviewFlags.some(
-                                    (flag) =>
-                                      flag.severity === "Warning" ||
-                                      flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" ||
-                                      flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT",
-                                  )
-                                ? "warning"
-                                : "neutral"
-                          }
-                        />
-                      </div>
-
-                      {generatedPlanningDraft.reviewFlags.length > 0 ? (
-                        <div className="mt-4 grid gap-3">
-                          {generatedPlanningDraft.reviewFlags
-                            .filter(
-                              (flag) =>
-                                !(
-                                  flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" &&
-                                  unresolvedUserHazardReviewItems.length === 0
-                                ) &&
-                                !(
-                                  flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT" &&
-                                  unassignedUserControlReviewItems.length === 0
-                                ),
-                            )
-                            .map((flag) => (
-                            <div
-                              key={flag.code}
-                              className={`rounded-2xl border p-4 ${
-                                flag.severity === "Critical" ||
-                                flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" ||
-                                flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT"
-                                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
-                                  : flag.severity === "Warning"
-                                    ? "border-[#F0D5A4] bg-[var(--qoreva-warning-soft)]"
-                                    : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
-                              }`}
-                            >
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <p className="font-black text-[var(--qoreva-obsidian)]">
-                                    {flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW"
-                                      ? "Hazards need assigned controls"
-                                      : flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT"
-                                        ? "Controls need hazard assignment"
-                                        : flag.title}
-                                  </p>
-
-                                  <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                                    {flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW"
-                                      ? `${unresolvedUserHazardReviewItems.length} user-entered hazard${unresolvedUserHazardReviewItems.length === 1 ? "" : "s"} still ${unresolvedUserHazardReviewItems.length === 1 ? "needs" : "need"} at least one appropriate control. Resolve the relationship in Build Plan before submission.`
-                                      : flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT"
-                                        ? `${unassignedUserControlReviewItems.length} user-entered control${unassignedUserControlReviewItems.length === 1 ? "" : "s"} still ${unassignedUserControlReviewItems.length === 1 ? "needs" : "need"} a specific hazard assignment. Qoreva will not guess this relationship.`
-                                        : flag.detail}
-                                  </p>
-                                </div>
-
-                                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                  <DocumentStatusBadge
-                                    label={
-                                      flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" ||
-                                      flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT"
-                                        ? "Action Required"
-                                        : flag.severity === "Warning"
-                                          ? "Review Recommended"
-                                          : flag.severity
-                                    }
-                                    tone={
-                                      flag.severity === "Critical" ||
-                                      flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" ||
-                                      flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT"
-                                        ? "danger"
-                                        : flag.severity === "Warning"
-                                          ? "warning"
-                                          : "neutral"
-                                    }
-                                  />
-
-                                  {flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" &&
-                                  unresolvedUserHazardReviewItems.length > 0 ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        guideToUnresolvedHazard(
-                                          unresolvedUserHazardReviewItems[0].hazard.id,
-                                        )
-                                      }
-                                      className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--qoreva-danger)] px-3.5 py-2 text-xs font-black text-white transition hover:opacity-90"
-                                    >
-                                      Review in Build Plan →
-                                    </button>
-                                  ) : flag.code === "USER_CONTROLS_NEED_HAZARD_ASSIGNMENT" &&
-                                    unassignedUserControlReviewItems.length > 0 ? (
-                                    <button
-                                      type="button"
-                                      onClick={guideToControlAssignmentReview}
-                                      className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--qoreva-danger)] px-3.5 py-2 text-xs font-black text-white transition hover:opacity-90"
-                                    >
-                                      Review in Build Plan →
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </div>
-
-                              {flag.code === "USER_HAZARDS_NEED_CONTROL_REVIEW" &&
-                              unresolvedUserHazardReviewItems.length > 0 ? (
-                                <div className="mt-3 grid gap-2">
-                                  {unresolvedUserHazardReviewItems.map((item) => (
-                                    <button
-                                      key={`${item.stepSequence}-${item.hazard.id}`}
-                                      type="button"
-                                      onClick={() =>
-                                        guideToUnresolvedHazard(item.hazard.id)
-                                      }
-                                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-[#F0BDC4] bg-white px-3 py-2 text-left transition hover:bg-[#FFF7F8]"
-                                    >
-                                      <span className="min-w-0">
-                                        <span className="block text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-danger)]">
-                                          Work Step {item.stepSequence}
-                                        </span>
-                                        <span className="mt-0.5 block text-xs font-bold text-[var(--qoreva-obsidian)]">
-                                          {item.hazard.text}
-                                        </span>
-                                      </span>
-                                      <span className="shrink-0 text-xs font-black text-[var(--qoreva-danger)]">
-                                        Review →
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-4 rounded-2xl border border-[#B8DFC9] bg-[var(--qoreva-success-soft)] p-4">
-                          <p className="font-black text-[var(--qoreva-obsidian)]">
-                            No generation flags remain.
-                          </p>
-
-                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                            Qoreva did not surface additional draft-generation concerns. The person completing the pre-submission review still verifies the complete plan before it is sent for formal review.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {generatedPlanningDraft.workSteps.some(
-                      (step) =>
-                        step.riskAttention === "HighAttention" ||
-                        step.riskAttention === "Elevated",
-                    ) ? (
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
-                          Generated Work-Step Attention
-                        </p>
-
-                        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                          {generatedPlanningDraft.workSteps
-                            .filter(
-                              (step) =>
-                                step.riskAttention === "HighAttention" ||
-                                step.riskAttention === "Elevated",
-                            )
-                            .map((step) => (
-                              <div
-                                key={`review-intelligence-${step.sequence}-${step.title}`}
-                                className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
-                              >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                                      Work Step {step.sequence}
-                                    </p>
-
-                                    <p className="mt-1 font-black text-[var(--qoreva-obsidian)]">
-                                      {step.title}
-                                    </p>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2">
-                                    <DocumentStatusBadge
-                                      label={step.riskAttention}
-                                      tone="warning"
-                                    />
-
-                                    {step.safetyCriticalSuggested ? (
-                                      <DocumentStatusBadge
-                                        label="Safety Critical Suggested"
-                                        tone="danger"
-                                      />
-                                    ) : null}
-                                  </div>
-                                </div>
-
-                                {step.sourceActivityCodes.length > 0 ? (
-                                  <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    Activity basis:{" "}
-                                    {step.sourceActivityCodes.join(", ")}
-                                  </p>
-                                ) : (
-                                  <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                                    Qoreva could not map this work step to a confirmed activity with sufficient confidence. Verify the step manually.
-                                  </p>
-                                )}
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {generatedPlanningDraft.requirementControlSuggestions.length > 0 ? (
-                      <div className="rounded-2xl border border-[rgba(102,87,232,0.2)] bg-[var(--qoreva-violet-faint)] p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                              Requirement Pack Intelligence
-                            </p>
-
-                            <h4 className="mt-1 font-black text-[var(--qoreva-obsidian)]">
-                              Applicable Requirement Controls
-                            </h4>
-
-                            <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                              These controls came from applicable requirement rules. The person completing the pre-submission review confirms they are addressed in the plan before it is sent for formal review.
-                            </p>
-                          </div>
-
-                          <DocumentStatusBadge
-                            label={`${generatedPlanningDraft.requirementControlSuggestions.length} Control${
-                              generatedPlanningDraft.requirementControlSuggestions.length === 1
-                                ? ""
-                                : "s"
-                            }`}
-                            tone="success"
-                          />
-                        </div>
-
-                        <div className="mt-4 grid gap-2">
-                          {generatedPlanningDraft.requirementControlSuggestions.map(
-                            (suggestion, index) => (
-                              <div
-                                key={`qualified-requirement-${suggestion.text}-${index}`}
-                                className="rounded-xl border border-[rgba(102,87,232,0.16)] bg-white p-3"
-                              >
-                                <p className="text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
-                                  {suggestion.text}
-                                </p>
-
-                                {suggestion.sourceRequirementIds.length > 0 ? (
-                                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
-                                    Requirement source count:{" "}
-                                    {suggestion.sourceRequirementIds.length}
-                                  </p>
-                                ) : null}
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
-                        <p className="font-black text-[var(--qoreva-obsidian)]">
-                          No Requirement Pack controls generated
-                        </p>
-
-                        <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                          No generated requirement controls are attached to this draft. Review the project requirements and source context before confirming the requirement review.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-3 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-black text-[var(--qoreva-obsidian)]">
-                          Generation Trace
-                        </p>
-
-                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                          {generatedPlanningDraft.metadata.generatorVersion} • Generated{" "}
-                          {new Date(
-                            generatedPlanningDraft.generatedAt,
-                          ).toLocaleString()}
-                        </p>
-                      </div>
-
-                      <p className="text-xs font-bold text-[var(--qoreva-muted)]">
-                        Qoreva assists. Qualified people make final decisions.
-                      </p>
-                    </div>
-                  </div>
-                </section>
-              ) : (
+              {!generatedPlanningDraft ? (
                 <section className="rounded-2xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] p-5">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#B97917] text-xs font-black text-white">
@@ -17185,12 +20587,12 @@ export default function CreatePlanningPage() {
                       </h3>
 
                       <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                        Return to Build Plan and regenerate the current draft before completing pre-submission review.
+                        Return to Hazards & Readiness and regenerate the current draft before completing pre-submission review.
                       </p>
                     </div>
                   </div>
                 </section>
-              )}
+              ) : null}
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -17267,18 +20669,18 @@ export default function CreatePlanningPage() {
               </section>
 
               <section className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)]">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                      Review Status
+                      Planning Quality Check
                     </p>
 
                     <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                      Planning Quality Findings
+                      Review Gaps Before Qualified Review
                     </h3>
 
-                    <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Resolve Action Required items before submission. Review Recommended items may proceed only after the preparer confirms the condition is acceptable or returns to the applicable section to update the plan.
+                    <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                      These checks are deterministic completeness and consistency checks. They help surface gaps; they do not replace professional judgment or project-specific review.
                     </p>
                   </div>
 
@@ -17288,28 +20690,163 @@ export default function CreatePlanningPage() {
                       tone={
                         planningQualitySummary.actionRequired > 0
                           ? "danger"
-                          : "success"
+                          : "neutral"
                       }
                     />
 
                     <DocumentStatusBadge
-                      label={`${planningQualitySummary.warnings} Warnings`}
+                      label={`${planningQualitySummary.warnings} ${
+                        planningQualitySummary.warnings === 1
+                          ? "Warning"
+                          : "Warnings"
+                      }`}
                       tone={
                         planningQualitySummary.warnings > 0
                           ? "warning"
                           : "neutral"
                       }
                     />
+
+                    <DocumentStatusBadge
+                      label={`${planningQualitySummary.passed} Passed`}
+                      tone="success"
+                    />
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-3">
-                  {planningQualityChecks.map((check) => (
-                    <QualityCheckRow
-                      key={check.id}
-                      check={check}
-                    />
-                  ))}
+                <div className="mt-5 grid gap-5">
+                  {planningQualitySummary.actionRequired > 0 ? (
+                    <section className="overflow-hidden rounded-2xl border border-[rgba(190,56,68,0.28)] bg-[var(--qoreva-danger-soft)]">
+                      <div className="flex flex-col gap-2 border-b border-[rgba(190,56,68,0.18)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.1em] text-[#B93844]">
+                            Resolve Before Review
+                          </p>
+
+                          <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                            These gaps prevent the plan from advancing to qualified final review.
+                          </p>
+                        </div>
+
+                        <DocumentStatusBadge
+                          label={`${planningQualitySummary.actionRequired} Action Required`}
+                          tone="danger"
+                        />
+                      </div>
+
+                      <div className="grid gap-3 p-4">
+                        {planningQualityChecks
+                          .filter(
+                            (check) =>
+                              check.status ===
+                              "Action Required",
+                          )
+                          .map((check) => (
+                            <QualityCheckRow
+                              key={check.id}
+                              check={check}
+                              onReview={() =>
+                                reviewPlanningQualityCheck(
+                                  check.id,
+                                )
+                              }
+                            />
+                          ))}
+                      </div>
+                    </section>
+                  ) : (
+                    <section className="rounded-2xl border border-[rgba(31,122,85,0.24)] bg-[var(--qoreva-success-soft)] p-4">
+                      <p className="text-sm font-black text-[var(--qoreva-success)]">
+                        ✓ No required planning gaps remain
+                      </p>
+
+                      <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                        All deterministic requirements needed to advance to final review are complete.
+                      </p>
+                    </section>
+                  )}
+
+                  {planningQualitySummary.warnings > 0 ? (
+                    <section className="overflow-hidden rounded-2xl border border-[rgba(228,154,22,0.30)] bg-[var(--qoreva-warning-soft)]">
+                      <div className="flex flex-col gap-2 border-b border-[rgba(228,154,22,0.20)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.1em] text-[#8A5A12]">
+                            Confirm During Review
+                          </p>
+
+                          <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                            Warnings remain visible for qualified judgment but do not automatically block review.
+                          </p>
+                        </div>
+
+                        <DocumentStatusBadge
+                          label={`${planningQualitySummary.warnings} ${
+                        planningQualitySummary.warnings === 1
+                          ? "Warning"
+                          : "Warnings"
+                      }`}
+                          tone="warning"
+                        />
+                      </div>
+
+                      <div className="grid gap-3 p-4">
+                        {planningQualityChecks
+                          .filter(
+                            (check) =>
+                              check.status === "Warning",
+                          )
+                          .map((check) => (
+                            <QualityCheckRow
+                              key={check.id}
+                              check={check}
+                              onReview={() =>
+                                reviewPlanningQualityCheck(
+                                  check.id,
+                                )
+                              }
+                            />
+                          ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <details className="overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
+                      <span>
+                        <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
+                          Passed Checks
+                        </span>
+
+                        <span className="mt-1 block text-xs font-medium text-[var(--qoreva-muted)]">
+                          Completed checks are preserved here for review.
+                        </span>
+                      </span>
+
+                      <DocumentStatusBadge
+                        label={`${planningQualitySummary.passed} Passed`}
+                        tone="success"
+                      />
+                    </summary>
+
+                    <div className="grid gap-3 border-t border-[var(--qoreva-border)] p-4">
+                      {planningQualityChecks
+                        .filter(
+                          (check) =>
+                            check.status === "Pass",
+                        )
+                        .map((check) => (
+                          <QualityCheckRow
+                            key={check.id}
+                            check={check}
+                              onReview={() =>
+                                reviewPlanningQualityCheck(
+                                  check.id,
+                                )
+                              }
+                          />
+                        ))}
+                    </div>
+                  </details>
                 </div>
               </section>
 
@@ -17336,20 +20873,20 @@ export default function CreatePlanningPage() {
                   />
 
                   <ReviewEditButton
-                    label="Work Scope"
-                    detail="Scope, sequence & safety-critical work"
+                    label="Scope & Sequence"
+                    detail="Scope, crew, equipment & ordered work steps"
                     onClick={() => returnToStep(4)}
                   />
 
                   <ReviewEditButton
                     label="Guided Planning"
-                    detail="Hazards, controls & risk ratings"
+                    detail="Unresolved planning questions & responses"
                     onClick={() => returnToStep(5)}
                   />
 
                   <ReviewEditButton
-                    label="Build Plan"
-                    detail="Refresh quality check & draft"
+                    label="Hazards & Readiness"
+                    detail="Hazards, controls, Critical Controls & risk"
                     onClick={() => returnToStep(6)}
                   />
                 </div>
@@ -17817,7 +21354,7 @@ export default function CreatePlanningPage() {
                   </h3>
 
                   <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                    These confirmations document the creator/preparer's final check. They do not approve the PTP and they are not the downstream reviewer signatures. Step 8 sends the plan into the configured review and signature workflow.
+                    These confirmations document the creator/preparer's final check. They do not approve the PTP and they are not the downstream reviewer signatures. Submitting the plan sends it into the configured review and signature workflow.
                   </p>
                 </div>
 
@@ -18037,8 +21574,8 @@ export default function CreatePlanningPage() {
               "
             >
               <StepHeading
-                number="08"
-                eyebrow="Submit for Review & Signatures"
+                number="06"
+                eyebrow="Review & Submit"
                 title="Submit the Planning Record for Review"
                 description="Confirm the final submission package and send this revision into the configured approval workflow. Qoreva snapshots the required approval route, creates the pending approval records, preserves the submission timestamp and revision reference, and keeps the PTP pending until the required review and signature workflow is completed."
               />
@@ -19562,7 +23099,8 @@ function WizardProgress({
                 text-[var(--qoreva-obsidian)]
               "
             >
-              Step {currentStep} of 8
+              Step {workflowStepFromInternalStep(currentStep)} of{" "}
+              {wizardSteps.length}
             </h2>
           </div>
 
@@ -19597,24 +23135,38 @@ function WizardProgress({
         <div
           className="
             flex
-            min-w-[850px]
+            min-w-[680px]
             items-start
             justify-between
           "
         >
           {wizardSteps.map(
             (step, index) => {
+              const currentWorkflowStep =
+                workflowStepFromInternalStep(
+                  currentStep,
+                );
+
+              const highestReachedWorkflowStep =
+                workflowStepFromInternalStep(
+                  highestReachedStep,
+                );
+
               const active =
                 step.number ===
-                currentStep;
+                currentWorkflowStep;
 
               const available =
                 step.number <=
-                highestReachedStep;
+                highestReachedWorkflowStep;
 
+              /*
+               * Completion remains visible when the user navigates
+               * backward to review an earlier workflow step.
+               */
               const completed =
                 step.number <
-                highestReachedStep;
+                highestReachedWorkflowStep;
 
               return (
                 <div
@@ -19634,7 +23186,9 @@ function WizardProgress({
                         !active
                       ) {
                         onNavigate(
-                          step.number,
+                          internalStepFromWorkflowStep(
+                            step.number,
+                          ),
                         );
                       }
                     }}
@@ -19767,7 +23321,7 @@ function WizardProgress({
 
                         ${
                           step.number <
-                          highestReachedStep
+                          highestReachedWorkflowStep
                             ? "bg-[#BDE8D4]"
                             : "bg-[var(--qoreva-border)]"
                         }
@@ -21495,8 +25049,10 @@ function ReviewConfirmation({
 
 function QualityCheckRow({
   check,
+  onReview,
 }: {
   check: PlanningQualityCheck;
+  onReview?: () => void;
 }) {
   const tone =
     check.status === "Pass"
@@ -21505,22 +25061,58 @@ function QualityCheckRow({
         ? "warning"
         : "danger";
 
-  return (
-    <article className="flex flex-col gap-3 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h4 className="text-sm font-black text-[var(--qoreva-obsidian)]">
-          {check.title}
-        </h4>
+  const indicatorClassName =
+    check.status === "Pass"
+      ? "border-[rgba(31,122,85,0.24)] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+      : check.status === "Warning"
+        ? "border-[rgba(228,154,22,0.30)] bg-[var(--qoreva-warning-soft)] text-[#8A5A12]"
+        : "border-[rgba(190,56,68,0.28)] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]";
 
-        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-          {check.detail}
-        </p>
+  const indicator =
+    check.status === "Pass"
+      ? "✓"
+      : check.status === "Warning"
+        ? "!"
+        : "×";
+
+  return (
+    <article className="flex flex-col gap-3 rounded-xl border border-[var(--qoreva-border)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(20,24,40,0.03)] sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-black ${indicatorClassName}`}
+          aria-hidden="true"
+        >
+          {indicator}
+        </span>
+
+        <div className="min-w-0">
+          <h4 className="text-sm font-black text-[var(--qoreva-obsidian)]">
+            {check.title}
+          </h4>
+
+          <p className="mt-0.5 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+            {check.detail}
+          </p>
+        </div>
       </div>
 
-      <DocumentStatusBadge
-        label={check.status}
-        tone={tone}
-      />
+      <div className="flex shrink-0 items-center gap-2">
+        <DocumentStatusBadge
+          label={check.status}
+          tone={tone}
+        />
+
+        {check.status !== "Pass" &&
+        onReview ? (
+          <button
+            type="button"
+            onClick={onReview}
+            className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[rgba(102,87,232,0.30)] bg-[var(--qoreva-violet-faint)] px-3 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)]"
+          >
+            Review / Fix →
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }

@@ -53,6 +53,25 @@ function isRecord(
   );
 }
 
+function toUniqueStringArray(
+  value: unknown,
+) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .map(toNullableString)
+        .filter(
+          (item): item is string =>
+            Boolean(item),
+        ),
+    ),
+  ].slice(0, 50);
+}
+
 export async function GET(
   _request: Request,
   context: RouteContext,
@@ -94,6 +113,18 @@ export async function GET(
             existingRecord.tenantId,
           revisionNumber:
             existingRecord.revisionNumber,
+        },
+        include: {
+          targets: {
+            orderBy: [
+              {
+                isPrimary: "desc",
+              },
+              {
+                createdAt: "asc",
+              },
+            ],
+          },
         },
         orderBy: [
           {
@@ -213,10 +244,25 @@ export async function PUT(
         body.modifiedText,
       );
 
-    const targetHazardId =
+    const legacyTargetHazardId =
       toNullableString(
         body.targetHazardId,
       );
+
+    const requestedTargetHazardIds =
+      toUniqueStringArray(
+        body.targetHazardIds,
+      );
+
+    const targetHazardIds =
+      requestedTargetHazardIds.length > 0
+        ? requestedTargetHazardIds
+        : legacyTargetHazardId
+          ? [legacyTargetHazardId]
+          : [];
+
+    const targetHazardId =
+      targetHazardIds[0] ?? null;
 
     const canonicalHazardConceptId =
       toNullableString(
@@ -299,12 +345,12 @@ export async function PUT(
 
     if (
       decision === "Assign" &&
-      !targetHazardId
+      targetHazardIds.length === 0
     ) {
       return NextResponse.json(
         {
           message:
-            "A target hazard is required when assigning a control.",
+            "At least one target hazard is required when assigning a control.",
         },
         {
           status: 400,
@@ -479,6 +525,36 @@ export async function PUT(
                   },
                 });
 
+          await tx.planningHazardControlDecisionTarget.deleteMany({
+            where: {
+              decisionId:
+                decisionRecord.id,
+            },
+          });
+
+          if (
+            decision === "Assign" &&
+            targetHazardIds.length > 0
+          ) {
+            await tx.planningHazardControlDecisionTarget.createMany({
+              data:
+                targetHazardIds.map(
+                  (hazardId, index) => ({
+                    tenantId:
+                      existingRecord.tenantId,
+                    planningRecordId,
+                    revisionNumber:
+                      existingRecord.revisionNumber,
+                    decisionId:
+                      decisionRecord.id,
+                    hazardId,
+                    isPrimary:
+                      index === 0,
+                  }),
+                ),
+            });
+          }
+
           await tx.planningEvent.create({
             data: {
               tenantId:
@@ -537,6 +613,12 @@ export async function PUT(
                     ? targetHazardId
                     : null,
 
+                targetHazardIds:
+                  decision ===
+                  "Assign"
+                    ? targetHazardIds
+                    : [],
+
                 canonicalHazardConceptId,
 
                 sourceType,
@@ -544,7 +626,24 @@ export async function PUT(
             },
           });
 
-          return decisionRecord;
+          return tx.planningHazardControlDecision.findUniqueOrThrow({
+            where: {
+              id:
+                decisionRecord.id,
+            },
+            include: {
+              targets: {
+                orderBy: [
+                  {
+                    isPrimary: "desc",
+                  },
+                  {
+                    createdAt: "asc",
+                  },
+                ],
+              },
+            },
+          });
         },
       );
 

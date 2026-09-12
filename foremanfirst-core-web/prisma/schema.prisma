@@ -594,8 +594,9 @@ model PlanningRecord {
   events                  PlanningEvent[]
   dailyWseRecords         DailyWorkerSafetyEngagement[]
   hazardControlDecisions  PlanningHazardControlDecision[]
-  hazardControlOverrides  PlanningHazardControlOverride[]
-  controlEvaluations      PlanningControlEvaluation[]
+  hazardControlOverrides    PlanningHazardControlOverride[]
+  controlEvaluations        PlanningControlEvaluation[]
+  criticalControlDecisions  PlanningCriticalControlDecision[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -674,6 +675,10 @@ model PlanningControlEvaluation {
   hazardId  String
   controlId String
 
+  // Canonical Qoreva hazard identity used for this evaluation.
+  // Null means the relationship remains custom or unresolved.
+  canonicalHazardConceptId String?
+
   hazardText  String
   controlText String
 
@@ -689,7 +694,25 @@ model PlanningControlEvaluation {
   effectiveness           String?
   verificationExpectation String?
   verificationRequired    Boolean @default(false)
-  verificationMethod      String?
+
+  // Qoreva-authored expectation describing how this control should
+  // normally be verified. This is not proof that verification occurred.
+  verificationMethod String?
+
+  // Planning-specific qualified-user verification evidence.
+  //
+  // Conditional controls require an explicit current-context decision.
+  // Required controls require completed evidence before receiving
+  // Qoreva Risk Credit.
+  verificationRequiredForCurrentContext Boolean?
+  verificationEvidenceMethod            String?
+  verificationEvidence                  String?
+  verificationCompleted                 Boolean  @default(false)
+
+  verifiedById   String?
+  verifiedByName String?
+  verifiedByRole String?
+  verifiedAt     DateTime?
 
   // Whether the current evidence is sufficient for this control to
   // contribute to Qoreva's Controlled Risk recommendation.
@@ -698,6 +721,14 @@ model PlanningControlEvaluation {
   // Critical Control remains a recommendation until confirmed through
   // the appropriate qualified-user workflow.
   criticalControlRecommended Boolean @default(false)
+
+  // Hazard-specific recommendation policy:
+  // Core, Contextual, or Supporting.
+  //
+  // Contextual controls retain their explicit trigger so applicability
+  // can be decided without inferring from display wording.
+  criticalControlClassification String @default("Supporting")
+  criticalControlTrigger        String?
 
   evaluationReason String?
 
@@ -717,7 +748,6 @@ model PlanningControlEvaluation {
   // specific PTP revision. Future evaluation history can be preserved
   // through audit events or a dedicated history model if required.
   @@unique([planningRecordId, revisionNumber, workStepId, hazardId, controlId])
-
   @@index([tenantId])
   @@index([planningRecordId])
   @@index([planningRecordId, revisionNumber])
@@ -725,11 +755,72 @@ model PlanningControlEvaluation {
   @@index([workStepId])
   @@index([hazardId])
   @@index([controlId])
+  @@index([canonicalHazardConceptId])
   @@index([controlHierarchy])
   @@index([effectiveness])
   @@index([riskCreditEligible])
   @@index([criticalControlRecommended])
+  @@index([criticalControlClassification])
   @@index([evaluatedAt])
+}
+
+model PlanningCriticalControlDecision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable Guided Planning identities. These intentionally do not
+  // require foreign keys to regenerated working-plan objects.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  hazardId  String
+  controlId String
+
+  canonicalHazardConceptId String?
+
+  // Exact content snapshot reviewed by the qualified user.
+  hazardText  String
+  controlText String
+
+  // Server-generated fingerprint of revision, identities, canonical
+  // meaning, and exact wording. Changed content cannot inherit an
+  // earlier Critical Control decision.
+  relationshipFingerprint String
+
+  // Confirmed or Declined.
+  decision String
+
+  // Required when a qualified user declines Qoreva's recommendation.
+  decisionReason String?
+
+  recommendedEvaluatorVersion String
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade, map: "PCCD_record_fkey")
+
+  @@unique([planningRecordId, revisionNumber, relationshipFingerprint], map: "PCCD_record_revision_fingerprint_key")
+  @@index([tenantId], map: "PCCD_tenant_idx")
+  @@index([planningRecordId], map: "PCCD_record_idx")
+  @@index([planningRecordId, revisionNumber], map: "PCCD_record_revision_idx")
+  @@index([revisionNumber], map: "PCCD_revision_idx")
+  @@index([workStepId], map: "PCCD_work_step_idx")
+  @@index([workStepSequence], map: "PCCD_work_step_sequence_idx")
+  @@index([hazardId], map: "PCCD_hazard_idx")
+  @@index([controlId], map: "PCCD_control_idx")
+  @@index([canonicalHazardConceptId], map: "PCCD_canonical_hazard_idx")
+  @@index([decision], map: "PCCD_decision_idx")
+  @@index([decidedAt], map: "PCCD_decided_at_idx")
 }
 
 model PlanningHazardControlDecision {
@@ -767,6 +858,8 @@ model PlanningHazardControlDecision {
 
   planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
 
+  targets PlanningHazardControlDecisionTarget[]
+
   @@unique([planningRecordId, revisionNumber, recommendationId])
   @@index([tenantId])
   @@index([planningRecordId])
@@ -776,6 +869,30 @@ model PlanningHazardControlDecision {
   @@index([targetHazardId])
   @@index([canonicalHazardConceptId])
   @@index([decidedAt])
+}
+
+model PlanningHazardControlDecisionTarget {
+  id String @id @default(cuid())
+
+  tenantId         String
+  planningRecordId String
+  revisionNumber   Int
+
+  decisionId String
+  hazardId   String
+  isPrimary  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  decision PlanningHazardControlDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, hazardId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([decisionId])
+  @@index([hazardId])
+  @@index([isPrimary])
 }
 
 model PlanningHazardControlOverride {

@@ -120,6 +120,132 @@ const hazardProtectiveCoverageDefinitions:
 
     {
       canonicalHazardConceptId:
+        "EXCAVATION_MANUAL_POTHOLING_HAND_INJURY",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Prerequisite",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Manual potholing requires tools that are suitable for the material and exposure method and confirmed fit for use before workers rely on them.",
+        },
+
+        {
+          protectiveFunction:
+            "PreventExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Workers must keep hands and other body parts outside the striking, cutting, and pinch-point paths created by manual digging and probing.",
+        },
+
+        {
+          protectiveFunction:
+            "SeparateExposure",
+
+          role:
+            "Supporting",
+
+          requiredForCoverage:
+            false,
+
+          basis:
+            "Spacing and communication can reduce exposure to another worker's movement but do not replace direct control of hand and body position.",
+        },
+
+        {
+          protectiveFunction:
+            "LimitExposure",
+
+          role:
+            "Supporting",
+
+          requiredForCoverage:
+            false,
+
+          basis:
+            "Task-appropriate hand protection may limit some injury severity but cannot substitute for preventing contact with the hazard.",
+        },
+      ],
+    },
+
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_CONTACT",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Prerequisite",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Applicable locate information must be obtained before ground disturbance so the exposure strategy addresses known and suspected underground systems.",
+        },
+
+        {
+          protectiveFunction:
+            "VerifySafeCondition",
+
+          role:
+            "Assurance",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "The actual utility location and depth must be positively exposed or otherwise verified where required before mechanical excavation relies on the planned boundary.",
+        },
+
+        {
+          protectiveFunction:
+            "SeparateExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Required clearance must be maintained between mechanical excavation and the verified underground utility.",
+        },
+
+        {
+          protectiveFunction:
+            "PreventExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Approved non-destructive methods provide direct protection while utilities are being exposed or verified.",
+        },
+      ],
+    },
+
+    {
+      canonicalHazardConceptId:
         "ELECTRICAL_SHOCK",
 
       protectiveFunctions: [
@@ -236,6 +362,167 @@ const hazardProtectiveCoverageDefinitions:
         },
       ],
     },
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_LOCATION_UNCERTAINTY",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Prerequisite",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Available drawings, records, and field markings must be reviewed so the verification strategy begins with the best available utility-location information.",
+        },
+
+        {
+          protectiveFunction:
+            "VerifySafeCondition",
+
+          role:
+            "Assurance",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "The actual utility location and depth must be sufficiently verified before mechanical excavation relies on the planned work boundary.",
+        },
+
+        {
+          protectiveFunction:
+            "PreventExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "The plan must stop mechanical excavation when location or depth cannot be adequately verified.",
+        },
+      ],
+    },
+
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_SUPPORT_LOSS",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Prerequisite",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Utility-owner and project support requirements must be determined before the utility loses its original soil support.",
+        },
+
+        {
+          protectiveFunction:
+            "PreventExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "An approved support system must prevent damaging movement, deflection, or separation of the exposed utility.",
+        },
+
+        {
+          protectiveFunction:
+            "SeparateExposure",
+
+          role:
+            "Supporting",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Equipment, spoil, materials, and other destabilizing loading must be controlled around the exposed utility and its support system.",
+        },
+
+        {
+          protectiveFunction:
+            "DetectCondition",
+
+          role:
+            "Assurance",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "The exposed utility and support system must be inspected before work continues and when conditions or loading change.",
+        },
+      ],
+    },
+
+    {
+      canonicalHazardConceptId:
+        "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SeparateExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Workers must be separated from excavation-equipment travel paths and operating areas wherever practical.",
+        },
+
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Assurance",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Operators, spotters, and affected workers need an effective communication method to coordinate movement and stop-work actions.",
+        },
+
+        {
+          protectiveFunction:
+            "DetectCondition",
+
+          role:
+            "Supporting",
+
+          requiredForCoverage:
+            false,
+
+          basis:
+            "A spotter provides additional detection when visibility, backing, congestion, or other site conditions make one necessary.",
+        },
+      ],
+    },
+
   ];
 
 const hazardProtectiveCoverageById =

@@ -28,6 +28,10 @@ import {
   evaluateControlledRisk,
 } from "@/lib/planning/controlled-risk-evaluator";
 
+import {
+  buildCriticalControlRelationshipFingerprint,
+} from "@/lib/planning/critical-control-decision";
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -464,6 +468,8 @@ export async function GET(
 
           hazardId: true,
           hazardText: true,
+          canonicalHazardConceptId:
+            true,
 
           controlId: true,
           controlText: true,
@@ -478,9 +484,26 @@ export async function GET(
             true,
           verificationMethod: true,
 
+          verificationRequiredForCurrentContext:
+            true,
+          verificationEvidenceMethod:
+            true,
+          verificationEvidence:
+            true,
+          verificationCompleted:
+            true,
+          verifiedById: true,
+          verifiedByName: true,
+          verifiedByRole: true,
+          verifiedAt: true,
+
           riskCreditEligible: true,
 
           criticalControlRecommended:
+            true,
+          criticalControlClassification:
+            true,
+          criticalControlTrigger:
             true,
 
           evaluationReason: true,
@@ -488,6 +511,135 @@ export async function GET(
           evaluatedAt: true,
         },
       });
+
+    /*
+     * Critical Control designation is a qualified-user decision
+     * separate from Qoreva's candidate recommendation.
+     *
+     * Join only exact current-revision fingerprints so decisions cannot
+     * silently carry across changed identities, wording, canonical
+     * meaning, or evaluator versions.
+     */
+    const criticalControlDecisions =
+      await prisma.planningCriticalControlDecision.findMany({
+        where: {
+          planningRecordId:
+            existing.id,
+
+          tenantId:
+            authorization
+              .planningRecord
+              .tenantId,
+
+          revisionNumber:
+            existing.revisionNumber,
+        },
+
+        select: {
+          relationshipFingerprint:
+            true,
+
+          decision: true,
+          decisionReason: true,
+
+          decidedById: true,
+          decidedByName: true,
+          decidedByRole: true,
+          decidedAt: true,
+        },
+      });
+
+    const criticalControlDecisionByFingerprint =
+      new Map(
+        criticalControlDecisions.map(
+          (decision) => [
+            decision
+              .relationshipFingerprint,
+            decision,
+          ],
+        ),
+      );
+
+    const controlEvaluationsWithCriticalControlDecisions =
+      controlEvaluations.map(
+        (evaluation) => {
+          const relationshipFingerprint =
+            buildCriticalControlRelationshipFingerprint({
+              planningRecordId:
+                existing.id,
+
+              revisionNumber:
+                existing.revisionNumber,
+
+              workStepId:
+                evaluation.workStepId,
+
+              hazardId:
+                evaluation.hazardId,
+
+              controlId:
+                evaluation.controlId,
+
+              canonicalHazardConceptId:
+                evaluation
+                  .canonicalHazardConceptId,
+
+              hazardText:
+                evaluation.hazardText,
+
+              controlText:
+                evaluation.controlText,
+
+              criticalControlClassification:
+                evaluation.criticalControlClassification,
+
+              criticalControlTrigger:
+                evaluation.criticalControlTrigger,
+
+              evaluatorVersion:
+                evaluation.evaluatorVersion,
+            });
+
+          const criticalControlDecision =
+            criticalControlDecisionByFingerprint.get(
+              relationshipFingerprint,
+            );
+
+          return {
+            ...evaluation,
+
+            criticalControlDecision:
+              criticalControlDecision
+                ?.decision ??
+              null,
+
+            criticalControlDecisionReason:
+              criticalControlDecision
+                ?.decisionReason ??
+              null,
+
+            criticalControlDecidedById:
+              criticalControlDecision
+                ?.decidedById ??
+              null,
+
+            criticalControlDecidedByName:
+              criticalControlDecision
+                ?.decidedByName ??
+              null,
+
+            criticalControlDecidedByRole:
+              criticalControlDecision
+                ?.decidedByRole ??
+              null,
+
+            criticalControlDecidedAt:
+              criticalControlDecision
+                ?.decidedAt ??
+              null,
+          };
+        },
+      );
 
     const activities =
       existing.activities.map(
@@ -525,7 +677,8 @@ export async function GET(
 
       activities,
 
-      controlEvaluations,
+      controlEvaluations:
+        controlEvaluationsWithCriticalControlDecisions,
 
       count:
         activities.length,
@@ -916,6 +1069,60 @@ export async function PUT(
      * for risk credit until a qualified planning workflow supplies
      * actual planning-specific verification evidence.
      */
+    /*
+     * Preserve qualified-user verification evidence across draft
+     * regeneration. Evidence is matched only by the stable work-step,
+     * hazard, and control identities; changed content cannot inherit
+     * unrelated verification.
+     */
+    const existingControlVerificationEvidence =
+      await prisma.planningControlEvaluation.findMany({
+        where: {
+          planningRecordId,
+
+          tenantId:
+            existing.tenantId,
+
+          revisionNumber:
+            generationContext.revisionNumber,
+        },
+
+        select: {
+          workStepId: true,
+          hazardId: true,
+          controlId: true,
+
+          verificationRequiredForCurrentContext:
+            true,
+          verificationEvidenceMethod:
+            true,
+          verificationEvidence:
+            true,
+          verificationCompleted:
+            true,
+
+          verifiedById: true,
+          verifiedByName: true,
+          verifiedByRole: true,
+          verifiedAt: true,
+        },
+      });
+
+    const existingControlVerificationEvidenceByKey =
+      new Map(
+        existingControlVerificationEvidence.map(
+          (evaluation) => [
+            JSON.stringify([
+              evaluation.workStepId,
+              evaluation.hazardId,
+              evaluation.controlId,
+            ]),
+
+            evaluation,
+          ],
+        ),
+      );
+
     const controlledRiskEvaluations =
       generatedDraft.workSteps.map(
         (generatedStep, index) => {
@@ -947,6 +1154,48 @@ export async function PUT(
 
             hazardControlGroups:
               generatedStep.hazardControlGroups,
+
+            verificationEvidenceByControlId:
+              Object.fromEntries(
+                generatedStep.hazardControlGroups.flatMap(
+                  (group) =>
+                    group.controls.flatMap(
+                      (control) => {
+                        const preservedEvidence =
+                          existingControlVerificationEvidenceByKey.get(
+                            JSON.stringify([
+                              `planning-work-step:${incomingStep.sequence}`,
+                              group.hazard.id,
+                              control.id,
+                            ]),
+                          );
+
+                        if (!preservedEvidence) {
+                          return [];
+                        }
+
+                        return [
+                          [
+                            control.id,
+                            {
+                              verificationRequiredForCurrentContext:
+                                preservedEvidence.verificationRequiredForCurrentContext,
+
+                              verificationEvidenceMethod:
+                                preservedEvidence.verificationEvidenceMethod,
+
+                              verificationEvidence:
+                                preservedEvidence.verificationEvidence,
+
+                              verificationCompleted:
+                                preservedEvidence.verificationCompleted,
+                            },
+                          ],
+                        ];
+                      },
+                    ),
+                ),
+              ),
           });
         },
       );
@@ -1355,6 +1604,15 @@ export async function PUT(
                         controlEvaluation.controlId,
                       );
 
+                    const preservedEvidence =
+                      existingControlVerificationEvidenceByKey.get(
+                        JSON.stringify([
+                          `planning-work-step:${incomingStep.sequence}`,
+                          controlEvaluation.hazardId,
+                          controlEvaluation.controlId,
+                        ]),
+                      );
+
                     return {
                       tenantId:
                         existing.tenantId,
@@ -1386,6 +1644,10 @@ export async function PUT(
                       hazardText:
                         controlEvaluation.hazardText,
 
+                      canonicalHazardConceptId:
+                        controlEvaluation
+                          .canonicalHazardConceptId,
+
                       controlText:
                         controlEvaluation.controlText,
 
@@ -1411,6 +1673,46 @@ export async function PUT(
                           ?.verificationMethod ??
                         controlEvaluation.verificationMethod,
 
+                      verificationRequiredForCurrentContext:
+                        preservedEvidence
+                          ?.verificationRequiredForCurrentContext ??
+                        null,
+
+                      verificationEvidenceMethod:
+                        preservedEvidence
+                          ?.verificationEvidenceMethod ??
+                        null,
+
+                      verificationEvidence:
+                        preservedEvidence
+                          ?.verificationEvidence ??
+                        null,
+
+                      verificationCompleted:
+                        preservedEvidence
+                          ?.verificationCompleted ??
+                        false,
+
+                      verifiedById:
+                        preservedEvidence
+                          ?.verifiedById ??
+                        null,
+
+                      verifiedByName:
+                        preservedEvidence
+                          ?.verifiedByName ??
+                        null,
+
+                      verifiedByRole:
+                        preservedEvidence
+                          ?.verifiedByRole ??
+                        null,
+
+                      verifiedAt:
+                        preservedEvidence
+                          ?.verifiedAt ??
+                        null,
+
                       riskCreditEligible:
                         riskCreditAssessment
                           ?.riskCreditEligible ??
@@ -1419,6 +1721,14 @@ export async function PUT(
                       criticalControlRecommended:
                         controlEvaluation
                           .criticalControlRecommended,
+
+                      criticalControlClassification:
+                        controlEvaluation
+                          .criticalControlClassification,
+
+                      criticalControlTrigger:
+                        controlEvaluation
+                          .criticalControlTrigger,
 
                       evaluationReason:
                         controlEvaluation.evaluationReason,
@@ -1521,6 +1831,41 @@ export async function PUT(
             });
           }
 
+          /*
+           * Guided Planning replaces work-step rows on every save.
+           *
+           * Return the newly created authoritative rows so the browser
+           * does not continue using stale work-step IDs.
+           */
+          const persistedWorkSteps =
+            await tx.planningWorkStep.findMany({
+              where: {
+                planningRecordId,
+
+                tenantId:
+                  existing.tenantId,
+              },
+
+              select: {
+                id: true,
+                sequence: true,
+                title: true,
+                description: true,
+                hazards: true,
+                controls: true,
+                safetyCritical: true,
+                riskLevel: true,
+                inherentRiskLevel: true,
+                recommendedControlledRiskLevel:
+                  true,
+                controlledRiskLevel: true,
+              },
+
+              orderBy: {
+                sequence: "asc",
+              },
+            });
+
           // ===================================================
           // AUDIT EVENT
           // ===================================================
@@ -1566,6 +1911,8 @@ export async function PUT(
 
           return {
             record,
+            workSteps:
+              persistedWorkSteps,
 
             activitySummary: {
               confirmed:
@@ -1586,6 +1933,13 @@ export async function PUT(
     return NextResponse.json({
       record:
         saved.record,
+
+      /*
+       * These are the current persisted rows and IDs created by this
+       * save, including Qoreva's Controlled Risk recommendation.
+       */
+      workSteps:
+        saved.workSteps,
 
       saved: {
         activities:

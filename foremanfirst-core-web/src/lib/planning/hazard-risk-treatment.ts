@@ -171,6 +171,106 @@ const hazardRiskTreatmentPolicies:
       policyVersion:
         PILOT_POLICY_VERSION,
     },
+    {
+      canonicalHazardConceptId:
+        "EXCAVATION_MANUAL_POTHOLING_HAND_INJURY",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Hand positioning, suitable tools, worker separation, and task-appropriate hand protection form the current manual-potholing control system, but the Qoreva pilot does not yet authorize an automatic reduction from the planner-selected Inherent Risk category.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_CONTACT",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Utility-location preparation, positive verification, maintained clearance, and approved non-destructive exposure methods provide the required protective system, but the current pilot does not automatically translate that coverage into a lower categorical risk level.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_LOCATION_UNCERTAINTY",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Document review, additional locating where required, positive verification, and stopping mechanical excavation when location remains uncertain address the current protective-coverage requirements, but they do not authorize automatic categorical risk reduction in the pilot.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "UNDERGROUND_UTILITY_SUPPORT_LOSS",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Support requirements, an approved support system, loading controls, and continuing inspection form the current exposed-utility support strategy, but Qoreva does not yet have a validated likelihood model that authorizes an automatic reduction from Inherent Risk.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Controlled travel areas, worker separation, communication, and conditional spotter use form the current mobile-equipment interaction control system, but the pilot does not automatically lower the planner-selected Inherent Risk category.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
   ];
 
 const hazardRiskTreatmentPolicyById =

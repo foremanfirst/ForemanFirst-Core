@@ -14,6 +14,11 @@ import {
   type ControlVerificationExpectation,
 } from "./control-effectiveness";
 
+import {
+  getCriticalControlPolicy,
+  type CriticalControlClassification,
+} from "./critical-control-policy";
+
 /**
  * Qoreva Planning — Working Control Evaluation
  *
@@ -33,7 +38,7 @@ import {
  */
 
 export const CONTROL_EFFECTIVENESS_EVALUATOR_VERSION =
-  "qoreva-control-effectiveness-evaluator-v1";
+  "qoreva-control-effectiveness-evaluator-v2";
 
 export type PlanningControlEvaluationCandidate = {
   hazardId: string;
@@ -78,6 +83,12 @@ export type PlanningControlEvaluationCandidate = {
    */
   criticalControlRecommended:
     boolean;
+
+  criticalControlClassification:
+    CriticalControlClassification;
+
+  criticalControlTrigger:
+    string | null;
 
   evaluationReason: string;
 
@@ -164,6 +175,12 @@ export function evaluateWorkingControlCandidates(
           criticalControlRecommended:
             false,
 
+          criticalControlClassification:
+            "Supporting",
+
+          criticalControlTrigger:
+            null,
+
           evaluationReason:
             canonicalHazardConceptId
               ? "Qoreva does not yet have explicit effectiveness intelligence for this exact canonical hazard-to-control relationship. Qualified review is required before the control can contribute to an automated Controlled Risk recommendation."
@@ -175,6 +192,16 @@ export function evaluateWorkingControlCandidates(
 
         continue;
       }
+
+      const criticalControlPolicy =
+        getCriticalControlPolicy({
+          canonicalHazardConceptId,
+          controlText:
+            control.text,
+          legacyCandidate:
+            intelligence
+              .criticalControlCandidate,
+        });
 
       candidates.push({
         hazardId:
@@ -223,8 +250,22 @@ export function evaluateWorkingControlCandidates(
         riskCreditEligible:
           false,
 
+        /*
+         * Contextual recommendations remain fail-closed until their
+         * field trigger is explicitly resolved by the qualified user.
+         */
         criticalControlRecommended:
-          intelligence.criticalControlCandidate,
+          criticalControlPolicy
+            .classification !==
+          "Supporting",
+
+        criticalControlClassification:
+          criticalControlPolicy
+            .classification,
+
+        criticalControlTrigger:
+          criticalControlPolicy
+            .trigger,
 
         evaluationReason:
           intelligence.effectivenessBasis,

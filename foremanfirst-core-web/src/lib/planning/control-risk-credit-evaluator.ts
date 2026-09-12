@@ -22,7 +22,7 @@ import type {
  */
 
 export const CONTROL_RISK_CREDIT_EVALUATOR_VERSION =
-  "qoreva-control-risk-credit-evaluator-v1";
+  "qoreva-control-risk-credit-evaluator-v2";
 
 export type ControlRiskCreditStatus =
   | "Eligible"
@@ -47,6 +47,10 @@ export type ControlRiskCreditAssessment = {
 };
 
 export type ControlRiskCreditEvidence = {
+  /**
+   * Legacy compatibility field. A supplied or expected method alone
+   * is never proof that verification occurred.
+   */
   verificationMethod?: string | null;
 
   /**
@@ -59,6 +63,11 @@ export type ControlRiskCreditEvidence = {
    *         to make that determination
    */
   verificationRequiredForCurrentContext?: boolean | null;
+
+  // Qualified-user evidence describing what was actually performed.
+  verificationEvidenceMethod?: string | null;
+  verificationEvidence?: string | null;
+  verificationCompleted?: boolean;
 };
 
 /**
@@ -81,10 +90,26 @@ export function evaluateControlRiskCredit({
 }): ControlRiskCreditAssessment {
   const reasons: string[] = [];
 
+  /*
+   * The canonical method describes how verification should occur.
+   * It must never be treated as evidence that verification occurred.
+   */
   const verificationMethod =
-    evidence?.verificationMethod?.trim() ||
-    candidate.verificationMethod ||
+    candidate.verificationMethod?.trim() ||
     null;
+
+  const verificationEvidenceMethod =
+    evidence?.verificationEvidenceMethod?.trim() ||
+    null;
+
+  const verificationEvidence =
+    evidence?.verificationEvidence?.trim() ||
+    null;
+
+  const hasCompletedVerificationEvidence =
+    evidence?.verificationCompleted === true &&
+    Boolean(verificationEvidenceMethod) &&
+    Boolean(verificationEvidence);
 
   if (
     candidate.effectiveness === "Unresolved" ||
@@ -111,7 +136,7 @@ export function evaluateControlRiskCredit({
 
   if (
     candidate.verificationExpectation === "Required" &&
-    !verificationMethod
+    !hasCompletedVerificationEvidence
   ) {
     reasons.push(
       "This control requires planning-specific verification evidence before Qoreva can rely on it for Controlled Risk reasoning.",
@@ -123,7 +148,7 @@ export function evaluateControlRiskCredit({
       status: "NeedsVerification",
       riskCreditEligible: false,
       verificationRequired: true,
-      verificationMethod: null,
+      verificationMethod,
       reasons,
       evaluatorVersion:
         CONTROL_RISK_CREDIT_EVALUATOR_VERSION,
@@ -161,7 +186,7 @@ export function evaluateControlRiskCredit({
 
     if (
       verificationRequiredForCurrentContext &&
-      !verificationMethod
+      !hasCompletedVerificationEvidence
     ) {
       reasons.push(
         "Verification is required for this work-step context, but the required planning-specific verification evidence has not yet been provided.",
@@ -173,7 +198,7 @@ export function evaluateControlRiskCredit({
         status: "NeedsVerification",
         riskCreditEligible: false,
         verificationRequired: true,
-        verificationMethod: null,
+        verificationMethod,
         reasons,
         evaluatorVersion:
           CONTROL_RISK_CREDIT_EVALUATOR_VERSION,
@@ -182,7 +207,7 @@ export function evaluateControlRiskCredit({
 
     reasons.push(
       verificationRequiredForCurrentContext
-        ? "Required planning-specific verification evidence is present for this work-step context."
+        ? "Completed planning-specific verification evidence is present for this work-step context."
         : "Qoreva has structured evidence that separate verification is not required for this work-step context.",
     );
   } else if (
@@ -194,7 +219,7 @@ export function evaluateControlRiskCredit({
     );
   } else {
     reasons.push(
-      "Required planning-specific verification evidence is present.",
+      "Completed planning-specific verification evidence is present.",
     );
   }
 

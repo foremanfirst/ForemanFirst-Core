@@ -369,6 +369,18 @@ export async function buildPlanningGenerationContext(
          * audit/history.
          */
         hazardControlDecisions: {
+          include: {
+            targets: {
+              orderBy: [
+                {
+                  isPrimary: "desc",
+                },
+                {
+                  createdAt: "asc",
+                },
+              ],
+            },
+          },
           orderBy: [
             {
               revisionNumber: "asc",
@@ -942,6 +954,16 @@ export async function buildPlanningGenerationContext(
 
           targetHazardId:
             decision.targetHazardId,
+
+          targetHazards:
+            decision.targets.map(
+              (target) => ({
+                hazardId:
+                  target.hazardId,
+                isPrimary:
+                  target.isPrimary,
+              }),
+            ),
 
           canonicalHazardConceptId:
             decision.canonicalHazardConceptId,

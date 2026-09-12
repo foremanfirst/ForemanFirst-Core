@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "PlanningHazardControlDecisionTarget_planningRecordId_revisionNu" RENAME TO "PlanningHazardControlDecisionTarget_planningRecordId_revisi_idx";

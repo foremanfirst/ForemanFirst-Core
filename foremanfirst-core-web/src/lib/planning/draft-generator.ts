@@ -2141,6 +2141,350 @@ function mergeGeneratedHazardControlGroups(
 }
 
 
+const TARGET_PRIMARY_HAZARDS_PER_WORK_STEP =
+  5;
+
+const TARGET_HIGH_RISK_HAZARDS_PER_WORK_STEP =
+  6;
+
+const MAX_PRIMARY_HAZARDS_PER_WORK_STEP =
+  8;
+
+const MAX_ADVISORY_CONTROLS_PER_HAZARD =
+  4;
+
+function limitHazardControlGroupsForFieldReview(
+  groups: GeneratedHazardControlGroup[],
+  decisions: PlanningHazardControlDecisionContext[],
+  requestedHazardTarget:
+    | typeof TARGET_PRIMARY_HAZARDS_PER_WORK_STEP
+    | typeof TARGET_HIGH_RISK_HAZARDS_PER_WORK_STEP =
+      TARGET_PRIMARY_HAZARDS_PER_WORK_STEP,
+  overrides: PlanningHazardControlOverrideContext[] =
+    [],
+) {
+  const explicitTargetHazardIds =
+    new Set(
+      decisions.flatMap(
+        (decision) =>
+          decision.targetHazards.length > 0
+            ? decision.targetHazards.map(
+                (target) =>
+                  target.hazardId,
+              )
+            : decision.targetHazardId
+              ? [
+                  decision.targetHazardId,
+                ]
+              : [],
+      ),
+    );
+
+  const assignmentGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.text ===
+        "User-entered controls requiring hazard assignment",
+    );
+
+  const hazardGroups =
+    groups.filter(
+      (group) =>
+        group.hazard.text !==
+        "User-entered controls requiring hazard assignment",
+    );
+
+  function isProtectedHazard(
+    group: GeneratedHazardControlGroup,
+  ) {
+    return (
+      group.hazard.source ===
+        "User" ||
+      group.hazard.required ||
+      group.hazard
+        .sourceRequirementIds
+        .length > 0 ||
+      explicitTargetHazardIds.has(
+        group.hazard.id,
+      )
+    );
+  }
+
+  function hazardPriority(
+    group: GeneratedHazardControlGroup,
+  ) {
+    const hazardText =
+      group.hazard.text
+        .trim()
+        .toLowerCase();
+
+    let score = 0;
+
+    if (group.hazard.required) {
+      score += 1000;
+    }
+
+    if (
+      group.hazard.source ===
+      "User"
+    ) {
+      score += 800;
+    }
+
+    if (
+      group.hazard
+        .sourceRequirementIds
+        .length > 0
+    ) {
+      score += 600;
+    }
+
+    if (
+      explicitTargetHazardIds.has(
+        group.hazard.id,
+      )
+    ) {
+      score += 500;
+    }
+
+    if (
+      group.canonicalHazardConceptId
+    ) {
+      score += 250;
+    }
+
+    if (
+      /\b(cave-in|collapse|electrocution|energized|struck|crush|fall|suspended load|confined space|fire|explosion|toxic|engulfment|amputation)\b/i.test(
+        hazardText,
+      )
+    ) {
+      score += 200;
+    }
+
+    score += Math.min(
+      group.controls.length,
+      10,
+    ) * 10;
+
+    return score;
+  }
+
+  const protectedHazards =
+    hazardGroups.filter(
+      isProtectedHazard,
+    );
+
+  /*
+   * Keep ordinary work steps focused at five hazards and allow
+   * safety-critical or High inherent-risk steps to surface six.
+   *
+   * Protected user, requirement, and explicit-assignment hazards
+   * are never removed. If protected content exceeds the requested
+   * target, Qoreva preserves it for qualified review instead of
+   * silently hiding authoritative planning evidence.
+   */
+  const effectiveHazardTarget =
+    Math.min(
+      MAX_PRIMARY_HAZARDS_PER_WORK_STEP,
+      Math.max(
+        requestedHazardTarget,
+        Math.min(
+          protectedHazards.length,
+          MAX_PRIMARY_HAZARDS_PER_WORK_STEP,
+        ),
+      ),
+    );
+
+  const availableAdvisorySlots =
+    Math.max(
+      0,
+      effectiveHazardTarget -
+        protectedHazards.length,
+    );
+
+  const selectedAdvisoryHazardIds =
+    new Set(
+      hazardGroups
+        .filter(
+          (group) =>
+            !isProtectedHazard(
+              group,
+            ),
+        )
+        .map(
+          (group, originalIndex) => ({
+            group,
+            originalIndex,
+            priority:
+              hazardPriority(
+                group,
+              ),
+          }),
+        )
+        .sort(
+          (left, right) =>
+            right.priority -
+              left.priority ||
+            left.originalIndex -
+              right.originalIndex,
+        )
+        .slice(
+          0,
+          availableAdvisorySlots,
+        )
+        .map(
+          ({ group }) =>
+            group.id,
+        ),
+    );
+
+  const selectedHazards =
+    hazardGroups.filter(
+      (group) =>
+        isProtectedHazard(
+          group,
+        ) ||
+        selectedAdvisoryHazardIds.has(
+          group.id,
+        ),
+    );
+
+  const limitedHazards =
+    selectedHazards.map(
+      (group) => {
+        const protectedControls =
+          group.controls.filter(
+            (control) =>
+              control.source ===
+                "User" ||
+              control.required ||
+              control
+                .sourceRequirementIds
+                .length > 0 ||
+              decisions.some(
+                (decision) =>
+                  decision.itemType ===
+                    "Control" &&
+                  decision.decision ===
+                    "Accept" &&
+                  decision.recommendationId ===
+                    control.id,
+              ) ||
+              overrides.some(
+                (override) =>
+                  override.itemType ===
+                    "Control" &&
+                  override.action ===
+                    "Add" &&
+                  override.finalText
+                    ?.trim()
+                    .toLowerCase() ===
+                    control.text
+                      .trim()
+                      .toLowerCase() &&
+                  (
+                    override.parentHazardId ===
+                      group.hazard.id ||
+                    (
+                      Boolean(
+                        override.canonicalHazardConceptId,
+                      ) &&
+                      override.canonicalHazardConceptId ===
+                        group.canonicalHazardConceptId
+                    )
+                  ),
+              ),
+          );
+
+        const protectedControlIds =
+          new Set(
+            protectedControls.map(
+              (control) =>
+                control.id,
+            ),
+          );
+
+        const availableControlSlots =
+          Math.max(
+            0,
+            MAX_ADVISORY_CONTROLS_PER_HAZARD -
+              protectedControls.length,
+          );
+
+        const advisoryControls =
+          group.controls
+            .filter(
+              (control) =>
+                !protectedControlIds.has(
+                  control.id,
+                ),
+            )
+            .sort(
+              (left, right) => {
+                const leftScore =
+                  (
+                    left.controlHierarchy
+                      ? 100
+                      : 0
+                  ) +
+                  left
+                    .sourceActivityCodes
+                    .length *
+                    10;
+
+                const rightScore =
+                  (
+                    right.controlHierarchy
+                      ? 100
+                      : 0
+                  ) +
+                  right
+                    .sourceActivityCodes
+                    .length *
+                    10;
+
+                return (
+                  rightScore -
+                  leftScore
+                );
+              },
+            )
+            .slice(
+              0,
+              availableControlSlots,
+            );
+
+        const selectedControlIds =
+          new Set([
+            ...protectedControls.map(
+              (control) =>
+                control.id,
+            ),
+            ...advisoryControls.map(
+              (control) =>
+                control.id,
+            ),
+          ]);
+
+        return {
+          ...group,
+          controls:
+            group.controls.filter(
+              (control) =>
+                selectedControlIds.has(
+                  control.id,
+                ),
+            ),
+        };
+      },
+    );
+
+  return [
+    ...limitedHazards,
+    ...assignmentGroups,
+  ];
+}
+
 const hazardMatchStopWords =
   new Set([
     "a",
@@ -2920,6 +3264,7 @@ function hasExplicitRecommendedControlSelections(
 function resolveUserHazardFromCanonicalLibrary(
   userGroup: GeneratedHazardControlGroup,
   applicableActivityCodes: string[],
+  preserveExistingControls = false,
 ) {
   const canonicalMatch =
     findCanonicalHazardMatch(
@@ -2963,6 +3308,15 @@ function resolveUserHazardFromCanonicalLibrary(
         .sourceActivityCodes,
       ...matchedActivityCodes,
     ]);
+
+  /*
+   * Explicit qualified-user control selections must retain their
+   * existing IDs, wording, decisions, and evidence. Canonical identity
+   * can still be attached without repopulating the full control set.
+   */
+  if (preserveExistingControls) {
+    return true;
+  }
 
   userGroup.controls =
     canonicalMatch
@@ -3333,6 +3687,153 @@ function findGeneratedControlLocation(
   return null;
 }
 
+function readDecisionParentHazardIdentity(
+  sourceMetadata: unknown,
+) {
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return {
+      parentHazardId: null,
+      parentHazardText: null,
+    };
+  }
+
+  const metadata =
+    sourceMetadata as Record<
+      string,
+      unknown
+    >;
+
+  return {
+    parentHazardId:
+      typeof metadata.parentHazardId ===
+      "string"
+        ? metadata.parentHazardId.trim() ||
+          null
+        : null,
+
+    parentHazardText:
+      typeof metadata.parentHazardText ===
+      "string"
+        ? metadata.parentHazardText.trim() ||
+          null
+        : null,
+  };
+}
+
+function reconnectPersistedControlDecisionIdentity(
+  groups: GeneratedHazardControlGroup[],
+  decision: PlanningHazardControlDecisionContext,
+) {
+  const existingLocation =
+    findGeneratedControlLocation(
+      groups,
+      decision.recommendationId,
+    );
+
+  if (existingLocation) {
+    return existingLocation;
+  }
+
+  const {
+    parentHazardId,
+    parentHazardText,
+  } =
+    readDecisionParentHazardIdentity(
+      decision.sourceMetadata,
+    );
+
+  if (
+    !parentHazardId &&
+    !parentHazardText
+  ) {
+    return null;
+  }
+
+  const normalizedParentText =
+    parentHazardText
+      ?.trim()
+      .toLowerCase() ??
+    null;
+
+  const normalizedControlText =
+    decision.originalText
+      .trim()
+      .toLowerCase();
+
+  const candidateLocations =
+    groups.flatMap((group) => {
+      const parentMatches =
+        (
+          parentHazardId !== null &&
+          group.hazard.id ===
+            parentHazardId
+        ) ||
+        (
+          normalizedParentText !==
+            null &&
+          group.hazard.text
+            .trim()
+            .toLowerCase() ===
+            normalizedParentText
+        );
+
+      if (!parentMatches) {
+        return [];
+      }
+
+      return group.controls.flatMap(
+        (control, controlIndex) =>
+          control.text
+            .trim()
+            .toLowerCase() ===
+          normalizedControlText
+            ? [
+                {
+                  group,
+                  controlIndex,
+                  control,
+                },
+              ]
+            : [],
+      );
+    });
+
+  /*
+   * Reconnect only an unambiguous exact relationship. Never
+   * use text alone across unrelated hazards.
+   */
+  if (
+    candidateLocations.length !== 1
+  ) {
+    return null;
+  }
+
+  const idAlreadyInUse =
+    groups.some((group) =>
+      group.controls.some(
+        (control) =>
+          control.id ===
+          decision.recommendationId,
+      ),
+    );
+
+  if (idAlreadyInUse) {
+    return null;
+  }
+
+  const location =
+    candidateLocations[0];
+
+  location.control.id =
+    decision.recommendationId;
+
+  return location;
+}
+
 /**
  * Apply qualified-user decisions that affect the control
  * itself before Qoreva performs automatic control assignment.
@@ -3363,6 +3864,19 @@ function applyControlDecisionsBeforeAssignment(
       continue;
     }
 
+    /*
+     * Canonical reclassification or recommendation expansion
+     * may regenerate an otherwise identical relationship with
+     * a different draft ID. Reconnect the persisted qualified-
+     * user decision only through exact parent-hazard provenance
+     * plus exact control wording.
+     */
+    const location =
+      reconnectPersistedControlDecisionIdentity(
+        groups,
+        decision,
+      );
+
     if (
       decision.decision !==
         "Modify" &&
@@ -3371,12 +3885,6 @@ function applyControlDecisionsBeforeAssignment(
     ) {
       continue;
     }
-
-    const location =
-      findGeneratedControlLocation(
-        groups,
-        decision.recommendationId,
-      );
 
     if (!location) {
       continue;
@@ -3461,6 +3969,29 @@ function applyControlDecisionsBeforeAssignment(
   );
 }
 
+function reconnectAcceptedControlDecisionIdentities(
+  groups: GeneratedHazardControlGroup[],
+  decisions: PlanningHazardControlDecisionContext[],
+) {
+  for (const decision of decisions) {
+    if (
+      decision.itemType !==
+        "Control" ||
+      decision.decision !==
+        "Accept"
+    ) {
+      continue;
+    }
+
+    reconnectPersistedControlDecisionIdentity(
+      groups,
+      decision,
+    );
+  }
+
+  return groups;
+}
+
 /**
  * Apply explicit qualified-user hazard assignments after
  * automatic assignment and hazard-group merging.
@@ -3475,12 +4006,20 @@ function applyExplicitControlAssignments(
   decisions: PlanningHazardControlDecisionContext[],
 ) {
   for (const decision of decisions) {
+    const targetHazardIds =
+      decision.targetHazards.length > 0
+        ? decision.targetHazards.map(
+            (target) =>
+              target.hazardId,
+          )
+        : decision.targetHazardId
+          ? [decision.targetHazardId]
+          : [];
+
     if (
-      decision.itemType !==
-        "Control" ||
-      decision.decision !==
-        "Assign" ||
-      !decision.targetHazardId
+      decision.itemType !== "Control" ||
+      decision.decision !== "Assign" ||
+      targetHazardIds.length === 0
     ) {
       continue;
     }
@@ -3495,78 +4034,79 @@ function applyExplicitControlAssignments(
       continue;
     }
 
-    const targetGroup =
-      groups.find(
-        (group) =>
-          group.hazard.id ===
-          decision.targetHazardId,
-      );
+    const targetGroups =
+      targetHazardIds
+        .map((hazardId) =>
+          groups.find(
+            (group) =>
+              group.hazard.id === hazardId,
+          ),
+        )
+        .filter(
+          (
+            group,
+          ): group is GeneratedHazardControlGroup =>
+            Boolean(group),
+        );
 
-    if (!targetGroup) {
-      /*
-       * Do not guess if the previously selected hazard
-       * no longer exists in the regenerated draft. Keep
-       * the control in its current relationship so the
-       * qualified-user workflow can surface the changed
-       * planning context rather than silently reassigning it.
-       */
+    /*
+     * Never guess if the selected hazards no longer
+     * exist in the regenerated planning context.
+     */
+    if (targetGroups.length === 0) {
       continue;
     }
 
     const control =
       location.control;
 
+    /*
+     * Remove the unresolved source relationship once,
+     * then create an explicit relationship beneath
+     * every hazard selected by the qualified user.
+     */
     location.group.controls.splice(
       location.controlIndex,
       1,
     );
 
-    const alreadyPresent =
-      targetGroup.controls.some(
-        (existingControl) =>
-          existingControl.text
-            .trim()
-            .toLowerCase() ===
-          control.text
-            .trim()
-            .toLowerCase(),
-      );
+    for (const targetGroup of targetGroups) {
+      const alreadyPresent =
+        targetGroup.controls.some(
+          (existingControl) =>
+            existingControl.text
+              .trim()
+              .toLowerCase() ===
+            control.text
+              .trim()
+              .toLowerCase(),
+        );
 
-    if (!alreadyPresent) {
+      if (alreadyPresent) {
+        continue;
+      }
+
       targetGroup.controls.push({
         ...control,
-
-        /*
-         * Preserve recommendationId so the persisted
-         * qualified-user decision continues to refer to
-         * the same user-entered control across refreshes.
-         */
         id:
           decision.recommendationId,
-
         source:
           "User",
-
         sourceActivityCodes:
           uniqueStrings([
-            ...control
-              .sourceActivityCodes,
+            ...control.sourceActivityCodes,
             ...targetGroup.hazard
               .sourceActivityCodes,
           ]),
-
         sourceQuestionCodes:
           uniqueStrings([
-            ...control
-              .sourceQuestionCodes,
+            ...control.sourceQuestionCodes,
             ...targetGroup.hazard
               .sourceQuestionCodes,
           ]),
-
         sourceRequirementIds:
           uniqueStrings([
-            ...control
-              .sourceRequirementIds,
+            ...control.sourceRequirementIds,
             ...targetGroup.hazard
               .sourceRequirementIds,
           ]),
@@ -3578,7 +4118,6 @@ function applyExplicitControlAssignments(
     groups,
   );
 }
-
 
 function readOverrideControlHierarchy(
   sourceMetadata: unknown,
@@ -4116,12 +4655,31 @@ function resolveUserHazardControls(
      * later by the persisted override layer. This preserves the user's
      * exact selection: 1 selected = 1 added, 3 selected = 3 added.
      */
+    const applicableActivityCodes =
+      uniqueStrings(
+        ruleGroups.flatMap(
+          (ruleGroup) =>
+            ruleGroup.hazard
+              .sourceActivityCodes,
+        ),
+      );
+
     if (
       hasExplicitRecommendedControlSelections(
         userGroup.hazard.id,
         overrides,
       )
     ) {
+      /*
+       * Preserve the qualified user's exact selected controls while
+       * still attaching a conservative canonical hazard identity.
+       */
+      resolveUserHazardFromCanonicalLibrary(
+        userGroup,
+        applicableActivityCodes,
+        true,
+      );
+
       continue;
     }
 
@@ -4134,15 +4692,6 @@ function resolveUserHazardControls(
      * relationship/scoring resolver below remains unchanged
      * as the fallback.
      */
-    const applicableActivityCodes =
-      uniqueStrings(
-        ruleGroups.flatMap(
-          (ruleGroup) =>
-            ruleGroup.hazard
-              .sourceActivityCodes,
-        ),
-      );
-
     const resolvedByCanonicalLibrary =
       resolveUserHazardFromCanonicalLibrary(
         userGroup,
@@ -4909,6 +5458,18 @@ function buildWorkStepSuggestions(
           assignedHazardControlGroups,
         );
 
+      /*
+       * Parent-hazard identity can become unambiguous only after
+       * semantic consolidation joins the field-authored hazard
+       * with its canonical rule relationship. Reconnect accepted
+       * control IDs here before overrides and field-review limits.
+       */
+      const identityReconnectedHazardControlGroups =
+        reconnectAcceptedControlDecisionIdentities(
+          mergedHazardControlGroups,
+          context.hazardControlDecisions,
+        );
+
 
       /*
        * Explicit qualified-user Assign decisions are applied
@@ -4917,7 +5478,7 @@ function buildWorkStepSuggestions(
        */
       const decisionAppliedHazardControlGroups =
         applyExplicitControlAssignments(
-          mergedHazardControlGroups,
+          identityReconnectedHazardControlGroups,
           context.hazardControlDecisions,
         );
 
@@ -4954,9 +5515,38 @@ function buildWorkStepSuggestions(
             ),
         );
 
-      const hazardControlGroups =
+      const completeHazardControlGroups =
         applyHazardControlOverrides(
           decisionAppliedHazardControlGroups,
+          workStepOverrides,
+        );
+
+      /*
+       * Overrides may perform a final canonical consolidation.
+       * Reconnect accepted identities once more at the completed
+       * relationship boundary before applying presentation limits.
+       */
+      const identityStableCompleteHazardControlGroups =
+        reconnectAcceptedControlDecisionIdentities(
+          completeHazardControlGroups,
+          context.hazardControlDecisions,
+        );
+
+      /*
+       * Field-review boundary:
+       *
+       * Preserve authoritative/user-confirmed content,
+       * then limit advisory expansion to a usable number
+       * of hazard and control relationships.
+       */
+      const hazardControlGroups =
+        limitHazardControlGroupsForFieldReview(
+          identityStableCompleteHazardControlGroups,
+          context.hazardControlDecisions,
+          step.safetyCritical ||
+          highRiskAttention
+            ? TARGET_HIGH_RISK_HAZARDS_PER_WORK_STEP
+            : TARGET_PRIMARY_HAZARDS_PER_WORK_STEP,
           workStepOverrides,
         );
 

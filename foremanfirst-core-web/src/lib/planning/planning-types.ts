@@ -133,6 +133,16 @@ export type PlanningHazardControlDecisionContext = {
   targetHazardId: string | null;
 
   /**
+   * All hazards explicitly selected by the qualified user.
+   * Exactly one target should be primary when an Assign
+   * decision has at least one valid relationship.
+   */
+  targetHazards: Array<{
+    hazardId: string;
+    isPrimary: boolean;
+  }>;
+
+  /**
    * Optional semantic relationship identity.
    *
    * Kept as a string in this shared planning contract
