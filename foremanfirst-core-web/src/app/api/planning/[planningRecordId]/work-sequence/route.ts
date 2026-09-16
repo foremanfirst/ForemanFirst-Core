@@ -15,9 +15,13 @@ type RouteContext = {
 };
 
 type WorkStepInput = {
+  id?: string | null;
   sequence?: number;
   title?: string | null;
   description?: string | null;
+  equipmentTools?: string | null;
+  materialsChemicals?: string | null;
+  locationOverride?: string | null;
 };
 
 function nullableString(
@@ -76,6 +80,7 @@ export async function PUT(
           tenantId: true,
           projectId: true,
           status: true,
+          revisionNumber: true,
         },
       });
 
@@ -111,6 +116,23 @@ export async function PUT(
         ? (body.workSteps as WorkStepInput[])
         : [];
 
+    const confirmedRemovedWorkStepIds: string[] =
+      Array.isArray(
+        body.confirmedRemovedWorkStepIds,
+      )
+        ? (
+            body.confirmedRemovedWorkStepIds as unknown[]
+          ).filter(
+            (
+              value: unknown,
+            ): value is string =>
+              typeof value === "string" &&
+              Boolean(
+                value.trim(),
+              ),
+          )
+        : [];
+
     if (workSteps.length === 0) {
       return NextResponse.json(
         {
@@ -126,6 +148,11 @@ export async function PUT(
     const normalizedSteps =
       workSteps.map(
         (step, index) => ({
+          id:
+            nullableString(
+              step.id,
+            ),
+
           sequence:
             index + 1,
 
@@ -137,6 +164,21 @@ export async function PUT(
           description:
             nullableString(
               step.description,
+            ),
+
+          equipmentTools:
+            nullableString(
+              step.equipmentTools,
+            ),
+
+          materialsChemicals:
+            nullableString(
+              step.materialsChemicals,
+            ),
+
+          locationOverride:
+            nullableString(
+              step.locationOverride,
             ),
         }),
       );
@@ -161,6 +203,95 @@ export async function PUT(
       }
     }
 
+    const requestedPersistedIds =
+      normalizedSteps
+        .map((step) => step.id)
+        .filter(
+          (id): id is string =>
+            Boolean(id),
+        );
+
+    if (
+      new Set(
+        requestedPersistedIds,
+      ).size !==
+      requestedPersistedIds.length
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The work sequence contains a duplicate persisted work-step identity.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const existingWorkSteps =
+      await prisma.planningWorkStep.findMany({
+        where: {
+          planningRecordId,
+
+          tenantId:
+            existing.tenantId,
+        },
+
+        select: {
+          id: true,
+          hazards: true,
+          controls: true,
+          safetyCritical: true,
+          riskLevel: true,
+          inherentRiskLevel: true,
+          recommendedControlledRiskLevel: true,
+          controlledRiskLevel: true,
+        },
+      });
+
+    const existingWorkStepIds =
+      new Set(
+        existingWorkSteps.map(
+          (step) => step.id,
+        ),
+      );
+
+    const invalidConfirmedRemovedId =
+      confirmedRemovedWorkStepIds.find(
+        (id) =>
+          !existingWorkStepIds.has(id),
+      );
+
+    if (invalidConfirmedRemovedId) {
+      return NextResponse.json(
+        {
+          message:
+            "A confirmed work-step deletion does not belong to this planning record.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const invalidPersistedId =
+      requestedPersistedIds.find(
+        (id) =>
+          !existingWorkStepIds.has(id),
+      );
+
+    if (invalidPersistedId) {
+      return NextResponse.json(
+        {
+          message:
+            "One or more persisted work steps do not belong to this planning record.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const actorRole =
       authorization.membership.roleCodes.length >
       0
@@ -172,33 +303,356 @@ export async function PUT(
     const saved =
       await prisma.$transaction(
         async (tx) => {
-          /*
-           * Step 4 owns the preliminary work sequence.
-           *
-           * At this stage hazards, controls, safety-critical
-           * designation, and risk level have not necessarily
-           * been completed yet.
-           *
-           * Those fields are enriched during Guided Planning.
-           */
-          await tx.planningWorkStep.deleteMany({
-            where: {
-              planningRecordId,
+          const currentSteps =
+            await tx.planningWorkStep.findMany({
+              where: {
+                planningRecordId,
 
-              tenantId:
-                existing.tenantId,
-            },
-          });
+                tenantId:
+                  existing.tenantId,
+              },
 
-          await tx.planningWorkStep.createMany({
-            data:
-              normalizedSteps.map(
-                (step) => ({
+              select: {
+                id: true,
+              },
+            });
+
+          const retainedIds =
+            new Set(
+              normalizedSteps
+                .map(
+                  (step) =>
+                    step.id,
+                )
+                .filter(
+                  (id): id is string =>
+                    Boolean(id),
+                ),
+            );
+
+          const removedIds =
+            currentSteps
+              .map(
+                (step) =>
+                  step.id,
+              )
+              .filter(
+                (id) =>
+                  !retainedIds.has(id),
+              );
+
+          const confirmedRemovalIds =
+            new Set(
+              confirmedRemovedWorkStepIds,
+            );
+
+          if (removedIds.length > 0) {
+            const removedStepRows =
+              await tx.planningWorkStep.findMany({
+                where: {
+                  planningRecordId,
+
                   tenantId:
                     existing.tenantId,
 
-                  planningRecordId,
+                  id: {
+                    in:
+                      removedIds,
+                  },
+                },
 
+                select: {
+                  id: true,
+                  hazards: true,
+                  controls: true,
+                  safetyCritical: true,
+                  riskLevel: true,
+                  inherentRiskLevel: true,
+                  recommendedControlledRiskLevel: true,
+                  controlledRiskLevel: true,
+                },
+              });
+
+            const [
+              controlEvaluations,
+              criticalControlDecisions,
+              hazardControlOverrides,
+            ] =
+              await Promise.all([
+                tx.planningControlEvaluation.groupBy({
+                  by: [
+                    "workStepId",
+                  ],
+
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        removedIds,
+                    },
+                  },
+
+                  _count: {
+                    _all: true,
+                  },
+                }),
+
+                tx.planningCriticalControlDecision.groupBy({
+                  by: [
+                    "workStepId",
+                  ],
+
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        removedIds,
+                    },
+                  },
+
+                  _count: {
+                    _all: true,
+                  },
+                }),
+
+                tx.planningHazardControlOverride.groupBy({
+                  by: [
+                    "workStepId",
+                  ],
+
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        removedIds,
+                    },
+                  },
+
+                  _count: {
+                    _all: true,
+                  },
+                }),
+              ]);
+
+            const dependentWorkStepIds =
+              new Set<string>();
+
+            for (
+              const step
+              of removedStepRows
+            ) {
+              if (
+                step.hazards ||
+                step.controls ||
+                step.safetyCritical ||
+                step.riskLevel ||
+                step.inherentRiskLevel ||
+                step.recommendedControlledRiskLevel ||
+                step.controlledRiskLevel
+              ) {
+                dependentWorkStepIds.add(
+                  step.id,
+                );
+              }
+            }
+
+            for (
+              const dependency
+              of [
+                ...controlEvaluations,
+                ...criticalControlDecisions,
+                ...hazardControlOverrides,
+              ]
+            ) {
+              if (
+                dependency._count._all >
+                0
+              ) {
+                dependentWorkStepIds.add(
+                  dependency.workStepId,
+                );
+              }
+            }
+
+            const unconfirmedProtectedIds =
+              [...dependentWorkStepIds].filter(
+                (id) =>
+                  !confirmedRemovalIds.has(id),
+              );
+
+            if (
+              unconfirmedProtectedIds.length >
+              0
+            ) {
+              throw new Error(
+                "PROTECTED_WORK_STEP_DELETE",
+              );
+            }
+
+            /*
+             * Current-revision draft planning belongs to the
+             * removed work step and must never be reassigned to
+             * another step merely because sequence changed.
+             *
+             * Prior revision records are intentionally preserved.
+             */
+            const confirmedProtectedRemovedIds =
+              removedIds.filter(
+                (id) =>
+                  confirmedRemovalIds.has(id),
+              );
+
+            if (
+              confirmedProtectedRemovedIds.length >
+              0
+            ) {
+              await Promise.all([
+                tx.planningControlEvaluation.deleteMany({
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        confirmedProtectedRemovedIds,
+                    },
+                  },
+                }),
+
+                tx.planningCriticalControlDecision.deleteMany({
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        confirmedProtectedRemovedIds,
+                    },
+                  },
+                }),
+
+                tx.planningHazardControlOverride.deleteMany({
+                  where: {
+                    tenantId:
+                      existing.tenantId,
+
+                    planningRecordId,
+
+                    revisionNumber:
+                      existing.revisionNumber,
+
+                    workStepId: {
+                      in:
+                        confirmedProtectedRemovedIds,
+                    },
+                  },
+                }),
+              ]);
+            }
+          }
+
+          /*
+           * Delete only work steps the user actually removed.
+           *
+           * Existing retained work steps keep their database IDs,
+           * hazard/control planning, risk state, and audit identity.
+           */
+          if (removedIds.length > 0) {
+            await tx.planningWorkStep.deleteMany({
+              where: {
+                planningRecordId,
+
+                tenantId:
+                  existing.tenantId,
+
+                id: {
+                  in:
+                    removedIds,
+                },
+              },
+            });
+          }
+
+          /*
+           * Temporarily move retained rows away from their positive
+           * sequence values. This avoids unique-constraint collisions
+           * when positions are swapped, such as 1 <-> 2.
+           */
+          for (
+            let index = 0;
+            index <
+            normalizedSteps.length;
+            index += 1
+          ) {
+            const step =
+              normalizedSteps[index];
+
+            if (!step.id) {
+              continue;
+            }
+
+            await tx.planningWorkStep.update({
+              where: {
+                id:
+                  step.id,
+              },
+
+              data: {
+                sequence:
+                  -(index + 1),
+              },
+            });
+          }
+
+          /*
+           * Apply the final ordered sequence.
+           *
+           * Persisted IDs are updated in place.
+           * New browser-only steps are created once.
+           */
+          for (
+            const step
+            of normalizedSteps
+          ) {
+            if (step.id) {
+              await tx.planningWorkStep.update({
+                where: {
+                  id:
+                    step.id,
+                },
+
+                data: {
                   sequence:
                     step.sequence,
 
@@ -208,20 +662,59 @@ export async function PUT(
                   description:
                     step.description,
 
-                  hazards:
-                    null,
+                  equipmentTools:
+                    step.equipmentTools,
 
-                  controls:
-                    null,
+                  materialsChemicals:
+                    step.materialsChemicals,
 
-                  safetyCritical:
-                    false,
+                  locationOverride:
+                    step.locationOverride,
+                },
+              });
 
-                  riskLevel:
-                    null,
-                }),
-              ),
-          });
+              continue;
+            }
+
+            await tx.planningWorkStep.create({
+              data: {
+                tenantId:
+                  existing.tenantId,
+
+                planningRecordId,
+
+                sequence:
+                  step.sequence,
+
+                title:
+                  step.title!,
+
+                description:
+                  step.description,
+
+                equipmentTools:
+                  step.equipmentTools,
+
+                materialsChemicals:
+                  step.materialsChemicals,
+
+                locationOverride:
+                  step.locationOverride,
+
+                hazards:
+                  null,
+
+                controls:
+                  null,
+
+                safetyCritical:
+                  false,
+
+                riskLevel:
+                  null,
+              },
+            });
+          }
 
           await tx.planningEvent.create({
             data: {
@@ -245,11 +738,17 @@ export async function PUT(
               actorRole,
 
               comment:
-                "Preliminary work sequence was saved during scope planning.",
+                "Work sequence was saved with stable work-step identity.",
 
               metadata: {
                 workStepCount:
                   normalizedSteps.length,
+
+                retainedWorkStepCount:
+                  retainedIds.size,
+
+                removedWorkStepCount:
+                  removedIds.length,
               },
             },
           });
@@ -278,6 +777,22 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "PROTECTED_WORK_STEP_DELETE"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "This work step contains current planning, control evaluation, critical-control, or hazard/control decision data. Confirm the work-step deletion before removing it.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     if (
       error instanceof
       PlanningEditorAuthorizationError

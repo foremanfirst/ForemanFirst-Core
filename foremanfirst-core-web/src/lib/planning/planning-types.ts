@@ -20,6 +20,14 @@ export type PlanningQuestionAnswerContext = {
 };
 
 export type PlanningWorkStepContext = {
+  /**
+   * Stable PlanningWorkStep identity.
+   *
+   * Sequence and title are snapshots only and must not be used as the
+   * authoritative identity for new Qoreva planning relationships.
+   */
+  workStepId: string | null;
+
   sequence: number;
   title: string;
   description: string | null;
@@ -457,6 +465,13 @@ export type GeneratedHazardControlGroup = {
 };
 
 export type DraftWorkStepSuggestion = {
+  /**
+   * Stable PlanningWorkStep identity.
+   *
+   * Optional for compatibility with older generated revision snapshots.
+   */
+  workStepId?: string | null;
+
   sequence: number;
   title: string;
   description: string | null;

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 import {
+  resolveResponsibleSupervisor,
+} from "@/lib/planning/resolve-responsible-supervisor";
+
+import {
   PlanningCreatorAuthorizationError,
   requireAuthorizedPlanningCreator,
 } from "@/lib/planning/planning-creator-authorization";
@@ -330,6 +334,30 @@ export async function POST(
       );
     }
 
+    const supervisorAssignment =
+      await resolveResponsibleSupervisor({
+        tenantId,
+        projectId,
+
+        responsibleSupervisorId:
+          body.responsibleSupervisorId,
+
+        responsibleSupervisor:
+          body.responsibleSupervisor,
+      });
+
+    if (!supervisorAssignment.valid) {
+      return NextResponse.json(
+        {
+          message:
+            supervisorAssignment.message,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const record =
       await prisma.$transaction(
         async (tx) => {
@@ -348,14 +376,12 @@ export async function POST(
                 revisionNumber: 1,
 
                 responsibleSupervisor:
-                  toNullableString(
-                    body.responsibleSupervisor,
-                  ),
+                  supervisorAssignment
+                    .responsibleSupervisor,
 
                 responsibleSupervisorId:
-                  toNullableString(
-                    body.responsibleSupervisorId,
-                  ),
+                  supervisorAssignment
+                    .responsibleSupervisorId,
 
                 plannedStartDate:
                   toNullableDate(

@@ -621,6 +621,13 @@ model PlanningWorkStep {
   title       String
   description String?
 
+  // Optional structured context for the work method.
+  // These fields enrich hazard/requirement intelligence without
+  // making every work step a long mandatory form.
+  equipmentTools     String?
+  materialsChemicals String?
+  locationOverride   String?
+
   hazards  String?
   controls String?
 

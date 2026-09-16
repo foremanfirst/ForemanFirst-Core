@@ -41,6 +41,7 @@ type RouteContext = {
 };
 
 type WorkStepInput = {
+  id?: string | null;
   sequence: number;
   title: string;
   description?: string | null;
@@ -99,6 +100,9 @@ function buildIncomingWorkStepContext(
             );
 
       return {
+        workStepId:
+          nullableString(step.id),
+
         sequence:
           index + 1,
 
@@ -782,6 +786,83 @@ export async function PUT(
         ? (body.workSteps as WorkStepInput[])
         : [];
 
+    /*
+     * Stable work-step identity boundary.
+     *
+     * Guided Planning may only operate on persisted work steps that
+     * belong to this exact planning record and tenant. Never trust a
+     * browser-supplied work-step ID without validating ownership.
+     */
+    const requestedWorkStepIds =
+      workSteps.map((step) =>
+        nullableString(step.id),
+      );
+
+    if (
+      requestedWorkStepIds.some(
+        (workStepId) => !workStepId,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Save Scope & Sequence before continuing to Guided Planning.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const stableWorkStepIds =
+      requestedWorkStepIds as string[];
+
+    if (
+      new Set(stableWorkStepIds).size !==
+      stableWorkStepIds.length
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Duplicate work-step identities were detected.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const persistedWorkSteps =
+      await prisma.planningWorkStep.findMany({
+        where: {
+          planningRecordId,
+          tenantId:
+            existing.tenantId,
+          id: {
+            in: stableWorkStepIds,
+          },
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (
+      persistedWorkSteps.length !==
+      stableWorkStepIds.length
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "One or more work steps do not belong to this planning record. Save Scope & Sequence and try again.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const incomingWorkStepContext =
       buildIncomingWorkStepContext(
         workSteps,
@@ -806,6 +887,14 @@ export async function PUT(
       authorization.membership.roleCodes.join(
         ", ",
       ) || "Planning Editor";
+
+    /*
+     * Step 5 saves confirmed planning context before the planner
+     * enters Hazards & Readiness. Only Step 6 readiness saves require
+     * hazards, controls, and risk selections for every work step.
+     */
+    const requireHazardReadinessPlanning =
+      body.requireHazardReadinessPlanning !== false;
 
 
     if (workSteps.length === 0) {
@@ -845,6 +934,7 @@ export async function PUT(
       }
 
       if (
+        requireHazardReadinessPlanning &&
         !nullableString(
           step.hazards,
         )
@@ -861,6 +951,7 @@ export async function PUT(
       }
 
       if (
+        requireHazardReadinessPlanning &&
         !nullableString(
           step.controls,
         )
@@ -893,6 +984,7 @@ export async function PUT(
         undefined;
 
       if (
+        requireHazardReadinessPlanning &&
         usesExplicitRiskModel &&
         ![
           "Low",
@@ -928,6 +1020,7 @@ export async function PUT(
        * to provide riskLevel during the transition.
        */
       if (
+        requireHazardReadinessPlanning &&
         !usesExplicitRiskModel &&
         ![
           "Low",
@@ -1125,14 +1218,19 @@ export async function PUT(
 
     const controlledRiskEvaluations =
       generatedDraft.workSteps.map(
-        (generatedStep, index) => {
+        (generatedStep) => {
           const incomingStep =
-            incomingWorkStepContext[
-              index
-            ];
+            generatedStep.workStepId
+              ? incomingWorkStepContext.find(
+                  (candidate) =>
+                    candidate.workStepId ===
+                    generatedStep.workStepId,
+                )
+              : undefined;
 
           if (
             !incomingStep ||
+            !incomingStep.workStepId ||
             ![
               "Low",
               "Medium",
@@ -1164,7 +1262,7 @@ export async function PUT(
                         const preservedEvidence =
                           existingControlVerificationEvidenceByKey.get(
                             JSON.stringify([
-                              `planning-work-step:${incomingStep.sequence}`,
+                              incomingStep.workStepId,
                               group.hazard.id,
                               control.id,
                             ]),
@@ -1576,16 +1674,29 @@ export async function PUT(
                   ];
 
                 const incomingStep =
-                  incomingWorkStepContext[
-                    workStepIndex
-                  ];
+                  generatedStep?.workStepId
+                    ? incomingWorkStepContext.find(
+                        (candidate) =>
+                          candidate.workStepId ===
+                          generatedStep.workStepId,
+                      )
+                    : undefined;
 
                 if (
                   !generatedStep ||
-                  !incomingStep
+                  !incomingStep ||
+                  !incomingStep.workStepId
                 ) {
                   return [];
                 }
+
+                /*
+                 * Capture the validated stable identity before entering
+                 * nested callbacks so TypeScript and runtime behavior both
+                 * treat this as a guaranteed PlanningWorkStep ID.
+                 */
+                const stableWorkStepId =
+                  incomingStep.workStepId;
 
                 const riskCreditByControlId =
                   new Map(
@@ -1607,7 +1718,7 @@ export async function PUT(
                     const preservedEvidence =
                       existingControlVerificationEvidenceByKey.get(
                         JSON.stringify([
-                          `planning-work-step:${incomingStep.sequence}`,
+                          stableWorkStepId,
                           controlEvaluation.hazardId,
                           controlEvaluation.controlId,
                         ]),
@@ -1623,11 +1734,10 @@ export async function PUT(
                         generationContext.revisionNumber,
 
                       /*
-                       * Stable working identity independent of the
-                       * replace-on-save PlanningWorkStep database row.
+                       * Authoritative stable PlanningWorkStep identity.
                        */
                       workStepId:
-                        `planning-work-step:${incomingStep.sequence}`,
+                        stableWorkStepId,
 
                       workStepSequence:
                         incomingStep.sequence,

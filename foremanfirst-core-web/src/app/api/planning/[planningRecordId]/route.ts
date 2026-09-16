@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 import {
+  resolveResponsibleSupervisor,
+} from "@/lib/planning/resolve-responsible-supervisor";
+
+import {
   PlanningReaderAuthorizationError,
   requireAuthorizedPlanningReader,
 } from "@/lib/planning/planning-reader-authorization";
@@ -498,6 +502,45 @@ export async function PATCH(
       );
     }
 
+    const supervisorAssignmentWasProvided =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "responsibleSupervisor",
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "responsibleSupervisorId",
+      );
+
+    const supervisorAssignment =
+      supervisorAssignmentWasProvided
+        ? await resolveResponsibleSupervisor({
+            tenantId,
+            projectId,
+
+            responsibleSupervisorId:
+              body.responsibleSupervisorId,
+
+            responsibleSupervisor:
+              body.responsibleSupervisor,
+          })
+        : null;
+
+    if (
+      supervisorAssignment &&
+      !supervisorAssignment.valid
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            supervisorAssignment.message,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     if (
       body.crewSize !== undefined &&
       body.crewSize !== null &&
@@ -836,19 +879,17 @@ export async function PATCH(
                   nextStatus,
 
                 responsibleSupervisor:
-                  body.responsibleSupervisor !==
-                  undefined
-                    ? toNullableString(
-                        body.responsibleSupervisor,
-                      )
+                  supervisorAssignment &&
+                  supervisorAssignment.valid
+                    ? supervisorAssignment
+                        .responsibleSupervisor
                     : undefined,
 
                 responsibleSupervisorId:
-                  body.responsibleSupervisorId !==
-                  undefined
-                    ? toNullableString(
-                        body.responsibleSupervisorId,
-                      )
+                  supervisorAssignment &&
+                  supervisorAssignment.valid
+                    ? supervisorAssignment
+                        .responsibleSupervisorId
                     : undefined,
 
                 plannedStartDate:

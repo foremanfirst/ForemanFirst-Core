@@ -789,6 +789,9 @@ export async function buildPlanningGenerationContext(
     workSteps:
       record.workSteps.map(
         (step) => ({
+          workStepId:
+            step.id,
+
           sequence:
             step.sequence,
 

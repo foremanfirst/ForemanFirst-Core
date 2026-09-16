@@ -5493,26 +5493,49 @@ function buildWorkStepSuggestions(
        */
       const workStepOverrides =
         context.hazardControlOverrides.filter(
-          (override) =>
-            (
-              override.workStepSequence !==
-                null &&
-              override.workStepSequence ===
-                (
-                  step.sequence ||
-                  index + 1
-                )
-            ) ||
-            (
-              override.workStepTitle !==
-                null &&
-              override.workStepTitle
-                .trim()
-                .toLowerCase() ===
-                step.title
+          (override) => {
+            /*
+             * New records use the stable PlanningWorkStep identity.
+             *
+             * Sequence/title matching exists only for legacy records
+             * created before stable work-step identity was propagated
+             * through Guided Planning.
+             */
+            if (
+              step.workStepId &&
+              override.workStepId &&
+              !override.workStepId.startsWith(
+                "planning-work-step:",
+              )
+            ) {
+              return (
+                override.workStepId ===
+                step.workStepId
+              );
+            }
+
+            return (
+              (
+                override.workStepSequence !==
+                  null &&
+                override.workStepSequence ===
+                  (
+                    step.sequence ||
+                    index + 1
+                  )
+              ) ||
+              (
+                override.workStepTitle !==
+                  null &&
+                override.workStepTitle
                   .trim()
-                  .toLowerCase()
-            ),
+                  .toLowerCase() ===
+                  step.title
+                    .trim()
+                    .toLowerCase()
+              )
+            );
+          },
         );
 
       const completeHazardControlGroups =
@@ -5558,6 +5581,9 @@ function buildWorkStepSuggestions(
           : "Rule";
 
       return {
+        workStepId:
+          step.workStepId,
+
         sequence:
           step.sequence ||
           index + 1,

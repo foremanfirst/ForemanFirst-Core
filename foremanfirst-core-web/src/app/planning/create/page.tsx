@@ -2,7 +2,28 @@
 
 import Link from "next/link";
 import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
+  CSS as DndCSS,
+} from "@dnd-kit/utilities";
+import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -70,9 +91,21 @@ type ContractorOption = {
   } | null;
 };
 
+type ProjectMemberOption = {
+  userId: string;
+  displayName: string;
+  firstName: string | null;
+  lastName: string | null;
+  tenantMembershipId: string;
+  projectMembershipId: string;
+  projectId: string;
+  roleCodes: string[];
+};
+
 type PlanningOptionsResponse = {
   projects: ProjectOption[];
   contractors: ContractorOption[];
+  projectMembers: ProjectMemberOption[];
 };
 
 type PlanningRequirement = {
@@ -177,6 +210,10 @@ type WorkSequenceStep = {
   id: string;
   title: string;
   description: string;
+
+  equipmentTools?: string;
+  materialsChemicals?: string;
+  locationOverride?: string;
 };
 
 const safetyCriticalCategories = [
@@ -1146,6 +1183,12 @@ function getHazardPresentation(
 
 
 type GeneratedDraftWorkStep = {
+  /**
+   * Stable work-step identity for new generated drafts.
+   * Optional so legacy revision snapshots remain readable.
+   */
+  workStepId?: string | null;
+
   sequence: number;
   title: string;
   description: string | null;
@@ -1714,6 +1757,7 @@ type EditablePlanningRecordResponse = {
     revisionNumber: number;
     submittedAt: string | null;
     responsibleSupervisor: string | null;
+    responsibleSupervisorId: string | null;
     plannedStartDate: string | null;
     workLocation: string | null;
     crewSize: number | null;
@@ -1734,6 +1778,9 @@ type EditablePlanningRecordResponse = {
       sequence: number;
       title: string;
       description: string | null;
+      equipmentTools?: string | null;
+      materialsChemicals?: string | null;
+      locationOverride?: string | null;
       hazards: string | null;
       controls: string | null;
       safetyCritical: boolean;
@@ -2344,6 +2391,33 @@ export default function CreatePlanningPage() {
     setPlanningRecordId,
   ] = useState<string | null>(null);
 
+  /*
+   * Keep the authoritative Planning record ID available synchronously.
+   *
+   * React state updates are asynchronous. Autosave and explicit saves may
+   * otherwise both observe a null planningRecordId and create duplicate
+   * Planning drafts before the state update is committed.
+   */
+  const planningRecordIdRef =
+    useRef<string | null>(null);
+
+  /*
+   * Serializes Planning draft persistence.
+   *
+   * This is intentionally a ref rather than React state so concurrent save
+   * attempts can see the lock immediately.
+   */
+  const planningDraftSaveInFlightRef =
+    useRef<Promise<string> | null>(null);
+
+  /*
+   * Autosave must never run against partially hydrated edit state.
+   * This will be enabled only after new-record initialization or existing
+   * record hydration has reached a safe boundary.
+   */
+  const assignmentAutosaveReadyRef =
+    useRef(false);
+
   const [
     editPlanningRecordId,
     setEditPlanningRecordId,
@@ -2366,6 +2440,13 @@ export default function CreatePlanningPage() {
     planningDraftSaving,
     setPlanningDraftSaving,
   ] = useState(false);
+
+  const [
+    planningDraftSaveStatus,
+    setPlanningDraftSaveStatus,
+  ] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
 
   const [
     draftBuildSaving,
@@ -2716,7 +2797,7 @@ export default function CreatePlanningPage() {
     selectedPlanType,
     setSelectedPlanType,
   ] = useState<PlanType | null>(
-    null,
+    "PTP",
   );
 
   const [search, setSearch] =
@@ -2732,6 +2813,11 @@ export default function CreatePlanningPage() {
     useState<
       ContractorOption[]
     >([]);
+
+  const [
+    projectMembers,
+    setProjectMembers,
+  ] = useState<ProjectMemberOption[]>([]);
 
   const [
     optionsLoading,
@@ -2759,6 +2845,16 @@ export default function CreatePlanningPage() {
   ] = useState("");
 
   const [
+    responsibleSupervisorId,
+    setResponsibleSupervisorId,
+  ] = useState("");
+
+  const [
+    manualSupervisorEntry,
+    setManualSupervisorEntry,
+  ] = useState(false);
+
+  const [
     plannedStartDate,
     setPlannedStartDate,
   ] = useState("");
@@ -2767,6 +2863,16 @@ export default function CreatePlanningPage() {
     workLocation,
     setWorkLocation,
   ] = useState("");
+
+  const [
+    assignmentErrors,
+    setAssignmentErrors,
+  ] = useState<{
+    project?: string;
+    contractor?: string;
+    supervisor?: string;
+    workLocation?: string;
+  }>({});
 
   const [
     stepError,
@@ -2807,6 +2913,61 @@ export default function CreatePlanningPage() {
     planSpecificUploadError,
     setPlanSpecificUploadError,
   ] = useState("");
+
+  useEffect(() => {
+    if (!planningRecordId) {
+      setPlanSpecificDocuments([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPlanSpecificDocuments() {
+      try {
+        const response = await fetch(
+          `/api/planning/${planningRecordId}/source-documents`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        const data =
+          (await response.json()) as {
+            documents?: PersistedPlanningSourceDocument[];
+            message?: string;
+          };
+
+        if (!response.ok) {
+          throw new Error(
+            data.message ||
+              "Unable to restore Planning source documents.",
+          );
+        }
+
+        if (!cancelled) {
+          setPlanSpecificDocuments(
+            data.documents ?? [],
+          );
+          setPlanSpecificUploadError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPlanSpecificUploadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to restore Planning source documents.",
+          );
+        }
+      }
+    }
+
+    void loadPlanSpecificDocuments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [planningRecordId]);
 
   const [scopeTitle, setScopeTitle] =
     useState("");
@@ -2857,6 +3018,45 @@ export default function CreatePlanningPage() {
       description: "",
     },
   ]);
+
+  const workStepTitleInputRefs =
+    useRef<Record<string, HTMLInputElement | null>>({});
+
+  const pendingWorkStepFocusIdRef =
+    useRef<string | null>(null);
+
+  const pendingWorkStepScrollIdRef =
+    useRef<string | null>(null);
+
+  const workSequenceSensors =
+    useSensors(
+      useSensor(
+        MouseSensor,
+        {
+          activationConstraint: {
+            distance: 8,
+          },
+        },
+      ),
+
+      useSensor(
+        TouchSensor,
+        {
+          activationConstraint: {
+            delay: 250,
+            tolerance: 8,
+          },
+        },
+      ),
+
+      useSensor(
+        KeyboardSensor,
+        {
+          coordinateGetter:
+            sortableKeyboardCoordinates,
+        },
+      ),
+    );
 
 
   const [
@@ -3357,6 +3557,11 @@ export default function CreatePlanningPage() {
   ] = useState<Record<string, WorkStepPlanning>>({});
 
   const [
+    confirmedRemovedWorkStepIds,
+    setConfirmedRemovedWorkStepIds,
+  ] = useState<string[]>([]);
+
+  const [
     requiredPpe,
     setRequiredPpe,
   ] = useState("");
@@ -3470,9 +3675,39 @@ export default function CreatePlanningPage() {
         "planningRecordId",
       );
 
+    /*
+     * Existing planning records own their saved project context.
+     * Never allow launch parameters to override an existing draft.
+     */
     if (existingRecordId) {
       setEditPlanningRecordId(
         existingRecordId,
+      );
+      return;
+    }
+
+    const launchProjectId =
+      params.get("projectId");
+
+    const launchContractorId =
+      params.get("contractorId");
+
+    /*
+     * New planning records may inherit project and contractor
+     * context from the workflow the user launched Planning from.
+     *
+     * Both values are validated against authorized planning
+     * options before they are trusted.
+     */
+    if (launchProjectId) {
+      setSelectedProjectId(
+        launchProjectId,
+      );
+    }
+
+    if (launchContractorId) {
+      setSelectedContractorId(
+        launchContractorId,
       );
     }
   }, []);
@@ -3822,6 +4057,18 @@ export default function CreatePlanningPage() {
                   description:
                     step.description ??
                     "",
+
+                  equipmentTools:
+                    step.equipmentTools ??
+                    "",
+
+                  materialsChemicals:
+                    step.materialsChemicals ??
+                    "",
+
+                  locationOverride:
+                    step.locationOverride ??
+                    "",
                 }),
               )
             : [
@@ -3941,6 +4188,9 @@ export default function CreatePlanningPage() {
           return;
         }
 
+        planningRecordIdRef.current =
+          record.id;
+
         setPlanningRecordId(
           record.id,
         );
@@ -3959,6 +4209,16 @@ export default function CreatePlanningPage() {
         setResponsibleSupervisor(
           record.responsibleSupervisor ??
             "",
+        );
+        setResponsibleSupervisorId(
+          record.responsibleSupervisorId ??
+            "",
+        );
+        setManualSupervisorEntry(
+          Boolean(
+            record.responsibleSupervisor &&
+              !record.responsibleSupervisorId,
+          ),
         );
         setPlannedStartDate(
           toDateInputValue(
@@ -4227,6 +4487,16 @@ export default function CreatePlanningPage() {
         }
       } finally {
         if (!cancelled) {
+          /*
+           * Existing Planning records must not autosave while their saved
+           * assignment state is still being restored.
+           *
+           * Set the ref before editModeLoading changes so the render caused
+           * by setEditModeLoading(false) may safely evaluate autosave.
+           */
+          assignmentAutosaveReadyRef.current =
+            true;
+
           setEditModeLoading(false);
         }
       }
@@ -4285,6 +4555,12 @@ export default function CreatePlanningPage() {
           setContractors(
             data.contractors,
           );
+
+          setProjectMembers(
+            "projectMembers" in data
+              ? data.projectMembers
+              : [],
+          );
         }
       } catch (error) {
         if (!cancelled) {
@@ -4309,6 +4585,57 @@ export default function CreatePlanningPage() {
       cancelled = true;
     };
   }, []);
+
+  /*
+   * Smart project defaulting for NEW planning records.
+   *
+   * Priority:
+   * 1. Existing draft project — hydrated elsewhere and never changed here.
+   * 2. Project supplied through ?projectId=...
+   * 3. Automatically select when the user only has one accessible project.
+   * 4. If multiple projects are available, require an explicit selection.
+   *
+   * This deliberately avoids guessing based on array order.
+   */
+  useEffect(() => {
+    if (
+      optionsLoading ||
+      editPlanningRecordId
+    ) {
+      return;
+    }
+
+    if (selectedProjectId) {
+      const selectedProjectExists =
+        projects.some(
+          (project) =>
+            project.id ===
+            selectedProjectId,
+        );
+
+      /*
+       * A project passed through the URL must still be accessible
+       * to the current user/tenant. If it is not present in the
+       * authorized planning options, discard it.
+       */
+      if (!selectedProjectExists) {
+        setSelectedProjectId("");
+      }
+
+      return;
+    }
+
+    if (projects.length === 1) {
+      setSelectedProjectId(
+        projects[0].id,
+      );
+    }
+  }, [
+    editPlanningRecordId,
+    optionsLoading,
+    projects,
+    selectedProjectId,
+  ]);
 
   const filteredPlanTypes =
     useMemo(() => {
@@ -4346,6 +4673,20 @@ export default function CreatePlanningPage() {
         ) ?? null
       : null;
 
+  const projectMemberOptions =
+    useMemo(
+      () =>
+        projectMembers.filter(
+          (member) =>
+            member.projectId ===
+            selectedProjectId,
+        ),
+      [
+        projectMembers,
+        selectedProjectId,
+      ],
+    );
+
   const selectedProject =
     projects.find(
       (project) =>
@@ -4377,6 +4718,90 @@ export default function CreatePlanningPage() {
         contractor.id ===
         selectedContractorId,
     );
+
+  /*
+   * Step 1 readiness is derived from authoritative current context.
+   *
+   * Do not persist this as its own state. It should always reflect whether
+   * the assignment can safely progress right now.
+   *
+   * Manual supervisors are valid when a name exists and no identity ID is
+   * attached. Identity-backed supervisors must still belong to this project.
+   */
+  const responsibleSupervisorIsValid =
+    Boolean(
+      responsibleSupervisor.trim(),
+    ) &&
+    (
+      !responsibleSupervisorId ||
+      projectMemberOptions.some(
+        (member) =>
+          member.userId ===
+          responsibleSupervisorId,
+      )
+    );
+
+  const assignmentReadyToContinue =
+    Boolean(selectedProject) &&
+    Boolean(selectedContractor) &&
+    responsibleSupervisorIsValid &&
+    Boolean(workLocation.trim());
+
+  /*
+   * Smart contractor defaulting for NEW planning records.
+   *
+   * Priority:
+   * 1. Existing draft contractor — hydrated elsewhere.
+   * 2. Valid contractor supplied through ?contractorId=...
+   * 3. Automatically select when exactly one contractor is
+   *    available for the selected project.
+   * 4. If multiple contractors are available, require the
+   *    user to choose.
+   *
+   * Compliance and approval status do not determine whether
+   * a contractor can be selected for planning. Readiness is
+   * surfaced separately instead of hiding planning context.
+   */
+  useEffect(() => {
+    if (
+      optionsLoading ||
+      editPlanningRecordId ||
+      !selectedProjectId
+    ) {
+      return;
+    }
+
+    if (selectedContractorId) {
+      const selectedContractorExists =
+        projectContractors.some(
+          (contractor) =>
+            contractor.id ===
+            selectedContractorId,
+        );
+
+      /*
+       * Reject stale or launch-supplied contractor IDs that
+       * do not belong to the selected project.
+       */
+      if (!selectedContractorExists) {
+        setSelectedContractorId("");
+      }
+
+      return;
+    }
+
+    if (projectContractors.length === 1) {
+      setSelectedContractorId(
+        projectContractors[0].id,
+      );
+    }
+  }, [
+    editPlanningRecordId,
+    optionsLoading,
+    projectContractors,
+    selectedContractorId,
+    selectedProjectId,
+  ]);
 
 
   useEffect(() => {
@@ -4711,11 +5136,18 @@ export default function CreatePlanningPage() {
             const generatedStep =
               generatedPlanningDraft?.workSteps.find(
                 (candidate) =>
-                  candidate.sequence ===
-                  index + 1,
+                  candidate.workStepId ===
+                  step.id,
               ) ??
               generatedPlanningDraft?.workSteps.find(
                 (candidate) =>
+                  !candidate.workStepId &&
+                  candidate.sequence ===
+                    index + 1,
+              ) ??
+              generatedPlanningDraft?.workSteps.find(
+                (candidate) =>
+                  !candidate.workStepId &&
                   candidate.title
                     .trim()
                     .toLowerCase() ===
@@ -5333,6 +5765,127 @@ export default function CreatePlanningPage() {
       approvalAssignmentConfirmations,
     ]);
 
+  /*
+   * NEW-record autosave readiness.
+   *
+   * Existing records become ready only after hydration completes above.
+   * New records become eligible once authorized Planning options finish
+   * loading. The autosave effect below still requires a complete assignment
+   * before creating the first Planning record.
+   */
+  useEffect(() => {
+    if (
+      optionsLoading ||
+      editPlanningRecordId
+    ) {
+      return;
+    }
+
+    assignmentAutosaveReadyRef.current =
+      true;
+  }, [
+    editPlanningRecordId,
+    optionsLoading,
+  ]);
+
+  /*
+   * Step 1 assignment autosave.
+   *
+   * UX goal:
+   * The field user changes assignment information and Qoreva quietly
+   * persists it after a short pause. Continue is for moving forward,
+   * not for remembering to save.
+   *
+   * New records:
+   * Do not create a Planning record until the minimum required assignment
+   * is complete.
+   *
+   * Existing records:
+   * Permit edits to become temporarily incomplete and persist those changes
+   * once the project/contractor relationship is valid. This is important
+   * when a user intentionally changes or clears previously saved values.
+   */
+  useEffect(() => {
+    if (
+      currentStep !== 1 ||
+      !assignmentAutosaveReadyRef.current ||
+      editModeLoading ||
+      optionsLoading ||
+      !selectedPlanType ||
+      !selectedProject ||
+      !selectedContractor
+    ) {
+      return;
+    }
+
+    const existingPlanningRecord =
+      Boolean(
+        planningRecordIdRef.current,
+      );
+
+    const completeNewAssignment =
+      Boolean(
+        selectedProjectId &&
+          selectedContractorId &&
+          responsibleSupervisor.trim() &&
+          workLocation.trim(),
+      );
+
+    /*
+     * Avoid creating half-complete drafts just because project/contractor
+     * defaults happened automatically.
+     */
+    if (
+      !existingPlanningRecord &&
+      !completeNewAssignment
+    ) {
+      return;
+    }
+
+    /*
+     * The saved indicator must never imply that newly edited data has already
+     * reached the server while the debounce timer is still running.
+     */
+    setPlanningDraftSaveStatus(
+      "idle",
+    );
+
+    const autosaveTimer =
+      window.setTimeout(() => {
+        void savePlanningDraft().catch(
+          (error) => {
+            /*
+             * savePlanningDraft owns the visible error state. Keep this catch
+             * so a background autosave rejection never becomes unhandled.
+             */
+            console.error(
+              "Unable to autosave Planning assignment.",
+              error,
+            );
+          },
+        );
+      }, 800);
+
+    return () => {
+      window.clearTimeout(
+        autosaveTimer,
+      );
+    };
+  }, [
+    currentStep,
+    editModeLoading,
+    optionsLoading,
+    plannedStartDate,
+    responsibleSupervisor,
+    responsibleSupervisorId,
+    selectedContractor,
+    selectedContractorId,
+    selectedPlanType,
+    selectedProject,
+    selectedProjectId,
+    workLocation,
+  ]);
+
   function handleProjectChange(
     projectId: string,
   ) {
@@ -5344,67 +5897,70 @@ export default function CreatePlanningPage() {
       "",
     );
 
+    setResponsibleSupervisorId("");
+    setResponsibleSupervisor("");
+    setManualSupervisorEntry(false);
+
     setRequirementsData(null);
     setSelectedDocumentIds([]);
     setPlanSpecificDocuments([]);
     setStepError("");
   }
 
-  async function continueFromAssignment() {
-    if (!selectedPlanType) {
-      setStepError(
-        "Select a plan type before continuing.",
-      );
-      return;
-    }
-
-    if (!selectedProjectId) {
-      setStepError(
-        "Select the project where the work will occur.",
-      );
-      return;
-    }
-
-    if (!selectedContractorId) {
-      setStepError(
-        "Select the contractor performing the work.",
-      );
-      return;
-    }
-
-    if (!responsibleSupervisor.trim()) {
-      setStepError(
-        "Enter the responsible supervisor or foreman.",
-      );
-      return;
-    }
-
+  async function savePlanningDraft() {
     if (!selectedProject) {
-      setStepError(
+      throw new Error(
         "The selected project could not be loaded.",
       );
-      return;
     }
 
     if (!selectedContractor) {
-      setStepError(
+      throw new Error(
         "The selected contractor could not be loaded.",
       );
-      return;
     }
 
-    setStepError("");
-    setRequirementsError("");
-    setRequirementsLoading(true);
-    setPlanningDraftSaving(true);
+    /*
+     * Serialize draft persistence.
+     *
+     * Each save waits for the prior save before reading the authoritative
+     * planningRecordIdRef. This prevents two callers from POSTing duplicate
+     * Planning records while still allowing the latest state to be persisted
+     * immediately afterward.
+     */
+    const previousSave =
+      planningDraftSaveInFlightRef.current;
 
-    try {
+    setPlanningDraftSaving(true);
+    setPlanningDraftSaveStatus("saving");
+
+    const savePromise = (async () => {
+      if (previousSave) {
+        try {
+          await previousSave;
+        } catch {
+          /*
+           * A previous network/server failure must not poison the save queue.
+           * The newest edit should still get a fresh persistence attempt.
+           */
+        }
+      }
+
       const draftPayload = {
-        tenantId: selectedProject.tenantId,
-        companyId: selectedProject.companyId,
-        projectId: selectedProject.id,
-        contractorId: selectedContractor.id,
-        planType: selectedPlanType,
+        tenantId:
+          selectedProject.tenantId,
+
+        companyId:
+          selectedProject.companyId,
+
+        projectId:
+          selectedProject.id,
+
+        contractorId:
+          selectedContractor.id,
+
+        planType:
+          selectedPlanType,
 
         title:
           scopeTitle.trim() ||
@@ -5413,11 +5969,16 @@ export default function CreatePlanningPage() {
         responsibleSupervisor:
           responsibleSupervisor.trim(),
 
+        responsibleSupervisorId:
+          responsibleSupervisorId ||
+          null,
+
         plannedStartDate:
           plannedStartDate || null,
 
         workLocation:
-          workLocation.trim() || null,
+          workLocation.trim() ||
+          null,
 
         crewSize:
           crewSize || null,
@@ -5429,20 +5990,23 @@ export default function CreatePlanningPage() {
       };
 
       let activePlanningRecordId =
-        planningRecordId;
+        planningRecordIdRef.current;
 
       if (!activePlanningRecordId) {
         const createResponse =
-          await fetch("/api/planning", {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
+          await fetch(
+            "/api/planning",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify(
+                draftPayload,
+              ),
             },
-            body: JSON.stringify(
-              draftPayload,
-            ),
-          });
+          );
 
         const createData =
           (await createResponse.json()) as {
@@ -5468,9 +6032,63 @@ export default function CreatePlanningPage() {
         activePlanningRecordId =
           createData.record.id;
 
+        /*
+         * Update the synchronous ref before React state.
+         * A subsequent queued save will now PATCH this record instead of
+         * creating a second Planning draft.
+         */
+        planningRecordIdRef.current =
+          activePlanningRecordId;
+
         setPlanningRecordId(
           activePlanningRecordId,
         );
+
+        /*
+         * Once a new draft exists, make the browser URL address that
+         * authoritative Planning record.
+         *
+         * This allows refresh, copied links, browser recovery, and direct
+         * reopening to hydrate the same draft instead of starting over.
+         *
+         * replaceState is intentional: creating the draft should not add an
+         * artificial browser-history entry.
+         */
+        if (typeof window !== "undefined") {
+          const params =
+            new URLSearchParams(
+              window.location.search,
+            );
+
+          params.set(
+            "planningRecordId",
+            activePlanningRecordId,
+          );
+
+          /*
+           * The saved Planning record now owns its project/contractor
+           * context. Remove launch-only parameters so they cannot compete
+           * with persisted record state on reload.
+           */
+          params.delete("projectId");
+          params.delete("contractorId");
+
+          const nextSearch =
+            params.toString();
+
+          const nextUrl =
+            `${window.location.pathname}${
+              nextSearch
+                ? `?${nextSearch}`
+                : ""
+            }${window.location.hash}`;
+
+          window.history.replaceState(
+            window.history.state,
+            "",
+            nextUrl,
+          );
+        }
       } else {
         const updateResponse =
           await fetch(
@@ -5503,6 +6121,185 @@ export default function CreatePlanningPage() {
         }
       }
 
+      return activePlanningRecordId;
+    })();
+
+    planningDraftSaveInFlightRef.current =
+      savePromise;
+
+    try {
+      const savedPlanningRecordId =
+        await savePromise;
+
+      if (
+        planningDraftSaveInFlightRef.current ===
+        savePromise
+      ) {
+        setPlanningDraftSaveStatus(
+          "saved",
+        );
+      }
+
+      return savedPlanningRecordId;
+    } catch (error) {
+      if (
+        planningDraftSaveInFlightRef.current ===
+        savePromise
+      ) {
+        setPlanningDraftSaveStatus(
+          "error",
+        );
+      }
+
+      throw error;
+    } finally {
+      /*
+       * Only the newest queued save may release the global saving state.
+       * An earlier request finishing must not display "saved" while another
+       * persistence operation is still waiting or running.
+       */
+      if (
+        planningDraftSaveInFlightRef.current ===
+        savePromise
+      ) {
+        planningDraftSaveInFlightRef.current =
+          null;
+
+        setPlanningDraftSaving(false);
+      }
+    }
+  }
+
+  async function continueFromAssignment() {
+    if (!selectedPlanType) {
+      setStepError(
+        "Select a plan type before continuing.",
+      );
+      return;
+    }
+
+    const nextAssignmentErrors: {
+      project?: string;
+      contractor?: string;
+      supervisor?: string;
+      workLocation?: string;
+    } = {};
+
+    /*
+     * Validate both required input and saved-context integrity.
+     *
+     * Missing values tell the user what still needs to be entered.
+     * Stale values tell the user when previously selected project data is no
+     * longer available or valid for the current assignment.
+     */
+    if (!selectedProjectId) {
+      nextAssignmentErrors.project =
+        "Select the project where the work will occur.";
+    } else if (!selectedProject) {
+      nextAssignmentErrors.project =
+        "This project is no longer available. Select an authorized project.";
+    }
+
+    if (!selectedContractorId) {
+      nextAssignmentErrors.contractor =
+        "Select the contractor performing the work.";
+    } else if (!selectedContractor) {
+      nextAssignmentErrors.contractor =
+        "This contractor is not available for the selected project. Select another contractor.";
+    }
+
+    if (!responsibleSupervisor.trim()) {
+      nextAssignmentErrors.supervisor =
+        "Select or enter the responsible supervisor or foreman.";
+    } else if (
+      responsibleSupervisorId &&
+      !projectMemberOptions.some(
+        (member) =>
+          member.userId ===
+          responsibleSupervisorId,
+      )
+    ) {
+      nextAssignmentErrors.supervisor =
+        "This supervisor is no longer assigned to the selected project. Select another person or use Person not listed.";
+    }
+
+    if (!workLocation.trim()) {
+      nextAssignmentErrors.workLocation =
+        "Enter the work location or area.";
+    }
+
+    const assignmentErrorCount =
+      Object.keys(
+        nextAssignmentErrors,
+      ).length;
+
+    if (assignmentErrorCount > 0) {
+      setAssignmentErrors(
+        nextAssignmentErrors,
+      );
+
+      setStepError(
+        assignmentErrorCount === 1
+          ? "Complete the required field highlighted below."
+          : `Complete the ${assignmentErrorCount} fields highlighted below.`,
+      );
+
+      /*
+       * Wait for React to render the new inline errors, then guide the user
+       * directly to the first invalid control.
+       *
+       * This is especially important on mobile where the first error may be
+       * above the current viewport.
+       */
+      window.requestAnimationFrame(
+        () => {
+          const firstInvalidControl =
+            document.querySelector<
+              HTMLInputElement |
+                HTMLSelectElement
+            >(
+              '[aria-invalid="true"]',
+            );
+
+          if (!firstInvalidControl) {
+            return;
+          }
+
+          firstInvalidControl.scrollIntoView(
+            {
+              behavior: "smooth",
+              block: "center",
+            },
+          );
+
+          firstInvalidControl.focus({
+            preventScroll: true,
+          });
+        },
+      );
+
+      return;
+    }
+
+    setAssignmentErrors({});
+
+    setStepError("");
+    setRequirementsError("");
+    setRequirementsLoading(true);
+
+    try {
+      /*
+       * Continue is a progression action, not a Save button.
+       *
+       * Start persistence and requirements discovery together so the user
+       * does not wait for one network operation before the other begins.
+       *
+       * We still require the draft save to succeed before entering the next
+       * step, preserving Qoreva's record integrity.
+       */
+      const draftSavePromise =
+        savePlanningDraft();
+
       const params =
         new URLSearchParams({
           projectId:
@@ -5511,14 +6308,22 @@ export default function CreatePlanningPage() {
             selectedContractorId,
         });
 
-      const response =
-        await fetch(
+      const requirementsPromise =
+        fetch(
           `/api/planning/requirements?${params.toString()}`,
           {
             method: "GET",
             cache: "no-store",
           },
         );
+
+      const [
+        ,
+        response,
+      ] = await Promise.all([
+        draftSavePromise,
+        requirementsPromise,
+      ]);
 
       const data =
         (await response.json()) as
@@ -5556,6 +6361,15 @@ export default function CreatePlanningPage() {
         );
 
         setCurrentStep(3);
+
+        window.requestAnimationFrame(
+          () => {
+            window.scrollTo({
+              top: 0,
+              behavior: "smooth",
+            });
+          },
+        );
       }
     } catch (error) {
       const message =
@@ -5572,7 +6386,6 @@ export default function CreatePlanningPage() {
       );
     } finally {
       setRequirementsLoading(false);
-      setPlanningDraftSaving(false);
     }
   }
 
@@ -5697,20 +6510,126 @@ export default function CreatePlanningPage() {
     setCurrentStep(4);
   }
 
-  function addWorkSequenceStep() {
+  useEffect(() => {
+    const pendingFocusStepId =
+      pendingWorkStepFocusIdRef.current;
+
+    const pendingScrollStepId =
+      pendingWorkStepScrollIdRef.current;
+
+    const targetStepId =
+      pendingFocusStepId ??
+      pendingScrollStepId;
+
+    if (!targetStepId) {
+      return;
+    }
+
+    const input =
+      workStepTitleInputRefs.current[
+        targetStepId
+      ];
+
+    if (!input) {
+      return;
+    }
+
+    pendingWorkStepFocusIdRef.current =
+      null;
+
+    pendingWorkStepScrollIdRef.current =
+      null;
+
+    requestAnimationFrame(() => {
+      input.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      if (
+        pendingFocusStepId ===
+        targetStepId
+      ) {
+        input.focus({
+          preventScroll: true,
+        });
+      }
+    });
+  }, [workSequence]);
+
+  function addWorkSequenceStep(
+    focusNewStep = false,
+  ) {
+    const newStepId =
+      `step-${crypto.randomUUID()}`;
+
+    pendingWorkStepFocusIdRef.current =
+      focusNewStep
+        ? newStepId
+        : null;
+
     setWorkSequence((current) => [
       ...current,
       {
-        id: `step-${Date.now()}`,
+        id: newStepId,
         title: "",
         description: "",
       },
     ]);
   }
 
+  function handleWorkSequenceDragEnd(
+    event: DragEndEvent,
+  ) {
+    const {
+      active,
+      over,
+    } = event;
+
+    if (
+      !over ||
+      active.id === over.id
+    ) {
+      return;
+    }
+
+    setWorkSequence((current) => {
+      const oldIndex =
+        current.findIndex(
+          (step) =>
+            step.id === active.id,
+        );
+
+      const newIndex =
+        current.findIndex(
+          (step) =>
+            step.id === over.id,
+        );
+
+      if (
+        oldIndex === -1 ||
+        newIndex === -1
+      ) {
+        return current;
+      }
+
+      return arrayMove(
+        current,
+        oldIndex,
+        newIndex,
+      );
+    });
+
+    setStepError("");
+  }
+
   function updateWorkSequenceStep(
     id: string,
-    field: "title" | "description",
+    field: "title"
+      | "description"
+      | "equipmentTools"
+      | "materialsChemicals"
+      | "locationOverride",
     value: string,
   ) {
     setWorkSequence((current) =>
@@ -5728,15 +6647,145 @@ export default function CreatePlanningPage() {
   function removeWorkSequenceStep(
     id: string,
   ) {
+    const step =
+      workSequence.find(
+        (candidate) =>
+          candidate.id === id,
+      );
+
+    if (!step) {
+      return;
+    }
+
+    const isPersistedStep =
+      !id.startsWith("step-");
+
+    const hasUserContent =
+      Boolean(step.title.trim()) ||
+      Boolean(step.description.trim());
+
+    const planning =
+      workStepPlanning[id];
+
+    const hasPlanning =
+      Boolean(
+        planning?.hazards.trim(),
+      ) ||
+      Boolean(
+        planning?.controls.trim(),
+      ) ||
+      Boolean(
+        planning?.safetyCritical,
+      ) ||
+      Boolean(
+        planning?.riskLevel,
+      ) ||
+      Boolean(
+        planning?.inherentRiskLevel,
+      ) ||
+      Boolean(
+        planning?.recommendedControlledRiskLevel,
+      ) ||
+      Boolean(
+        planning?.controlledRiskLevel,
+      );
+
+    /*
+     * A completely blank, unsaved step is disposable.
+     *
+     * Once the user has entered meaningful content, or the step
+     * has been persisted/planned, deletion becomes explicit.
+     */
+    const requiresConfirmation =
+      isPersistedStep ||
+      hasUserContent ||
+      hasPlanning;
+
+    if (requiresConfirmation) {
+      const stepLabel =
+        step.title.trim() ||
+        "this work step";
+
+      const confirmed =
+        window.confirm(
+          hasPlanning
+            ? `Remove "${stepLabel}"?\n\nThis work step has hazard, control, safety-critical, or risk planning associated with it. Removing it will also remove current-draft planning tied specifically to this work step.\n\nThis information will not be reassigned to another work step.`
+            : hasUserContent
+              ? `Remove "${stepLabel}"?\n\nYou have entered information for this work step. Removing it will discard that work.`
+              : `Remove "${stepLabel}"?\n\nThis is a saved work step. Qoreva will remove the step and any current-draft planning tied specifically to it.`,
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    /*
+     * Only persisted IDs need explicit server-side deletion
+     * authorization. Temporary step-* IDs do not exist in the
+     * database yet.
+     */
+    if (isPersistedStep) {
+      setConfirmedRemovedWorkStepIds(
+        (current) =>
+          current.includes(id)
+            ? current
+            : [...current, id],
+      );
+    }
+
     setWorkSequence((current) => {
       if (current.length === 1) {
         return current;
       }
 
+      const removedIndex =
+        current.findIndex(
+          (candidate) =>
+            candidate.id === id,
+        );
+
+      if (removedIndex === -1) {
+        return current;
+      }
+
+      const previousStep =
+        current[
+          Math.max(
+            removedIndex - 1,
+            0,
+          )
+        ];
+
+      pendingWorkStepFocusIdRef.current =
+        null;
+
+      pendingWorkStepScrollIdRef.current =
+        previousStep?.id ?? null;
+
       return current.filter(
-        (step) => step.id !== id,
+        (candidate) =>
+          candidate.id !== id,
       );
     });
+
+    setWorkStepPlanning(
+      (current) => {
+        if (!(id in current)) {
+          return current;
+        }
+
+        const next = {
+          ...current,
+        };
+
+        delete next[id];
+
+        return next;
+      },
+    );
+
+    setStepError("");
   }
 
   function toggleSafetyCriticalCategory(
@@ -6053,18 +7102,41 @@ export default function CreatePlanningPage() {
                 "application/json",
             },
             body: JSON.stringify({
+              confirmedRemovedWorkStepIds,
+
               workSteps:
                 completedSequence.map(
                   (
                     step,
                     index,
                   ) => ({
+                    id:
+                      step.id.startsWith(
+                        "step-",
+                      )
+                        ? null
+                        : step.id,
+
                     sequence:
                       index + 1,
+
                     title:
                       step.title.trim(),
+
                     description:
                       step.description.trim() ||
+                      null,
+
+                    equipmentTools:
+                      step.equipmentTools?.trim() ||
+                      null,
+
+                    materialsChemicals:
+                      step.materialsChemicals?.trim() ||
+                      null,
+
+                    locationOverride:
+                      step.locationOverride?.trim() ||
                       null,
                   }),
                 ),
@@ -6079,6 +7151,9 @@ export default function CreatePlanningPage() {
             sequence: number;
             title: string;
             description: string | null;
+            equipmentTools?: string | null;
+            materialsChemicals?: string | null;
+            locationOverride?: string | null;
           }>;
           saved?: {
             workSteps: number;
@@ -6135,6 +7210,10 @@ export default function CreatePlanningPage() {
         );
       }
 
+      setConfirmedRemovedWorkStepIds(
+        [],
+      );
+
       setWorkSequence(
         persistedWorkSequence,
       );
@@ -6155,6 +7234,11 @@ export default function CreatePlanningPage() {
       persistedWorkSequence.forEach(
         (step, index) => {
           const priorClientStep =
+            completedSequence.find(
+              (candidate) =>
+                candidate.id ===
+                step.id,
+            ) ??
             completedSequence[index];
 
           const priorPlanning =
@@ -6826,6 +7910,7 @@ export default function CreatePlanningPage() {
             workStepPlanning[step.id];
 
           return {
+            id: step.id,
             sequence: index + 1,
             title: step.title.trim(),
             description:
@@ -6892,6 +7977,8 @@ export default function CreatePlanningPage() {
                 "application/json",
             },
             body: JSON.stringify({
+              requireHazardReadinessPlanning,
+
               confirmedActivities:
                 detectedActivities
                   .filter((activity) =>
@@ -13606,51 +14693,38 @@ export default function CreatePlanningPage() {
                 </div>
               </div>
 
-              {filteredPlanTypes.length ===
-              0 ? (
+              {filteredPlanTypes.length === 0 ? (
                 <EmptySelection
                   title="No planning types found."
                   description="Try a different search."
                 />
               ) : (
-                <div
-                  className="
-                    grid
-                    gap-4
-                    md:grid-cols-2
-                    xl:grid-cols-3
-                  "
-                >
-                  {filteredPlanTypes.map(
-                    (
-                      planType,
-                    ) => {
+                <div className="grid gap-5 xl:grid-cols-[1.05fr_2fr]">
+                  {/* Selected planning document */}
+                  {filteredPlanTypes
+                    .filter((planType) => planType.type === selectedPlanType)
+                    .map((planType) => {
                       const selected =
-                        selectedPlanType ===
-                        planType.type;
+                        selectedPlanType === planType.type;
 
                       return (
                         <button
-                          key={
-                            planType.type
-                          }
+                          key={planType.type}
                           type="button"
                           onClick={() => {
-                            setSelectedPlanType(
-                              planType.type,
-                            );
-
-                            setStepError(
-                              "",
-                            );
+                            setSelectedPlanType(planType.type);
+                            setStepError("");
                           }}
                           className={`
                             group
                             relative
-                            min-h-48
+                            self-start
+                            min-h-0
                             rounded-2xl
                             border
-                            p-5
+                            p-4
+                            sm:min-h-[15rem]
+                            sm:p-6
                             text-left
                             shadow-[var(--qoreva-shadow-sm)]
                             transition-all
@@ -13673,16 +14747,16 @@ export default function CreatePlanningPage() {
                             }
                           `}
                         >
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                             <div
                               className={`
                                 flex
-                                h-11
-                                min-w-11
+                                h-12
+                                min-w-12
                                 items-center
                                 justify-center
                                 rounded-xl
-                                px-2.5
+                                px-3
                                 text-xs
                                 font-black
 
@@ -13699,75 +14773,61 @@ export default function CreatePlanningPage() {
                                 }
                               `}
                             >
-                              {
-                                planType.type
-                              }
+                              {planType.type}
                             </div>
 
-                            {planType.recommended ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {planType.recommended ? (
+                                <span
+                                  className="
+                                    rounded-full
+                                    border
+                                    border-[rgba(102,87,232,0.18)]
+                                    bg-white
+                                    px-3
+                                    py-1
+                                    text-[9px]
+                                    font-black
+                                    uppercase
+                                    tracking-[0.08em]
+                                    text-[var(--qoreva-violet-dark)]
+                                  "
+                                >
+                                  Recommended
+                                </span>
+                              ) : null}
+
                               <span
                                 className="
                                   rounded-full
-                                  border
-                                  border-[rgba(102,87,232,0.18)]
-                                  bg-white
-                                  px-2.5
+                                  bg-[var(--qoreva-violet)]
+                                  px-3
                                   py-1
                                   text-[9px]
                                   font-black
                                   uppercase
                                   tracking-[0.08em]
-                                  text-[var(--qoreva-violet-dark)]
+                                  text-white
                                 "
                               >
-                                Recommended
+                                Selected
                               </span>
-                            ) : null}
+                            </div>
                           </div>
 
-                          <p
-                            className="
-                              mt-4
-                              text-base
-                              font-black
-                              text-[var(--qoreva-obsidian)]
-                            "
-                          >
-                            {
-                              planType.title
-                            }
+                          <p className="mt-4 text-lg font-black text-[var(--qoreva-obsidian)] sm:mt-6 sm:text-xl">
+                            {planType.title}
                           </p>
 
-                          <p
-                            className="
-                              mt-1
-                              text-xs
-                              font-bold
-                              uppercase
-                              tracking-[0.08em]
-                              text-[var(--qoreva-muted)]
-                            "
-                          >
-                            {
-                              planType.category
-                            }
+                          <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                            {planType.category}
                           </p>
 
-                          <p
-                            className="
-                              mt-3
-                              text-sm
-                              font-medium
-                              leading-5
-                              text-[var(--qoreva-muted)]
-                            "
-                          >
-                            {
-                              planType.description
-                            }
+                          <p className="mt-3 max-w-md text-sm font-medium leading-6 text-[var(--qoreva-muted)] sm:mt-4">
+                            {planType.description}
                           </p>
 
-                          <div className="mt-5 flex items-center gap-2">
+                          <div className="mt-5 flex items-center gap-2 sm:mt-8">
                             <span
                               className={`
                                 flex
@@ -13792,9 +14852,7 @@ export default function CreatePlanningPage() {
                                 }
                               `}
                             >
-                              {selected ? (
-                                <CheckIcon />
-                              ) : null}
+                              {selected ? <CheckIcon /> : null}
                             </span>
 
                             <span
@@ -13809,15 +14867,145 @@ export default function CreatePlanningPage() {
                                 }
                               `}
                             >
-                              {selected
-                                ? "Selected"
-                                : "Select plan"}
+                              {selected ? "Selected" : "Select plan"}
                             </span>
                           </div>
                         </button>
                       );
-                    },
-                  )}
+                    })}
+
+                  {/* Other planning documents */}
+                  <div
+                    className="
+                      rounded-2xl
+                      border
+                      border-[var(--qoreva-border)]
+                      bg-white
+                      p-5
+                      shadow-[var(--qoreva-shadow-sm)]
+                    "
+                  >
+                    <div className="mb-4">
+                      <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                        Other Planning Documents
+                      </p>
+
+                      <p className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
+                        Use another workflow when required by the project,
+                        owner, or work activity.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {filteredPlanTypes
+                        .filter((planType) => planType.type !== selectedPlanType)
+                        .map((planType) => {
+                          const selected =
+                            selectedPlanType === planType.type;
+
+                          return (
+                            <button
+                              key={planType.type}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPlanType(planType.type);
+                                setStepError("");
+                              }}
+                              className={`
+                                rounded-xl
+                                border
+                                p-4
+                                text-left
+                                transition-all
+                                duration-150
+
+                                ${
+                                  selected
+                                    ? `
+                                      border-[var(--qoreva-violet)]
+                                      bg-[var(--qoreva-violet-faint)]
+                                      ring-2
+                                      ring-[rgba(102,87,232,0.08)]
+                                    `
+                                    : `
+                                      border-[var(--qoreva-border)]
+                                      bg-[var(--qoreva-porcelain)]
+                                      hover:border-[rgba(102,87,232,0.28)]
+                                      hover:bg-white
+                                    `
+                                }
+                              `}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      {planType.title}
+                                    </p>
+
+                                    {planType.recommended ? (
+                                      <span
+                                        className="
+                                          rounded-full
+                                          border
+                                          border-[rgba(102,87,232,0.18)]
+                                          bg-white
+                                          px-2
+                                          py-0.5
+                                          text-[8px]
+                                          font-black
+                                          uppercase
+                                          tracking-[0.08em]
+                                          text-[var(--qoreva-violet-dark)]
+                                        "
+                                      >
+                                        Recommended
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                    {planType.category}
+                                  </p>
+                                </div>
+
+                                <span
+                                  className={`
+                                    flex
+                                    h-5
+                                    w-5
+                                    shrink-0
+                                    items-center
+                                    justify-center
+                                    rounded-full
+                                    border
+
+                                    ${
+                                      selected
+                                        ? `
+                                          border-[var(--qoreva-violet)]
+                                          bg-[var(--qoreva-violet)]
+                                          text-white
+                                        `
+                                        : `
+                                          border-[var(--qoreva-border-strong)]
+                                          bg-white
+                                        `
+                                    }
+                                  `}
+                                >
+                                  {selected ? <CheckIcon /> : null}
+                                </span>
+                              </div>
+
+                              <p className="mt-3 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                {planType.description}
+                              </p>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -13826,98 +15014,162 @@ export default function CreatePlanningPage() {
           {selectedDefinition ? (
             <section
               className="
-                rounded-[1.75rem]
+                rounded-2xl
                 border
-                border-[rgba(102,87,232,0.20)]
+                border-[rgba(102,87,232,0.18)]
                 bg-white
-                p-5
+                px-5
+                py-4
                 shadow-[var(--qoreva-shadow-sm)]
-                sm:p-6
               "
             >
               <div
                 className="
                   flex
                   flex-col
-                  gap-5
+                  gap-4
                   lg:flex-row
                   lg:items-center
                   lg:justify-between
                 "
               >
-                <div className="flex items-start gap-4">
+                <div className="flex min-w-0 items-start gap-4">
                   <div
                     className="
                       flex
-                      h-12
-                      min-w-12
+                      h-10
+                      min-w-10
                       items-center
                       justify-center
-                      rounded-2xl
+                      rounded-xl
                       bg-[var(--qoreva-violet)]
-                      px-3
+                      px-2.5
+                      text-[10px]
+                      font-black
+                      text-white
+                    "
+                  >
+                    {selectedDefinition.type}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3
+                        className="
+                          text-base
+                          font-black
+                          text-[var(--qoreva-obsidian)]
+                        "
+                      >
+                        {selectedDefinition.title}
+                      </h3>
+
+                      <span
+                        className="
+                          rounded-full
+                          bg-[var(--qoreva-violet-faint)]
+                          px-2.5
+                          py-1
+                          text-[9px]
+                          font-black
+                          uppercase
+                          tracking-[0.08em]
+                          text-[var(--qoreva-violet-dark)]
+                        "
+                      >
+                        {selectedDefinition.category}
+                      </span>
+
+                      {selectedDefinition.recommended ? (
+                        <span
+                          className="
+                            rounded-full
+                            border
+                            border-[rgba(102,87,232,0.18)]
+                            bg-white
+                            px-2.5
+                            py-1
+                            text-[9px]
+                            font-black
+                            uppercase
+                            tracking-[0.08em]
+                            text-[var(--qoreva-violet-dark)]
+                          "
+                        >
+                          Recommended
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <p
+                      className="
+                        mt-1
+                        max-w-3xl
+                        text-xs
+                        font-medium
+                        leading-5
+                        text-[var(--qoreva-muted)]
+                      "
+                    >
+                      {selectedDefinition.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <span
+                    className="
+                      inline-flex
+                      min-h-9
+                      items-center
+                      rounded-xl
+                      bg-[var(--qoreva-violet)]
+                      px-4
+                      py-2
                       text-xs
                       font-black
                       text-white
                     "
                   >
-                    {
-                      selectedDefinition.type
-                    }
-                  </div>
+                    ✓ Selected
+                  </span>
 
-                  <div>
-                    <p
-                      className="
-                        text-[10px]
-                        font-black
-                        uppercase
-                        tracking-[0.12em]
-                        text-[var(--qoreva-violet)]
-                      "
-                    >
-                      Selected Plan
-                    </p>
-
-                    <h3
-                      className="
-                        mt-1
-                        text-xl
-                        font-black
-                        text-[var(--qoreva-obsidian)]
-                      "
-                    >
-                      {
-                        selectedDefinition.title
-                      }
-                    </h3>
-
-                    <p
-                      className="
-                        mt-1
-                        max-w-2xl
-                        text-sm
-                        font-medium
-                        leading-6
-                        text-[var(--qoreva-muted)]
-                      "
-                    >
-                      {
-                        selectedDefinition.description
-                      }
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      document
+                        .getElementById("plan-type-search")
+                        ?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        });
+                    }}
+                    className="
+                      inline-flex
+                      min-h-9
+                      items-center
+                      rounded-xl
+                      border
+                      border-[var(--qoreva-border-strong)]
+                      bg-white
+                      px-4
+                      py-2
+                      text-xs
+                      font-black
+                      text-[var(--qoreva-text)]
+                      transition
+                      hover:bg-[var(--qoreva-surface-muted)]
+                    "
+                  >
+                    Change plan type
+                  </button>
                 </div>
-
-                <span className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] px-5 py-2.5 text-sm font-black text-[var(--qoreva-violet-dark)]">
-                  Plan type selected
-                </span>
               </div>
             </section>
           ) : (
             <section
               className="
-                rounded-[1.75rem]
+                rounded-2xl
                 border
                 border-[var(--qoreva-border)]
                 bg-[var(--qoreva-surface-muted)]
@@ -13933,8 +15185,7 @@ export default function CreatePlanningPage() {
                   text-[var(--qoreva-muted)]
                 "
               >
-                Select a plan type
-                above to continue.
+                Select a plan type above to continue.
               </p>
             </section>
           )}
@@ -13964,12 +15215,90 @@ export default function CreatePlanningPage() {
                 sm:p-6
               "
             >
-              <StepHeading
-                number="01"
-                eyebrow="Plan Setup"
-                title="Where Is the Work Happening?"
-                description="Connect the selected plan to the project, performing contractor, work location, and responsible supervisor. Qoreva will use this context to identify applicable requirements and safety documents."
-              />
+              <div
+                className="
+                  flex
+                  flex-col
+                  gap-3
+                  sm:flex-row
+                  sm:items-start
+                  sm:justify-between
+                "
+              >
+                <StepHeading
+                  number="01"
+                  eyebrow="Plan Setup"
+                  title="Where Is the Work Happening?"
+                  description="Connect the selected plan to the project, performing contractor, work location, and responsible supervisor. Qoreva will use this context to identify applicable requirements and safety documents."
+                />
+
+                <div
+                  className="
+                    flex
+                    flex-wrap
+                    items-center
+                    gap-2
+                  "
+                >
+                  <div
+                    aria-live="polite"
+                    className={`
+                      inline-flex
+                      min-h-8
+                      shrink-0
+                      items-center
+                      rounded-full
+                      border
+                      px-3
+                      py-1.5
+                      text-[11px]
+                      font-black
+                      ${
+                        assignmentReadyToContinue
+                          ? "border-[rgba(46,125,87,0.24)] bg-[rgba(46,125,87,0.08)] text-[#2E7D57]"
+                          : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
+                      }
+                    `}
+                  >
+                    {assignmentReadyToContinue
+                      ? "✓ Ready to Continue"
+                      : "● In Progress"}
+                  </div>
+
+                  {planningDraftSaveStatus !==
+                  "idle" ? (
+                    <div
+                      aria-live="polite"
+                      className={`
+                        inline-flex
+                        min-h-8
+                        shrink-0
+                        items-center
+                        rounded-full
+                        border
+                        px-3
+                        py-1.5
+                        text-[11px]
+                        font-black
+                        ${
+                          planningDraftSaveStatus ===
+                          "error"
+                            ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] text-[var(--qoreva-danger)]"
+                            : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
+                        }
+                      `}
+                    >
+                      {planningDraftSaveStatus ===
+                      "saving"
+                        ? "Saving…"
+                        : planningDraftSaveStatus ===
+                            "saved"
+                          ? "✓ Saved"
+                          : "Save failed"}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <div
@@ -14036,16 +15365,32 @@ export default function CreatePlanningPage() {
                   "
                 >
                   <SelectControl
-                    label="Project"
+                    label="Project • Required"
                     value={
                       selectedProjectId
                     }
                     disabled={
                       optionsLoading
                     }
-                    onChange={
-                      handleProjectChange
+                    error={
+                      assignmentErrors.project
                     }
+                    onChange={(value) => {
+                      setAssignmentErrors(
+                        (current) => ({
+                          ...current,
+                          project: undefined,
+                          contractor: undefined,
+                          supervisor: undefined,
+                        }),
+                      );
+
+                      setStepError("");
+
+                      handleProjectChange(
+                        value,
+                      );
+                    }}
                     options={[
                       {
                         value: "",
@@ -14072,7 +15417,7 @@ export default function CreatePlanningPage() {
                   />
 
                   <SelectControl
-                    label="Performing Contractor"
+                    label="Performing Contractor • Required"
                     value={
                       selectedContractorId
                     }
@@ -14080,11 +15425,21 @@ export default function CreatePlanningPage() {
                       optionsLoading ||
                       !selectedProjectId
                     }
+                    error={
+                      assignmentErrors.contractor
+                    }
                     onChange={(
                       value,
                     ) => {
                       setSelectedContractorId(
                         value,
+                      );
+
+                      setAssignmentErrors(
+                        (current) => ({
+                          ...current,
+                          contractor: undefined,
+                        }),
                       );
 
                       setStepError(
@@ -14120,19 +15475,176 @@ export default function CreatePlanningPage() {
                     ]}
                   />
 
-                  <TextControl
-                    label="Responsible Supervisor / Foreman"
-                    value={
-                      responsibleSupervisor
-                    }
-                    placeholder="Enter name"
-                    onChange={
-                      setResponsibleSupervisor
-                    }
-                  />
+                  <div className="space-y-2">
+                    <SelectControl
+                      label="Responsible Supervisor / Foreman • Required"
+                      value={
+                        manualSupervisorEntry
+                          ? "__manual__"
+                          : responsibleSupervisorId
+                      }
+                      disabled={
+                        optionsLoading ||
+                        !selectedProjectId
+                      }
+                      error={
+                        assignmentErrors.supervisor
+                      }
+                      onChange={(value) => {
+                        setAssignmentErrors(
+                          (current) => ({
+                            ...current,
+                            supervisor: undefined,
+                          }),
+                        );
+
+                        setStepError("");
+
+                        if (
+                          value === "__manual__"
+                        ) {
+                          setManualSupervisorEntry(
+                            true,
+                          );
+                          setResponsibleSupervisorId(
+                            "",
+                          );
+                          setResponsibleSupervisor(
+                            "",
+                          );
+                          return;
+                        }
+
+                        setManualSupervisorEntry(
+                          false,
+                        );
+
+                        setResponsibleSupervisorId(
+                          value,
+                        );
+
+                        const member =
+                          projectMemberOptions.find(
+                            (candidate) =>
+                              candidate.userId ===
+                              value,
+                          );
+
+                        setResponsibleSupervisor(
+                          member?.displayName ??
+                            "",
+                        );
+                      }}
+                      options={[
+                        {
+                          value: "",
+                          label:
+                            !selectedProjectId
+                              ? "Select a project first"
+                              : "Select responsible person",
+                        },
+
+                        ...projectMemberOptions.map(
+                          (member) => ({
+                            value:
+                              member.userId,
+
+                            label:
+                              member.roleCodes.length >
+                              0
+                                ? `${member.displayName} — ${member.roleCodes
+                                    .map((role) =>
+                                      role
+                                        .replaceAll(
+                                          "_",
+                                          " ",
+                                        )
+                                        .toLowerCase()
+                                        .replace(
+                                          /\b\w/g,
+                                          (character) =>
+                                            character.toUpperCase(),
+                                        ),
+                                    )
+                                    .join(", ")}`
+                                : member.displayName,
+                          }),
+                        ),
+
+                        {
+                          value: "__manual__",
+                          label:
+                            "Person not listed",
+                        },
+                      ]}
+                    />
+
+                    {manualSupervisorEntry ? (
+                      <TextControl
+                        label="Supervisor / Foreman Name • Required"
+                        value={
+                          responsibleSupervisor
+                        }
+                        placeholder="Enter full name"
+                        error={
+                          assignmentErrors.supervisor
+                        }
+                        onChange={(value) => {
+                          setResponsibleSupervisor(
+                            value,
+                          );
+
+                          setAssignmentErrors(
+                            (current) => ({
+                              ...current,
+                              supervisor: undefined,
+                            }),
+                          );
+                          setResponsibleSupervisorId(
+                            "",
+                          );
+                          setStepError("");
+                        }}
+                      />
+                    ) : null}
+
+                    {!manualSupervisorEntry &&
+                    responsibleSupervisorId &&
+                    responsibleSupervisor ? (
+                      <p className="text-xs font-bold text-[var(--qoreva-muted)]">
+                        Assigned to{" "}
+                        {responsibleSupervisor}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <TextControl
+                      label="Work Location / Area • Required"
+                      value={
+                        workLocation
+                      }
+                      placeholder="Example: Building C • Zone 4"
+                      error={
+                        assignmentErrors.workLocation
+                      }
+                      onChange={(value) => {
+                        setWorkLocation(value);
+
+                        setAssignmentErrors(
+                          (current) => ({
+                            ...current,
+                            workLocation: undefined,
+                          }),
+                        );
+
+                        setStepError("");
+                      }}
+                    />
+                  </div>
 
                   <TextControl
-                    label="Planned Start Date"
+                    label="Planned Start Date • Optional"
                     value={
                       plannedStartDate
                     }
@@ -14141,150 +15653,247 @@ export default function CreatePlanningPage() {
                       setPlannedStartDate
                     }
                   />
-
-                  <div className="md:col-span-2">
-                    <TextControl
-                      label="Work Location / Area"
-                      value={
-                        workLocation
-                      }
-                      placeholder="Example: Building C • Zone 4"
-                      onChange={
-                        setWorkLocation
-                      }
-                    />
-                  </div>
                 </div>
               </section>
 
               {selectedProject ? (
                 <section
                   className="
-                    grid
-                    gap-4
-                    lg:grid-cols-2
+                    rounded-2xl
+                    border
+                    border-[var(--qoreva-border)]
+                    bg-white
+                    p-4
+                    shadow-[var(--qoreva-shadow-sm)]
                   "
                 >
-                  <ContextCard
-                    eyebrow="Project Context"
-                    title={
-                      selectedProject.name
-                    }
-                    items={[
-                      {
-                        label:
-                          "Project Code",
-
-                        value:
-                          selectedProject.projectCode ||
-                          "Not entered",
-                      },
-                      {
-                        label:
-                          "Owner / Client",
-
-                        value:
-                          selectedProject.clientName ||
-                          "Not entered",
-                      },
-                      {
-                        label:
-                          "Managing Company",
-
-                        value:
-                          selectedProject.company
-                            .name,
-                      },
-                      {
-                        label:
-                          "Project Status",
-
-                        value:
-                          selectedProject.status,
-                      },
-                    ]}
-                  />
-
-                  {selectedContractor ? (
-                    <ContextCard
-                      eyebrow="Contractor Context"
-                      title={
-                        selectedContractor.name
-                      }
-                      items={[
-                        {
-                          label:
-                            "Company",
-
-                          value:
-                            selectedContractor.company
-                              .name,
-                        },
-                        {
-                          label:
-                            "Trade",
-
-                          value:
-                            selectedContractor.trade ||
-                            "Not entered",
-                        },
-                        {
-                          label:
-                            "Approval",
-
-                          value:
-                            selectedContractor.approvalStatus,
-                        },
-                        {
-                          label:
-                            "Compliance",
-
-                          value:
-                            selectedContractor.complianceStatus,
-                        },
-                      ]}
-                    />
-                  ) : (
-                    <div
-                      className="
-                        rounded-2xl
-                        border
-                        border-dashed
-                        border-[var(--qoreva-border-strong)]
-                        bg-white
-                        p-5
-                      "
-                    >
+                  <div
+                    className="
+                      flex
+                      flex-col
+                      gap-3
+                      sm:flex-row
+                      sm:items-start
+                      sm:justify-between
+                    "
+                  >
+                    <div className="min-w-0">
                       <p
                         className="
-                          text-sm
+                          text-[10px]
                           font-black
-                          text-[var(--qoreva-obsidian)]
+                          uppercase
+                          tracking-[0.12em]
+                          text-[var(--qoreva-violet)]
                         "
                       >
-                        Contractor
-                        context
+                        Assignment Context
                       </p>
 
                       <p
                         className="
                           mt-1
-                          text-sm
-                          font-medium
-                          leading-6
+                          text-base
+                          font-black
+                          text-[var(--qoreva-obsidian)]
+                        "
+                      >
+                        {selectedProject.name}
+                      </p>
+
+                      <div
+                        className="
+                          mt-2
+                          flex
+                          flex-wrap
+                          gap-x-2
+                          gap-y-1
+                          text-xs
+                          font-bold
                           text-[var(--qoreva-muted)]
                         "
                       >
-                        Select the
-                        performing
-                        contractor to
-                        preview
-                        readiness and
-                        compliance
-                        context.
-                      </p>
+                        {selectedContractor ? (
+                          <>
+                            <span>
+                              {selectedContractor.name}
+                              {selectedContractor.trade
+                                ? ` • ${selectedContractor.trade}`
+                                : ""}
+                            </span>
+
+                            <span aria-hidden="true">
+                              ·
+                            </span>
+                          </>
+                        ) : null}
+
+                        {responsibleSupervisor ? (
+                          <>
+                            <span>
+                              {responsibleSupervisor}
+                            </span>
+
+                            <span aria-hidden="true">
+                              ·
+                            </span>
+                          </>
+                        ) : null}
+
+                        <span>
+                          {workLocation.trim() ||
+                            "Work location not entered"}
+                        </span>
+                      </div>
                     </div>
-                  )}
+
+                    <span
+                      className={`
+                        shrink-0
+                        rounded-full
+                        border
+                        px-3
+                        py-1
+                        text-[10px]
+                        font-black
+                        ${
+                          assignmentReadyToContinue
+                            ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                            : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[var(--qoreva-muted)]"
+                        }
+                      `}
+                    >
+                      {assignmentReadyToContinue
+                        ? "✓ Assignment Complete"
+                        : "Assignment Incomplete"}
+                    </span>
+                  </div>
+
+                  <details className="mt-3 border-t border-[var(--qoreva-border)] pt-3">
+                    <summary
+                      className="
+                        flex
+                        min-h-11
+                        cursor-pointer
+                        items-center
+                        text-xs
+                        font-black
+                        text-[var(--qoreva-violet-dark)]
+                        sm:min-h-0
+                      "
+                    >
+                      View project & contractor details
+                    </summary>
+
+                    <div
+                      className="
+                        mt-4
+                        grid
+                        gap-4
+                        lg:grid-cols-2
+                      "
+                    >
+                      <ContextCard
+                        eyebrow="Project Context"
+                        title={
+                          selectedProject.name
+                        }
+                        items={[
+                          {
+                            label:
+                              "Project Code",
+
+                            value:
+                              selectedProject.projectCode ||
+                              "Not entered",
+                          },
+                          {
+                            label:
+                              "Owner / Client",
+
+                            value:
+                              selectedProject.clientName ||
+                              "Not entered",
+                          },
+                          {
+                            label:
+                              "Managing Company",
+
+                            value:
+                              selectedProject.company
+                                .name,
+                          },
+                          {
+                            label:
+                              "Project Status",
+
+                            value:
+                              selectedProject.status,
+                          },
+                        ]}
+                      />
+
+                      {selectedContractor ? (
+                        <ContextCard
+                          eyebrow="Contractor Context"
+                          title={
+                            selectedContractor.name
+                          }
+                          items={[
+                            {
+                              label:
+                                "Company",
+
+                              value:
+                                selectedContractor.company
+                                  .name,
+                            },
+                            {
+                              label:
+                                "Trade",
+
+                              value:
+                                selectedContractor.trade ||
+                                "Not entered",
+                            },
+                            {
+                              label:
+                                "Approval",
+
+                              value:
+                                selectedContractor.approvalStatus,
+                            },
+                            {
+                              label:
+                                "Compliance",
+
+                              value:
+                                selectedContractor.complianceStatus,
+                            },
+                          ]}
+                        />
+                      ) : (
+                        <div
+                          className="
+                            rounded-2xl
+                            border
+                            border-dashed
+                            border-[var(--qoreva-border-strong)]
+                            bg-[var(--qoreva-surface-muted)]
+                            p-5
+                          "
+                        >
+                          <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                            Contractor context
+                          </p>
+
+                          <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                            Select the performing contractor to view its planning context.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </section>
               ) : null}
 
@@ -14361,67 +15970,35 @@ export default function CreatePlanningPage() {
           <section
             className="
               flex
-              flex-col-reverse
-              gap-3
               rounded-[1.75rem]
               border
               border-[var(--qoreva-border)]
               bg-white
-              p-5
+              p-4
               shadow-[var(--qoreva-shadow-sm)]
-              sm:flex-row
-              sm:items-center
-              sm:justify-between
+              sm:justify-end
+              sm:p-5
             "
           >
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedPlanType(null);
-                setStepError("");
-                scrollPlanningPageToTop();
-              }}
-              className="
-                inline-flex
-                min-h-11
-                items-center
-                justify-center
-                rounded-xl
-                border
-                border-[var(--qoreva-border-strong)]
-                bg-white
-                px-5
-                py-2.5
-                text-sm
-                font-black
-                text-[var(--qoreva-text)]
-                transition
-                hover:bg-[var(--qoreva-surface-muted)]
-              "
-            >
-              Choose Different Plan Type
-            </button>
-
             <button
               type="button"
               onClick={
                 continueFromAssignment
               }
               disabled={
-                requirementsLoading ||
-                planningDraftSaving
+                requirementsLoading
               }
               className={`
                 ${primaryButtonClassName}
+                w-full
+                sm:w-auto
                 disabled:cursor-not-allowed
                 disabled:opacity-60
               `}
             >
-              {planningDraftSaving
-                ? "Saving Draft..."
-                : requirementsLoading
-                  ? "Loading Requirements..."
-                  : "Continue to Requirements & Documents →"}
+              {requirementsLoading
+                ? "Preparing Requirements..."
+                : "Continue to Requirements & Documents →"}
             </button>
           </section>
         </>
@@ -14965,7 +16542,7 @@ export default function CreatePlanningPage() {
 
                   <button
                     type="button"
-                    onClick={addWorkSequenceStep}
+                    onClick={() => addWorkSequenceStep(false)}
                     className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-soft)] px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
                   >
                     + Add Work Step
@@ -14973,66 +16550,88 @@ export default function CreatePlanningPage() {
                 </div>
 
                 <div className="mt-5 grid gap-4">
-                  {workSequence.map((step, index) => (
-                    <article
-                      key={step.id}
-                      className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4"
+                  <DndContext
+                    sensors={
+                      workSequenceSensors
+                    }
+                    collisionDetection={
+                      closestCenter
+                    }
+                    onDragEnd={
+                      handleWorkSequenceDragEnd
+                    }
+                  >
+                    <SortableContext
+                      items={workSequence.map(
+                        (step) =>
+                          step.id,
+                      )}
+                      strategy={
+                        verticalListSortingStrategy
+                      }
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--qoreva-obsidian)] text-[10px] font-black text-[#B9B0FF]">
-                            {index + 1}
-                          </span>
+                      <div className="grid gap-4">
+                        {workSequence.map(
+                          (
+                            step,
+                            index,
+                          ) => (
+                            <SortableWorkStepCard
+                              key={
+                                step.id
+                              }
+                              step={
+                                step
+                              }
+                              index={
+                                index
+                              }
+                              totalSteps={
+                                workSequence.length
+                              }
+                              inputRef={(
+                                node,
+                              ) => {
+                                workStepTitleInputRefs.current[
+                                  step.id
+                                ] =
+                                  node;
+                              }}
+                              onRemove={() =>
+                                removeWorkSequenceStep(
+                                  step.id,
+                                )
+                              }
+                              onUpdate={(
+                                field,
+                                value,
+                              ) => {
+                                updateWorkSequenceStep(
+                                  step.id,
+                                  field,
+                                  value,
+                                );
 
-                          <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                            Work Step {index + 1}
-                          </p>
-                        </div>
-
-                        {workSequence.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              removeWorkSequenceStep(step.id)
-                            }
-                            className="rounded-lg border border-[#F0BDC4] bg-white px-3 py-1.5 text-xs font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)]"
-                          >
-                            Remove
-                          </button>
-                        ) : null}
+                                setStepError(
+                                  "",
+                                );
+                              }}
+                            />
+                          ),
+                        )}
                       </div>
+                    </SortableContext>
+                  </DndContext>
 
-                      <div className="mt-4 grid gap-4">
-                        <TextControl
-                          label="Step Title"
-                          value={step.title}
-                          placeholder="Example: Set up bore machine and work zone"
-                          onChange={(value) => {
-                            updateWorkSequenceStep(
-                              step.id,
-                              "title",
-                              value,
-                            );
-                            setStepError("");
-                          }}
-                        />
-
-                        <TextareaControl
-                          label="Step Description"
-                          value={step.description}
-                          placeholder="Briefly describe what happens during this step."
-                          rows={3}
-                          onChange={(value) =>
-                            updateWorkSequenceStep(
-                              step.id,
-                              "description",
-                              value,
-                            )
-                          }
-                        />
-                      </div>
-                    </article>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      addWorkSequenceStep(true)
+                    }
+                    className="flex min-h-11 w-full items-center justify-center rounded-xl border border-dashed border-[rgba(102,87,232,0.35)] bg-[var(--qoreva-violet-faint)] px-4 py-3 text-sm font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)]"
+                  >
+                    + Add Another Work Step
+                  </button>
                 </div>
               </section>
 
@@ -15813,7 +17412,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Step 5 will qualify the hazards and controls for each work step, complete Critical Control and verification decisions, and confirm the work-step risk. Qoreva will preserve these planning responses as context while qualified people make the final safety decisions.
+                      Step 6 will qualify the hazards and controls for each work step, complete Critical Control and verification decisions, and confirm the work-step risk. Qoreva will preserve these planning responses as context while qualified people make the final safety decisions.
                     </p>
                   </div>
                 </div>
@@ -15994,24 +17593,22 @@ export default function CreatePlanningPage() {
                     type="button"
                     onClick={async () => {
                       /*
-                       * Initial generation retains the full planning
-                       * readiness gate. Once a draft exists, refreshing
-                       * it is a non-navigation recalculation and must
-                       * remain reusable while review work continues.
+                       * Initial generation requires completed guided
+                       * questions but must not require hazards, controls,
+                       * or risk decisions that the draft has not created
+                       * yet. Refreshes remain available during review.
                        */
                       const saved =
-                        draftGenerated
-                          ? await persistGuidedPlanning({
-                              requireHazardReadinessPlanning:
-                                false,
-                              advanceToHazardReview:
-                                false,
-                              invalidateGeneratedDraft:
-                                false,
-                              validateQuestionReadiness:
-                                false,
-                            })
-                          : await saveHazardReadinessPlanning();
+                        await persistGuidedPlanning({
+                          requireHazardReadinessPlanning:
+                            false,
+                          advanceToHazardReview:
+                            false,
+                          invalidateGeneratedDraft:
+                            false,
+                          validateQuestionReadiness:
+                            !draftGenerated,
+                        });
 
                       if (saved) {
                         await generateDraftPlan();
@@ -16076,8 +17673,24 @@ export default function CreatePlanningPage() {
                       const generatedStep =
                         generatedPlanningDraft?.workSteps.find(
                           (candidate) =>
+                            candidate.workStepId ===
+                            step.id,
+                        ) ??
+                        generatedPlanningDraft?.workSteps.find(
+                          (candidate) =>
+                            !candidate.workStepId &&
                             candidate.sequence ===
-                            index + 1,
+                              index + 1,
+                        ) ??
+                        generatedPlanningDraft?.workSteps.find(
+                          (candidate) =>
+                            !candidate.workStepId &&
+                            candidate.title
+                              .trim()
+                              .toLowerCase() ===
+                            step.title
+                              .trim()
+                              .toLowerCase(),
                         );
 
                       const generatedHazardGroups =
@@ -23433,6 +25046,7 @@ function SelectControl({
   value,
   options,
   disabled = false,
+  error,
   onChange,
 }: {
   label: string;
@@ -23444,11 +25058,19 @@ function SelectControl({
   }[];
 
   disabled?: boolean;
+  error?: string;
+  inputRef?: (
+    node: HTMLInputElement | null,
+  ) => void;
 
   onChange: (
     value: string,
   ) => void;
 }) {
+  const controlId = useId();
+  const errorId =
+    `${controlId}-error`;
+
   return (
     <label className="block">
       <span
@@ -23464,8 +25086,13 @@ function SelectControl({
       </span>
 
       <select
+        id={controlId}
         value={value}
         disabled={disabled}
+        aria-invalid={Boolean(error)}
+        aria-describedby={
+          error ? errorId : undefined
+        }
         onChange={(event) =>
           onChange(
             event.target.value,
@@ -23473,6 +25100,11 @@ function SelectControl({
         }
         className={`
           ${fieldClassName}
+          ${
+            error
+              ? "border-[var(--qoreva-danger)]"
+              : ""
+          }
           disabled:cursor-not-allowed
           disabled:bg-[var(--qoreva-surface-muted)]
           disabled:text-[var(--qoreva-subtle)]
@@ -23493,9 +25125,239 @@ function SelectControl({
           ),
         )}
       </select>
+
+      {error ? (
+        <span
+          id={errorId}
+          className="mt-2 block text-xs font-bold text-[var(--qoreva-danger)]"
+        >
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }
+
+function SortableWorkStepCard({
+  step,
+  index,
+  totalSteps,
+  inputRef,
+  onRemove,
+  onUpdate,
+}: {
+  step: WorkSequenceStep;
+  index: number;
+  totalSteps: number;
+  inputRef: (
+    node: HTMLInputElement | null,
+  ) => void;
+  onRemove: () => void;
+  onUpdate: (
+    field: "title"
+      | "description"
+      | "equipmentTools"
+      | "materialsChemicals"
+      | "locationOverride",
+    value: string,
+  ) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: step.id,
+  });
+
+  return (
+    <article
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        transform:
+          DndCSS.Transform.toString(
+            transform,
+          ),
+        transition,
+        zIndex:
+          isDragging
+            ? 30
+            : undefined,
+        opacity:
+          isDragging
+            ? 0.96
+            : 1,
+      }}
+      className={`relative rounded-2xl border bg-[var(--qoreva-surface-muted)] p-4 transition-shadow ${
+        isDragging
+          ? "cursor-grabbing border-[rgba(102,87,232,0.40)] shadow-xl"
+          : "cursor-grab border-[var(--qoreva-border)] hover:border-[rgba(102,87,232,0.28)] hover:shadow-sm"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--qoreva-obsidian)] text-[10px] font-black text-[#B9B0FF]">
+            {index + 1}
+          </span>
+
+          <div>
+            <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+              Work Step {index + 1}
+            </p>
+
+            {totalSteps > 1 ? (
+              <p className="mt-0.5 text-[10px] font-bold text-[var(--qoreva-subtle)]">
+                Hold and drag to reorder
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        {totalSteps > 1 ? (
+          <button
+            type="button"
+            onPointerDown={(
+              event,
+            ) => {
+              /*
+               * Prevent the card's drag listener
+               * from activating from this button.
+               */
+              event.stopPropagation();
+            }}
+            onClick={(
+              event,
+            ) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)]"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+
+      {/*
+       * Interactive planning fields intentionally stop
+       * pointer events from bubbling to the sortable card.
+       * Users can click, select, type, and scroll normally
+       * without accidentally initiating a drag.
+       */}
+      <div
+        className="mt-4 grid cursor-auto gap-4"
+        onPointerDown={(
+          event,
+        ) =>
+          event.stopPropagation()
+        }
+        onMouseDown={(
+          event,
+        ) =>
+          event.stopPropagation()
+        }
+        onTouchStart={(
+          event,
+        ) =>
+          event.stopPropagation()
+        }
+      >
+        <TextControl
+          label="Task / Activity"
+          value={step.title}
+          placeholder="Example: Excavate trench for underground conduit"
+          inputRef={inputRef}
+          onChange={(value) =>
+            onUpdate(
+              "title",
+              value,
+            )
+          }
+        />
+
+        <TextareaControl
+          label="Work Method"
+          value={
+            step.description
+          }
+          placeholder="Briefly describe how this work will be performed."
+          rows={3}
+          onChange={(value) =>
+            onUpdate(
+              "description",
+              value,
+            )
+          }
+        />
+
+        <details className="rounded-xl border border-[var(--qoreva-border)] bg-white">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-black text-[var(--qoreva-obsidian)]">
+            + Add step details
+          </summary>
+
+          <div className="grid gap-4 border-t border-[var(--qoreva-border)] px-4 py-4">
+            <TextControl
+              label="Equipment / Tools"
+              value={
+                step.equipmentTools ??
+                ""
+              }
+              placeholder="Example: Excavator, hydrovac, compactor"
+              onChange={(value) =>
+                onUpdate(
+                  "equipmentTools",
+                  value,
+                )
+              }
+            />
+
+            <TextControl
+              label="Materials / Chemicals"
+              value={
+                step.materialsChemicals ??
+                ""
+              }
+              placeholder="Example: PVC conduit, concrete, adhesive"
+              onChange={(value) =>
+                onUpdate(
+                  "materialsChemicals",
+                  value,
+                )
+              }
+            />
+
+            <div>
+              <TextControl
+                label="Location / Area Override"
+                value={
+                  step.locationOverride ??
+                  ""
+                }
+                placeholder="Only enter a location if this step occurs somewhere different"
+                onChange={(value) =>
+                  onUpdate(
+                    "locationOverride",
+                    value,
+                  )
+                }
+              />
+
+              <p className="mt-2 text-xs font-semibold text-[var(--qoreva-subtle)]">
+                Leave blank to use the work location assigned to the overall plan.
+              </p>
+            </div>
+          </div>
+        </details>
+      </div>
+    </article>
+  );
+}
+
 
 function TextControl({
   label,
@@ -23503,6 +25365,8 @@ function TextControl({
   placeholder = "",
   type = "text",
   disabled = false,
+  error,
+  inputRef,
   onChange,
 }: {
   label: string;
@@ -23510,11 +25374,19 @@ function TextControl({
   placeholder?: string;
   type?: "text" | "date" | "number";
   disabled?: boolean;
+  error?: string;
+  inputRef?: (
+    node: HTMLInputElement | null,
+  ) => void;
 
   onChange: (
     value: string,
   ) => void;
 }) {
+  const controlId = useId();
+  const errorId =
+    `${controlId}-error`;
+
   return (
     <label className="block">
       <span
@@ -23530,6 +25402,8 @@ function TextControl({
       </span>
 
       <input
+        ref={inputRef}
+        id={controlId}
         type={type}
         min={
           type === "number"
@@ -23546,13 +25420,30 @@ function TextControl({
           placeholder
         }
         disabled={disabled}
+        aria-invalid={Boolean(error)}
+        aria-describedby={
+          error ? errorId : undefined
+        }
         onChange={(event) =>
           onChange(
             event.target.value,
           )
         }
-        className={`${fieldClassName} disabled:cursor-not-allowed disabled:opacity-60`}
+        className={`${fieldClassName} ${
+          error
+            ? "border-[var(--qoreva-danger)]"
+            : ""
+        } disabled:cursor-not-allowed disabled:opacity-60`}
       />
+
+      {error ? (
+        <span
+          id={errorId}
+          className="mt-2 block text-xs font-bold text-[var(--qoreva-danger)]"
+        >
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }
