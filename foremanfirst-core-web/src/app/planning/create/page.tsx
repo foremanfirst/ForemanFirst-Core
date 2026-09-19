@@ -11724,9 +11724,12 @@ export default function CreatePlanningPage() {
           (current) => [
             ...current.filter(
               (existing) =>
-                existing.recommendationId !==
-                data.decision!
-                  .recommendationId,
+                !(
+                  hazardControlDecisionWorkStepId(existing) ===
+                    hazardControlDecisionWorkStepId(data.decision!) &&
+                  existing.recommendationId ===
+                    data.decision!.recommendationId
+                ),
             ),
             data.decision!,
           ],
@@ -12897,9 +12900,12 @@ export default function CreatePlanningPage() {
         (current) => [
           ...current.filter(
             (existing) =>
-              existing.recommendationId !==
-              data.decision!
-                .recommendationId,
+              !(
+                hazardControlDecisionWorkStepId(existing) ===
+                  hazardControlDecisionWorkStepId(data.decision!) &&
+                existing.recommendationId ===
+                  data.decision!.recommendationId
+              ),
           ),
           data.decision!,
         ],
