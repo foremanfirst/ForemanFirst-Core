@@ -8126,6 +8126,7 @@ export default function CreatePlanningPage() {
             id: string;
           };
           generatedDraft?: GeneratedPlanningDraft;
+          controlEvaluations?: GuidedPlanningControlEvaluation[];
           workSteps?: Array<{
             id: string;
             sequence: number;
@@ -8275,38 +8276,13 @@ export default function CreatePlanningPage() {
       );
 
       /*
-       * The Guided Planning PUT recalculates and persists Qoreva Control
-       * Intelligence atomically with the work-step save.
-       *
-       * Refresh that authoritative current-revision snapshot before Step 6
-       * can render it. Never carry evaluator state from the pre-save plan
-       * into the newly saved working plan.
+       * The Guided Planning PUT returns the exact Control Intelligence
+       * persisted atomically with this save. Apply that same snapshot
+       * directly so the rendered draft and evaluations cannot drift
+       * across separate requests.
        */
-      const controlIntelligenceResponse =
-        await fetch(
-          `/api/planning/${planningRecordId}/guided-planning`,
-          {
-            method: "GET",
-            cache: "no-store",
-          },
-        );
-
-      const controlIntelligenceData =
-        (await controlIntelligenceResponse.json()) as
-          GuidedPlanningActivitiesResponse;
-
-      if (!controlIntelligenceResponse.ok) {
-        setGuidedPlanningControlEvaluations([]);
-
-        throw new Error(
-          controlIntelligenceData.message ||
-            "Unable to refresh Qoreva Control Intelligence.",
-        );
-      }
-
       setGuidedPlanningControlEvaluations(
-        controlIntelligenceData.controlEvaluations ??
-          [],
+        data.controlEvaluations ?? [],
       );
 
       if (data.generatedDraft) {
@@ -20876,6 +20852,18 @@ export default function CreatePlanningPage() {
                                                         savedControlDecision?.decision ===
                                                         "Accept";
 
+                                                      const criticalControlVerificationReady =
+                                                        !controlEvaluation ||
+                                                        !(
+                                                          controlEvaluation.verificationExpectation ===
+                                                            "Required" ||
+                                                          controlEvaluation.verificationExpectation ===
+                                                            "Conditional"
+                                                        ) ||
+                                                        controlEvaluation.verificationCompleted ||
+                                                        controlEvaluation.verificationRequiredForCurrentContext ===
+                                                          false;
+
                                                       const controlSelectionKey =
                                                         visibleControlSelectionKey(
                                                           step,
@@ -21121,10 +21109,11 @@ export default function CreatePlanningPage() {
                                                                           )
                                                                         }
                                                                         disabled={
+                                                                          !criticalControlVerificationReady ||
                                                                           criticalControlDecisionSavingKey ===
-                                                                          controlVerificationKey(
-                                                                            controlEvaluation,
-                                                                          )
+                                                                            controlVerificationKey(
+                                                                              controlEvaluation,
+                                                                            )
                                                                         }
                                                                         className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[var(--qoreva-success)] px-3 py-1.5 text-[10px] font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
                                                                       >
@@ -21133,7 +21122,9 @@ export default function CreatePlanningPage() {
                                                                           controlEvaluation,
                                                                         )
                                                                           ? "Saving..."
-                                                                          : "Confirm Critical"}
+                                                                          : !criticalControlVerificationReady
+                                                                            ? "Complete Verification First"
+                                                                            : "Confirm Critical"}
                                                                       </button>
                                                                     ) : null}
 

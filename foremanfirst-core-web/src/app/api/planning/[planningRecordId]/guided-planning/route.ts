@@ -756,6 +756,7 @@ export async function PUT(
           id: true,
           tenantId: true,
           status: true,
+          revisionNumber: true,
         },
       });
 
@@ -1573,6 +1574,9 @@ export async function PUT(
                     ];
 
                   return {
+                  id:
+                    stableWorkStepIds[index],
+
                   tenantId:
                     existing.tenantId,
 
@@ -2005,6 +2009,69 @@ export async function PUT(
               },
             });
 
+          /*
+           * Keep the active revision snapshot synchronized with the
+           * authoritative Guided Planning draft. Without this, a reload
+           * can restore an older generated draft whose work-step/hazard/
+           * control identities no longer match current evaluations.
+           */
+          const activeRevision =
+            await tx.planningRevision.findFirst({
+              where: {
+                planningRecordId,
+                tenantId: existing.tenantId,
+                revisionNumber:
+                  existing.revisionNumber,
+              },
+              select: {
+                id: true,
+                snapshot: true,
+              },
+            });
+
+          if (
+            activeRevision &&
+            activeRevision.snapshot &&
+            typeof activeRevision.snapshot === "object" &&
+            !Array.isArray(activeRevision.snapshot)
+          ) {
+            const currentSnapshot =
+              activeRevision.snapshot as Record<string, unknown>;
+
+            await tx.planningRevision.update({
+              where: {
+                id: activeRevision.id,
+              },
+              data: {
+                snapshot: {
+                  ...currentSnapshot,
+                  qorevaDraftGeneration: {
+                    generatedAt:
+                      generatedDraft.generatedAt,
+                    generatorVersion:
+                      generatedDraft.metadata.generatorVersion,
+                    metadata:
+                      generatedDraft.metadata,
+                    reviewFlags:
+                      generatedDraft.reviewFlags,
+                    workSteps:
+                      generatedDraft.workSteps,
+                    ppeSuggestions:
+                      generatedDraft.ppeSuggestions,
+                    permitSuggestions:
+                      generatedDraft.permitSuggestions,
+                    emergencySuggestions:
+                      generatedDraft.emergencySuggestions,
+                    stopWorkSuggestions:
+                      generatedDraft.stopWorkSuggestions,
+                    requirementControlSuggestions:
+                      generatedDraft.requirementControlSuggestions,
+                  },
+                },
+              },
+            });
+          }
+
           // ===================================================
           // AUDIT EVENT
           // ===================================================
@@ -2065,6 +2132,9 @@ export async function PUT(
               removedCodes:
                 removedActivityCodes,
             },
+
+            controlEvaluations:
+              controlEvaluationRows,
           };
         },
       );
@@ -2081,6 +2151,9 @@ export async function PUT(
        */
       workSteps:
         saved.workSteps,
+
+      controlEvaluations:
+        saved.controlEvaluations,
 
       saved: {
         activities:
