@@ -1359,12 +1359,19 @@ function buildGeneratedHazardControlGroup(
    * resolve the relationship confidently.
    */
   return {
-    id: stableDraftItemId(
-      "hazard-control-group",
-      stepSequence,
-      activityCode,
-      group.hazard,
-    ),
+    id: workStepId
+      ? stableDraftItemId(
+          "hazard-control-group",
+          workStepId,
+          activityCode,
+          group.hazard,
+        )
+      : stableDraftItemId(
+          "hazard-control-group",
+          stepSequence,
+          activityCode,
+          group.hazard,
+        ),
 
     canonicalHazardConceptId:
       null,
@@ -1386,13 +1393,21 @@ function buildGeneratedHazardControlGroup(
         group.controls,
       ).map(
         (control) => ({
-          id: stableDraftItemId(
-            "control",
-            stepSequence,
-            activityCode,
-            group.hazard,
-            control,
-          ),
+          id: workStepId
+            ? stableDraftItemId(
+                "control",
+                workStepId,
+                activityCode,
+                group.hazard,
+                control,
+              )
+            : stableDraftItemId(
+                "control",
+                stepSequence,
+                activityCode,
+                group.hazard,
+                control,
+              ),
 
           text: control,
 
