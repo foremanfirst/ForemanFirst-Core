@@ -1,0 +1,52 @@
+/*
+  Qoreva Planning
+  Add stable work-step identity to persisted hazard/control decisions.
+
+  Existing decisions predate work-step-scoped identity and cannot be
+  safely backfilled without guessing which work step owns the decision.
+
+  Legacy rows therefore remain nullable. New Qoreva decision writes
+  will persist the stable Guided Planning workStepId.
+
+  Decision identity is now scoped to the stable work step so the same
+  recommendation may exist independently on different work steps.
+
+  Legacy rows remain nullable and are handled conservatively by the
+  application rather than being assigned to a work step by guesswork.
+*/
+
+-- ============================================================
+-- 1. ADD STABLE WORK-STEP IDENTITY
+-- ============================================================
+
+ALTER TABLE "PlanningHazardControlDecision"
+ADD COLUMN IF NOT EXISTS "workStepId" TEXT,
+ADD COLUMN IF NOT EXISTS "workStepSequence" INTEGER,
+ADD COLUMN IF NOT EXISTS "workStepTitle" TEXT;
+
+
+-- ============================================================
+-- 2. CREATE WORK-STEP LOOKUP INDEX
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS
+"PlanningHazardControlDecision_workStepId_idx"
+ON "PlanningHazardControlDecision"(
+  "workStepId"
+);
+
+-- ============================================================
+-- 3. SCOPE DECISION UNIQUENESS TO THE STABLE WORK STEP
+-- ============================================================
+
+DROP INDEX IF EXISTS
+"PlanningHazardControlDecision_planningRecordId_revisionNumb_key";
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+"PlanningHazardControlDecision_planningRecordId_revisionNumber_workStepId_recommendationId_key"
+ON "PlanningHazardControlDecision"(
+  "planningRecordId",
+  "revisionNumber",
+  "workStepId",
+  "recommendationId"
+);

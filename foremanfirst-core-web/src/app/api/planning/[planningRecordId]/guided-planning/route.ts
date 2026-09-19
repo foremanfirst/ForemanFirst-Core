@@ -29,6 +29,10 @@ import {
 } from "@/lib/planning/controlled-risk-evaluator";
 
 import {
+  evaluateWorkingControlCandidates,
+} from "@/lib/planning/control-effectiveness-evaluator";
+
+import {
   buildCriticalControlRelationshipFingerprint,
 } from "@/lib/planning/critical-control-decision";
 
@@ -1216,6 +1220,24 @@ export async function PUT(
         ),
       );
 
+    /*
+     * Control Intelligence is independent of Inherent Risk.
+     *
+     * Every structured working control can be evaluated for
+     * effectiveness, verification expectations, and Critical Control
+     * candidacy even when the planner has not yet selected Inherent Risk.
+     *
+     * Controlled Risk remains separately gated by a valid Inherent Risk.
+     */
+    const workingControlEvaluations =
+      generatedDraft.workSteps.map(
+        (generatedStep) =>
+          evaluateWorkingControlCandidates(
+            generatedStep.hazardControlGroups,
+          ),
+      );
+
+
     const controlledRiskEvaluations =
       generatedDraft.workSteps.map(
         (generatedStep) => {
@@ -1664,14 +1686,17 @@ export async function PUT(
                 evaluation,
                 workStepIndex,
               ) => {
-                if (!evaluation) {
-                  return [];
-                }
-
                 const generatedStep =
                   generatedDraft.workSteps[
                     workStepIndex
                   ];
+
+                const controlEvaluations =
+                  evaluation?.controlEvaluations ??
+                  workingControlEvaluations[
+                    workStepIndex
+                  ] ??
+                  [];
 
                 const incomingStep =
                   generatedStep?.workStepId
@@ -1700,7 +1725,10 @@ export async function PUT(
 
                 const riskCreditByControlId =
                   new Map(
-                    evaluation.riskCreditAssessments.map(
+                    (
+                      evaluation?.riskCreditAssessments ??
+                      []
+                    ).map(
                       (assessment) => [
                         assessment.controlId,
                         assessment,
@@ -1708,7 +1736,7 @@ export async function PUT(
                     ),
                   );
 
-                return evaluation.controlEvaluations.map(
+                return controlEvaluations.map(
                   (controlEvaluation) => {
                     const riskCreditAssessment =
                       riskCreditByControlId.get(
@@ -1844,7 +1872,8 @@ export async function PUT(
                         controlEvaluation.evaluationReason,
 
                       evaluatorVersion:
-                        evaluation.evaluatorVersion,
+                        evaluation?.evaluatorVersion ??
+                        controlEvaluation.evaluatorVersion,
 
                       evaluatedById:
                         authorization.user.id,
@@ -2043,6 +2072,8 @@ export async function PUT(
     return NextResponse.json({
       record:
         saved.record,
+
+      generatedDraft,
 
       /*
        * These are the current persisted rows and IDs created by this

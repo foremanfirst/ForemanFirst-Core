@@ -10,6 +10,7 @@ import type {
 
 import {
   buildCanonicalHazardControlGroup,
+  canonicalHazardControlLibrary,
   findCanonicalHazardMatch,
   getCanonicalControlHierarchy,
 } from "./hazard-control-library";
@@ -1246,6 +1247,7 @@ function inferHazardControlGroups(
 }
 
 function buildGeneratedHazardControlGroup(
+  workStepId: string | null,
   stepSequence: number,
   activityCode: string,
   group: ActivityHazardControlGuidance,
@@ -1276,15 +1278,47 @@ function buildGeneratedHazardControlGroup(
     );
 
   if (canonicalMatch) {
-    return buildCanonicalHazardControlGroup({
-      groupId: stableDraftItemId(
-        "hazard-control-group",
-        stepSequence,
-        activityCode,
-        group.hazard,
-      ),
+    /*
+     * Canonical Qoreva safety relationships must not derive identity
+     * from generation provenance such as activityCode or display wording.
+     *
+     * The persistent PlanningWorkStep identity and canonical hazard concept
+     * define the relationship. Activity codes remain provenance only.
+     *
+     * Canonical controls do not yet have first-class concept IDs, so the
+     * exact canonical-library control statement is used conservatively
+     * within the canonical hazard concept until that model is introduced.
+     *
+     * Legacy/null work-step contexts retain the previous identity formula
+     * rather than manufacturing a false persistent identity.
+     */
+    const canonicalHazardId =
+      workStepId
+        ? stableDraftItemId(
+            "canonical-hazard",
+            workStepId,
+            canonicalMatch.definition.id,
+          )
+        : hazardId;
 
-      hazardId,
+    const canonicalGroupId =
+      workStepId
+        ? stableDraftItemId(
+            "canonical-hazard-control-group",
+            workStepId,
+            canonicalMatch.definition.id,
+          )
+        : stableDraftItemId(
+            "hazard-control-group",
+            stepSequence,
+            activityCode,
+            group.hazard,
+          );
+
+    return buildCanonicalHazardControlGroup({
+      groupId: canonicalGroupId,
+
+      hazardId: canonicalHazardId,
 
       hazardText: group.hazard,
 
@@ -1298,13 +1332,20 @@ function buildGeneratedHazardControlGroup(
       buildControlId: (
         controlText,
       ) =>
-        stableDraftItemId(
-          "control",
-          stepSequence,
-          activityCode,
-          group.hazard,
-          controlText,
-        ),
+        workStepId
+          ? stableDraftItemId(
+              "canonical-control",
+              workStepId,
+              canonicalMatch.definition.id,
+              controlText,
+            )
+          : stableDraftItemId(
+              "control",
+              stepSequence,
+              activityCode,
+              group.hazard,
+              controlText,
+            ),
 
       source: "Rule",
     });
@@ -1623,6 +1664,70 @@ function mergeCanonicalHazardConceptId(
   );
 }
 
+function synchronizeCanonicalHazardMetadata(
+  group: GeneratedHazardControlGroup,
+) {
+  const conceptId =
+    group.canonicalHazardConceptId;
+
+  if (!conceptId) {
+    group.canonicalHazardKind =
+      null;
+
+    group.canonicalRiskAttention =
+      null;
+
+    group.fieldPresentationFamily =
+      null;
+
+    group.fieldPresentationRole =
+      null;
+
+    return;
+  }
+
+  const definition =
+    canonicalHazardControlLibrary[
+      conceptId as keyof typeof canonicalHazardControlLibrary
+    ];
+
+  if (!definition) {
+    /*
+     * A stale or unknown canonical identity must not manufacture
+     * safety metadata. Preserve conservative behavior and require
+     * downstream qualified review.
+     */
+    group.canonicalHazardKind =
+      null;
+
+    group.canonicalRiskAttention =
+      null;
+
+    group.fieldPresentationFamily =
+      null;
+
+    group.fieldPresentationRole =
+      null;
+
+    return;
+  }
+
+  group.canonicalHazardKind =
+    definition.kind;
+
+  group.canonicalRiskAttention =
+    definition.riskAttention;
+
+  group.fieldPresentationFamily =
+    definition.fieldPresentationFamily ??
+    null;
+
+  group.fieldPresentationRole =
+    definition.fieldPresentationRole ??
+    null;
+}
+
+
 function mergeGeneratedHazardControlGroupsByExactText(
   groups: GeneratedHazardControlGroup[],
 ): GeneratedHazardControlGroup[] {
@@ -1701,6 +1806,10 @@ function mergeGeneratedHazardControlGroupsByExactText(
         existing.canonicalHazardConceptId,
         group.canonicalHazardConceptId,
       );
+
+    synchronizeCanonicalHazardMetadata(
+      existing,
+    );
 
     existing.hazard.sourceActivityCodes =
       uniqueStrings([
@@ -2063,6 +2172,10 @@ function consolidateSemanticHazardControlGroups(
         group.canonicalHazardConceptId,
       );
 
+    synchronizeCanonicalHazardMetadata(
+      existing,
+    );
+
     existing.hazard.sourceActivityCodes =
       uniqueStrings([
         ...existing.hazard
@@ -2147,9 +2260,6 @@ const TARGET_PRIMARY_HAZARDS_PER_WORK_STEP =
 const TARGET_HIGH_RISK_HAZARDS_PER_WORK_STEP =
   6;
 
-const MAX_PRIMARY_HAZARDS_PER_WORK_STEP =
-  8;
-
 const MAX_ADVISORY_CONTROLS_PER_HAZARD =
   4;
 
@@ -2194,9 +2304,54 @@ function limitHazardControlGroupsForFieldReview(
         "User-entered controls requiring hazard assignment",
     );
 
+  function hazardDecisionForGroup(
+    group: GeneratedHazardControlGroup,
+  ) {
+    return decisions.find(
+      (decision) =>
+        decision.itemType ===
+          "Hazard" &&
+        (
+          decision.recommendationId ===
+            group.hazard.id ||
+          (
+            Boolean(
+              decision.canonicalHazardConceptId,
+            ) &&
+            decision.canonicalHazardConceptId ===
+              group.canonicalHazardConceptId
+          )
+        ),
+    );
+  }
+
+  function isHazardExplicitlyNotApplicable(
+    group: GeneratedHazardControlGroup,
+  ) {
+    return (
+      hazardDecisionForGroup(
+        group,
+      )?.decision ===
+      "NotApplicable"
+    );
+  }
+
   function isProtectedHazard(
     group: GeneratedHazardControlGroup,
   ) {
+    if (
+      isHazardExplicitlyNotApplicable(
+        group,
+      )
+    ) {
+      return false;
+    }
+
+    const decision =
+      hazardDecisionForGroup(
+        group,
+      );
+
     return (
       group.hazard.source ===
         "User" ||
@@ -2204,147 +2359,178 @@ function limitHazardControlGroupsForFieldReview(
       group.hazard
         .sourceRequirementIds
         .length > 0 ||
+      decision?.decision ===
+        "Accept" ||
+      decision?.decision ===
+        "Modify" ||
+      decision?.decision ===
+        "Assign" ||
       explicitTargetHazardIds.has(
         group.hazard.id,
       )
     );
   }
 
-  function hazardPriority(
+  type HazardFieldSignificance =
+    | "Protected"
+    | "Significant"
+    | "Contextual"
+    | "Supporting";
+
+  function evaluateHazardSignificance(
     group: GeneratedHazardControlGroup,
-  ) {
-    const hazardText =
-      group.hazard.text
-        .trim()
-        .toLowerCase();
-
-    let score = 0;
-
-    if (group.hazard.required) {
-      score += 1000;
-    }
-
+  ): HazardFieldSignificance {
     if (
-      group.hazard.source ===
-      "User"
-    ) {
-      score += 800;
-    }
-
-    if (
-      group.hazard
-        .sourceRequirementIds
-        .length > 0
-    ) {
-      score += 600;
-    }
-
-    if (
-      explicitTargetHazardIds.has(
-        group.hazard.id,
+      isProtectedHazard(
+        group,
       )
     ) {
-      score += 500;
+      return "Protected";
     }
 
+    /*
+     * Applicability has already been evaluated upstream before
+     * generated hazard/control groups reach this field-review
+     * boundary.
+     *
+     * At this stage Qoreva decides presentation significance,
+     * not whether the hazard exists.
+     *
+     * HighAttention canonical hazards represent exposures that
+     * deserve explicit field attention when applicable.
+     */
     if (
-      group.canonicalHazardConceptId
+      group.canonicalRiskAttention ===
+        "HighAttention"
     ) {
-      score += 250;
+      return "Significant";
     }
 
+    /*
+     * Elevated canonical hazards remain contextually important,
+     * but do not automatically outrank authoritative evidence
+     * or HighAttention exposures.
+     */
     if (
-      /\b(cave-in|collapse|electrocution|energized|struck|crush|fall|suspended load|confined space|fire|explosion|toxic|engulfment|amputation)\b/i.test(
-        hazardText,
-      )
+      group.canonicalRiskAttention ===
+        "Elevated"
     ) {
-      score += 200;
+      return "Contextual";
     }
 
-    score += Math.min(
-      group.controls.length,
-      10,
-    ) * 10;
-
-    return score;
+    return "Supporting";
   }
 
-  const protectedHazards =
+  const eligibleHazardGroups =
     hazardGroups.filter(
-      isProtectedHazard,
+      (group) =>
+        !isHazardExplicitlyNotApplicable(
+          group,
+        ),
+    );
+
+  const classifiedHazards =
+    eligibleHazardGroups.map(
+      (group) => ({
+        group,
+        significance:
+          evaluateHazardSignificance(
+            group,
+          ),
+      }),
+    );
+
+  const protectedHazards =
+    classifiedHazards.filter(
+      ({ significance }) =>
+        significance ===
+        "Protected",
+    );
+
+  const significantHazards =
+    classifiedHazards.filter(
+      ({ significance }) =>
+        significance ===
+        "Significant",
+    );
+
+  const contextualHazards =
+    classifiedHazards.filter(
+      ({ significance }) =>
+        significance ===
+        "Contextual",
+    );
+
+  const supportingHazards =
+    classifiedHazards.filter(
+      ({ significance }) =>
+        significance ===
+        "Supporting",
     );
 
   /*
-   * Keep ordinary work steps focused at five hazards and allow
-   * safety-critical or High inherent-risk steps to surface six.
+   * Authoritative and genuinely significant hazards are never
+   * removed merely to satisfy a presentation target.
    *
-   * Protected user, requirement, and explicit-assignment hazards
-   * are never removed. If protected content exceeds the requested
-   * target, Qoreva preserves it for qualified review instead of
-   * silently hiding authoritative planning evidence.
+   * The ordinary 5 / high-risk 6 targets are UX targets used
+   * only to determine how much additional contextual/supporting
+   * guidance should be shown.
    */
-  const effectiveHazardTarget =
-    Math.min(
-      MAX_PRIMARY_HAZARDS_PER_WORK_STEP,
-      Math.max(
-        requestedHazardTarget,
-        Math.min(
-          protectedHazards.length,
-          MAX_PRIMARY_HAZARDS_PER_WORK_STEP,
-        ),
+  const alwaysVisibleHazardIds =
+    new Set([
+      ...protectedHazards.map(
+        ({ group }) =>
+          group.id,
       ),
-    );
+      ...significantHazards.map(
+        ({ group }) =>
+          group.id,
+      ),
+    ]);
 
-  const availableAdvisorySlots =
+  const remainingTargetSlots =
     Math.max(
       0,
-      effectiveHazardTarget -
-        protectedHazards.length,
+      requestedHazardTarget -
+        alwaysVisibleHazardIds.size,
     );
 
-  const selectedAdvisoryHazardIds =
-    new Set(
-      hazardGroups
-        .filter(
-          (group) =>
-            !isProtectedHazard(
-              group,
-            ),
-        )
-        .map(
-          (group, originalIndex) => ({
-            group,
-            originalIndex,
-            priority:
-              hazardPriority(
-                group,
-              ),
-          }),
-        )
-        .sort(
-          (left, right) =>
-            right.priority -
-              left.priority ||
-            left.originalIndex -
-              right.originalIndex,
-        )
-        .slice(
-          0,
-          availableAdvisorySlots,
-        )
-        .map(
-          ({ group }) =>
-            group.id,
-        ),
+  const selectedContextual =
+    contextualHazards.slice(
+      0,
+      remainingTargetSlots,
     );
+
+  const remainingSupportingSlots =
+    Math.max(
+      0,
+      remainingTargetSlots -
+        selectedContextual.length,
+    );
+
+  const selectedSupporting =
+    supportingHazards.slice(
+      0,
+      remainingSupportingSlots,
+    );
+
+  const selectedHazardIds =
+    new Set([
+      ...alwaysVisibleHazardIds,
+      ...selectedContextual.map(
+        ({ group }) =>
+          group.id,
+      ),
+      ...selectedSupporting.map(
+        ({ group }) =>
+          group.id,
+      ),
+    ]);
 
   const selectedHazards =
-    hazardGroups.filter(
+    eligibleHazardGroups.filter(
       (group) =>
-        isProtectedHazard(
-          group,
-        ) ||
-        selectedAdvisoryHazardIds.has(
+        selectedHazardIds.has(
           group.id,
         ),
     );
@@ -3686,6 +3872,54 @@ function findGeneratedControlLocation(
 
   return null;
 }
+
+function readDecisionWorkStepId(
+  decision: PlanningHazardControlDecisionContext,
+) {
+  if (decision.workStepId) {
+    return decision.workStepId;
+  }
+
+  const sourceMetadata =
+    decision.sourceMetadata;
+
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return null;
+  }
+
+  const metadata =
+    sourceMetadata as Record<
+      string,
+      unknown
+    >;
+
+  if (
+    typeof metadata.workStepId !==
+    "string"
+  ) {
+    return null;
+  }
+
+  return (
+    metadata.workStepId.trim() ||
+    null
+  );
+}
+
+/*
+ * Legacy decision compatibility:
+ *
+ * Persisted workStepId is authoritative. Decisions created
+ * immediately before the schema migration may still have a
+ * null database workStepId while carrying the same stable
+ * identity in sourceMetadata.
+ *
+ * Never infer ownership from sequence/title.
+ */
 
 function readDecisionParentHazardIdentity(
   sourceMetadata: unknown,
@@ -5054,8 +5288,17 @@ function isGeneratedHazardApplicableToWorkStep(
     has(/\b(mewp|boom lift|scissor lift|aerial lift|manlift)\b/i);
 
   if (activityCode === "GENERAL_WORK") {
+    /*
+     * GENERAL_WORK is baseline planning intelligence, not an automatic
+     * source of field-facing hazards.
+     *
+     * Generic conditions should surface only when the work-step context
+     * provides evidence that the exposure is materially relevant.
+     */
     if (hazardHas(/\bchanging work conditions\b/i)) {
-      return true;
+      return has(
+        /\b(changing conditions|changed conditions|conditions changed|unexpected condition|unexpected conditions|weather change|weather changes|adjacent work changed|scope change|scope changed|field condition|field conditions)\b/i,
+      );
     }
 
     if (hazardHas(/\bhand and power tool\b/i)) {
@@ -5063,7 +5306,9 @@ function isGeneratedHazardApplicableToWorkStep(
     }
 
     if (hazardHas(/\bpoor housekeeping|trip hazards?\b/i)) {
-      return has(/\b(housekeeping|access|walking|trip|debris|cord|hose|material staging|work area|restore)\b/i);
+      return has(
+        /\b(housekeeping|trip hazard|trip hazards|debris|cord|cords|hose|hoses|obstructed access|blocked access|poor access|walking surface|walking surfaces)\b/i,
+      );
     }
 
     if (hazardHas(/\badjacent operations|simultaneous work\b/i)) {
@@ -5272,6 +5517,7 @@ function isGeneratedHazardApplicableToWorkStep(
 }
 
 function getApplicableGeneratedHazardControlGroups(
+  workStepId: string | null,
   stepSequence: number,
   activityCode: string,
   guidance: ActivityGuidance,
@@ -5290,6 +5536,7 @@ function getApplicableGeneratedHazardControlGroups(
     )
     .map((group) =>
       buildGeneratedHazardControlGroup(
+        workStepId,
         stepSequence,
         activityCode,
         group,
@@ -5332,6 +5579,7 @@ function buildWorkStepSuggestions(
        */
       hazardControlGroupCandidates.push(
         ...getApplicableGeneratedHazardControlGroups(
+          step.workStepId,
           step.sequence || index + 1,
           "GENERAL_WORK",
           activityGuidanceLibrary.GENERAL_WORK,
@@ -5369,6 +5617,7 @@ function buildWorkStepSuggestions(
 
         hazardControlGroupCandidates.push(
           ...getApplicableGeneratedHazardControlGroups(
+            step.workStepId,
             step.sequence || index + 1,
             activityCode,
             guidance,
@@ -5434,6 +5683,29 @@ function buildWorkStepSuggestions(
         );
 
       /*
+       * Qualified-user hazard/control decisions belong to one
+       * stable PlanningWorkStep.
+       *
+       * Never broadcast a decision across work steps merely
+       * because another step contains the same recommendation
+       * text or generated identifier.
+       *
+       * Legacy decisions without workStepId are intentionally
+       * excluded here until they can be reconnected through a
+       * separate conservative legacy-resolution path.
+       */
+      const workStepHazardControlDecisions =
+        step.workStepId
+          ? context.hazardControlDecisions.filter(
+              (decision) =>
+                readDecisionWorkStepId(
+                  decision,
+                ) ===
+                step.workStepId,
+            )
+          : [];
+
+      /*
        * Apply persisted qualified-user text decisions before
        * automatic assignment so revised wording can be
        * evaluated by the same conservative deterministic
@@ -5443,7 +5715,7 @@ function buildWorkStepSuggestions(
       const decisionAdjustedHazardControlGroups =
         applyControlDecisionsBeforeAssignment(
           resolvedHazardControlGroups,
-          context.hazardControlDecisions,
+          workStepHazardControlDecisions,
         );
 
 
@@ -5467,7 +5739,7 @@ function buildWorkStepSuggestions(
       const identityReconnectedHazardControlGroups =
         reconnectAcceptedControlDecisionIdentities(
           mergedHazardControlGroups,
-          context.hazardControlDecisions,
+          workStepHazardControlDecisions,
         );
 
 
@@ -5479,7 +5751,7 @@ function buildWorkStepSuggestions(
       const decisionAppliedHazardControlGroups =
         applyExplicitControlAssignments(
           identityReconnectedHazardControlGroups,
-          context.hazardControlDecisions,
+          workStepHazardControlDecisions,
         );
 
 
@@ -5552,7 +5824,7 @@ function buildWorkStepSuggestions(
       const identityStableCompleteHazardControlGroups =
         reconnectAcceptedControlDecisionIdentities(
           completeHazardControlGroups,
-          context.hazardControlDecisions,
+          workStepHazardControlDecisions,
         );
 
       /*
@@ -5565,7 +5837,7 @@ function buildWorkStepSuggestions(
       const hazardControlGroups =
         limitHazardControlGroupsForFieldReview(
           identityStableCompleteHazardControlGroups,
-          context.hazardControlDecisions,
+          workStepHazardControlDecisions,
           step.safetyCritical ||
           highRiskAttention
             ? TARGET_HIGH_RISK_HAZARDS_PER_WORK_STEP

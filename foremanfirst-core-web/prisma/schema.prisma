@@ -837,6 +837,13 @@ model PlanningHazardControlDecision {
   planningRecordId String
   revisionNumber   Int
 
+  // Stable Guided Planning work-step identity.
+  // Nullable temporarily for legacy decisions created before
+  // work-step-scoped decision identity was introduced.
+  workStepId       String?
+  workStepSequence Int?
+  workStepTitle    String?
+
   recommendationId String
 
   itemType String
@@ -867,11 +874,12 @@ model PlanningHazardControlDecision {
 
   targets PlanningHazardControlDecisionTarget[]
 
-  @@unique([planningRecordId, revisionNumber, recommendationId])
+  @@unique([planningRecordId, revisionNumber, workStepId, recommendationId])
   @@index([tenantId])
   @@index([planningRecordId])
   @@index([planningRecordId, revisionNumber])
   @@index([revisionNumber])
+  @@index([workStepId])
   @@index([decision])
   @@index([targetHazardId])
   @@index([canonicalHazardConceptId])

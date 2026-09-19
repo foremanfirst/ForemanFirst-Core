@@ -934,6 +934,15 @@ export async function buildPlanningGenerationContext(
           revisionNumber:
             decision.revisionNumber,
 
+          workStepId:
+            decision.workStepId,
+
+          workStepSequence:
+            decision.workStepSequence,
+
+          workStepTitle:
+            decision.workStepTitle,
+
           recommendationId:
             decision.recommendationId,
 

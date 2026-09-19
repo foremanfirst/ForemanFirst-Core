@@ -579,9 +579,7 @@ function canonicalRiskAttention(
       conceptId
     ];
 
-  return definition.riskAttention
-    ? "HighAttention"
-    : "Normal";
+  return definition.riskAttention;
 }
 
 function baselineRecommendation(

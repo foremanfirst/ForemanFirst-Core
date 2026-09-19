@@ -110,6 +110,19 @@ export type PlanningHazardControlDecisionContext = {
   revisionNumber: number;
 
   /**
+   * Stable PlanningWorkStep identity that owns this
+   * qualified-user decision.
+   *
+   * Nullable only for legacy decisions created before
+   * work-step-scoped decision identity was introduced.
+   * Sequence/title are provenance snapshots only and
+   * must never replace workStepId as authoritative identity.
+   */
+  workStepId: string | null;
+  workStepSequence: number | null;
+  workStepTitle: string | null;
+
+  /**
    * Stable generated-item identity used to reconnect
    * a qualified-user decision to the same generated
    * hazard or control during future draft generation.
@@ -458,6 +471,44 @@ export type GeneratedHazardControlGroup = {
    * intelligence must not infer one from display wording.
    */
   canonicalHazardConceptId?: string | null;
+
+  /**
+   * Structured canonical hazard classification used by Qoreva
+   * significance and field-presentation intelligence.
+   *
+   * These values are advisory metadata. They do not replace the
+   * qualified user's hazard assessment or official risk decision.
+   */
+  canonicalHazardKind?:
+    | "Hazard"
+    | "Exposure"
+    | "ReadinessCondition"
+    | null;
+
+  canonicalRiskAttention?:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention"
+    | null;
+
+  /**
+   * Optional field-presentation metadata derived from the
+   * authoritative canonical hazard definition.
+   *
+   * This does not change canonical safety identity. It allows
+   * Qoreva to organize related concepts into a simpler field
+   * conversation while preserving detailed safety intelligence.
+   */
+  fieldPresentationFamily?:
+    | string
+    | null;
+
+  fieldPresentationRole?:
+    | "Primary"
+    | "Detail"
+    | "Umbrella"
+    | "Independent"
+    | null;
 
   hazard: GeneratedHazardControlItem;
 

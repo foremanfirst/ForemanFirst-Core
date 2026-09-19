@@ -109,6 +109,21 @@ export type CanonicalHazardControlDefinition = {
     | "Normal"
     | "Elevated"
     | "HighAttention";
+
+  /**
+   * Optional field-presentation relationship.
+   *
+   * Canonical hazard identity remains unchanged. These fields describe
+   * how related concepts may be organized into a concise field-planning
+   * conversation without changing their safety identity.
+   */
+  fieldPresentationFamily?: string;
+
+  fieldPresentationRole?:
+    | "Primary"
+    | "Detail"
+    | "Umbrella"
+    | "Independent";
 };
 
 export const canonicalHazardControlLibrary:
@@ -539,6 +554,10 @@ export const canonicalHazardControlLibrary:
       "Provide safe access and egress where required.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "EXCAVATION_GENERAL_EXPOSURE",
+    fieldPresentationRole:
+      "Umbrella",
   },
 
   UNDERGROUND_UTILITY_CONTACT: {
@@ -569,6 +588,10 @@ export const canonicalHazardControlLibrary:
       "Use approved non-destructive excavation methods where required.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_CONTACT",
+    fieldPresentationRole:
+      "Primary",
   },
 
   UNDERGROUND_UTILITY_LOCATION_UNCERTAINTY: {
@@ -604,6 +627,10 @@ export const canonicalHazardControlLibrary:
       "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_CONTACT",
+    fieldPresentationRole:
+      "Detail",
   },
 
   UNDERGROUND_UTILITY_SUPPORT_LOSS: {
@@ -631,6 +658,10 @@ export const canonicalHazardControlLibrary:
       "Inspect the exposed utility and support system before work continues and whenever conditions or loading change.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_SUPPORT_LOSS",
+    fieldPresentationRole:
+      "Independent",
   },
 
   UNDERGROUND_UTILITY_DAMAGE: {
@@ -657,6 +688,10 @@ export const canonicalHazardControlLibrary:
       "Stop mechanical excavation when the utility location or depth cannot be adequately verified.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_CONTACT",
+    fieldPresentationRole:
+      "Detail",
   },
 
   UNDERGROUND_UTILITY_RELEASE: {
@@ -684,6 +719,10 @@ export const canonicalHazardControlLibrary:
       "Follow the project and utility-specific emergency notification and response process.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_CONTACT",
+    fieldPresentationRole:
+      "Detail",
   },
 
   UNDERGROUND_UTILITY_ELECTRICAL_CONTACT: {
@@ -711,6 +750,10 @@ export const canonicalHazardControlLibrary:
       "Stop work when an electrical source, condition, or safe work boundary cannot be verified.",
     ],
     riskAttention: "HighAttention",
+    fieldPresentationFamily:
+      "UNDERGROUND_UTILITY_CONTACT",
+    fieldPresentationRole:
+      "Detail",
   },
 
   ELECTRICAL_SHOCK: {
@@ -1176,6 +1219,20 @@ export function buildCanonicalHazardControlGroup(args: {
      */
     canonicalHazardConceptId:
       args.definition.id,
+
+    canonicalHazardKind:
+      args.definition.kind,
+
+    canonicalRiskAttention:
+      args.definition.riskAttention,
+
+    fieldPresentationFamily:
+      args.definition.fieldPresentationFamily ??
+      null,
+
+    fieldPresentationRole:
+      args.definition.fieldPresentationRole ??
+      null,
 
     hazard,
 

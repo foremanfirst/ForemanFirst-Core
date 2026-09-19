@@ -224,6 +224,11 @@ export async function PUT(
         body.recommendationId,
       );
 
+    const workStepId =
+      toNullableString(
+        body.workStepId,
+      );
+
     const itemType =
       toNullableString(
         body.itemType,
@@ -290,6 +295,45 @@ export async function PUT(
         {
           message:
             "Recommendation ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (!workStepId) {
+      return NextResponse.json(
+        {
+          message:
+            "Stable work-step identity is required for hazard and control decisions.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const workStep =
+      await prisma.planningWorkStep.findFirst({
+        where: {
+          id: workStepId,
+          planningRecordId,
+          tenantId:
+            existingRecord.tenantId,
+        },
+        select: {
+          id: true,
+          sequence: true,
+          title: true,
+        },
+      });
+
+    if (!workStep) {
+      return NextResponse.json(
+        {
+          message:
+            "Work step was not found for this planning record.",
         },
         {
           status: 400,
@@ -422,6 +466,8 @@ export async function PUT(
                   existingRecord.tenantId,
                 revisionNumber:
                   existingRecord.revisionNumber,
+                workStepId:
+                  workStep.id,
                 recommendationId,
               },
               select: {
@@ -445,6 +491,12 @@ export async function PUT(
                       existingDecision.id,
                   },
                   data: {
+                    workStepId:
+                      workStep.id,
+                    workStepSequence:
+                      workStep.sequence,
+                    workStepTitle:
+                      workStep.title,
                     itemType,
                     originalText,
                     decision,
@@ -482,6 +534,15 @@ export async function PUT(
 
                     revisionNumber:
                       existingRecord.revisionNumber,
+
+                    workStepId:
+                      workStep.id,
+
+                    workStepSequence:
+                      workStep.sequence,
+
+                    workStepTitle:
+                      workStep.title,
 
                     recommendationId,
 

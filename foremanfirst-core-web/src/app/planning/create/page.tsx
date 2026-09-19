@@ -28,6 +28,14 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  buildFieldHazardPresentations,
+  findFieldHazardPresentationForGroup,
+  flattenFieldHazardPresentationGroups,
+  isPrimaryFieldHazardPresentationGroup,
+} from "@/lib/planning/field-hazard-presentation";
+
+
 
 type PlanType =
   | "PTP"
@@ -626,6 +634,36 @@ type GeneratedHazardControlItem = {
 
 type GeneratedHazardControlGroup = {
   id: string;
+
+  /**
+   * Canonical safety identity and field-presentation metadata.
+   *
+   * Optional/null for compatibility with historical generated
+   * Planning snapshots created before this metadata existed.
+   */
+  canonicalHazardConceptId?: string | null;
+
+  canonicalHazardKind?:
+    | "Hazard"
+    | "Exposure"
+    | "ReadinessCondition"
+    | null;
+
+  canonicalRiskAttention?:
+    | "Normal"
+    | "Elevated"
+    | "HighAttention"
+    | null;
+
+  fieldPresentationFamily?: string | null;
+
+  fieldPresentationRole?:
+    | "Primary"
+    | "Detail"
+    | "Umbrella"
+    | "Independent"
+    | null;
+
   hazard: GeneratedHazardControlItem;
   controls: GeneratedHazardControlItem[];
 };
@@ -1271,6 +1309,7 @@ type HazardControlDecisionValue =
 
 type HazardControlDecision = {
   id: string;
+  workStepId?: string | null;
   recommendationId: string;
   itemType: "Hazard" | "Control";
   originalText: string;
@@ -1291,6 +1330,55 @@ type HazardControlDecision = {
   createdAt: string;
   updatedAt: string;
 };
+
+function hazardControlDecisionWorkStepId(
+  decision: HazardControlDecision,
+) {
+  if (decision.workStepId) {
+    return decision.workStepId;
+  }
+
+  const sourceMetadata =
+    decision.sourceMetadata;
+
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return null;
+  }
+
+  const metadata =
+    sourceMetadata as Record<
+      string,
+      unknown
+    >;
+
+  return typeof metadata.workStepId ===
+    "string"
+    ? metadata.workStepId.trim() || null
+    : null;
+}
+
+function findHazardControlDecision(
+  decisions: HazardControlDecision[],
+  workStepId: string | null | undefined,
+  recommendationId: string,
+) {
+  if (!workStepId) {
+    return undefined;
+  }
+
+  return decisions.find(
+    (decision) =>
+      hazardControlDecisionWorkStepId(
+        decision,
+      ) === workStepId &&
+      decision.recommendationId ===
+        recommendationId,
+  );
+}
 
 type HazardControlOverrideAction =
   | "Add"
@@ -1491,6 +1579,7 @@ type HazardControlReviewMode =
 
 type UnassignedUserControlReviewItem = {
   id: string;
+  workStepId: string | null;
   stepSequence: number;
   stepTitle: string;
   control: GeneratedHazardControlItem;
@@ -2628,6 +2717,13 @@ export default function CreatePlanningPage() {
   );
 
   const [
+    expandedFieldHazardFamilies,
+    setExpandedFieldHazardFamilies,
+  ] = useState<Set<string>>(
+    () => new Set<string>(),
+  );
+
+  const [
     pendingHazardReviewTargetId,
     setPendingHazardReviewTargetId,
   ] = useState<string | null>(null);
@@ -3167,7 +3263,7 @@ export default function CreatePlanningPage() {
 
     for (const evaluation of guidedPlanningControlEvaluations) {
       const key = [
-        evaluation.workStepSequence,
+        evaluation.workStepId,
         evaluation.hazardId,
         evaluation.controlId,
       ].join(":");
@@ -3182,14 +3278,18 @@ export default function CreatePlanningPage() {
   }, [guidedPlanningControlEvaluations]);
 
   function isControlVerificationReadyForCompletion(
-    stepSequence: number,
+    workStepId: string | null | undefined,
     group: GeneratedHazardControlGroup,
     control: GeneratedHazardControlItem,
   ) {
+    if (!workStepId) {
+      return false;
+    }
+
     const evaluation =
       controlEvaluationByIdentity.get(
         [
-          stepSequence,
+          workStepId,
           group.hazard.id,
           control.id,
         ].join(":"),
@@ -5188,10 +5288,10 @@ export default function CreatePlanningPage() {
                   group.controls.filter(
                     (control) => {
                       const decision =
-                        hazardControlDecisions.find(
-                          (candidate) =>
-                            candidate.recommendationId ===
-                            control.id,
+                        findHazardControlDecision(
+                          hazardControlDecisions,
+                          step.id,
+                          control.id,
                         );
 
                       return (
@@ -5218,10 +5318,10 @@ export default function CreatePlanningPage() {
                       }
 
                       const decision =
-                        hazardControlDecisions.find(
-                          (candidate) =>
-                            candidate.recommendationId ===
-                            control.id,
+                        findHazardControlDecision(
+                          hazardControlDecisions,
+                          step.id,
+                          control.id,
                         );
 
                       return (
@@ -5500,20 +5600,6 @@ export default function CreatePlanningPage() {
     }, [planningQualityChecks]);
 
 
-  const hazardControlDecisionByRecommendationId =
-    useMemo(
-      () =>
-        new Map(
-          hazardControlDecisions.map(
-            (decision) => [
-              decision.recommendationId,
-              decision,
-            ],
-          ),
-        ),
-      [hazardControlDecisions],
-    );
-
   const removedHazardOverrides =
     useMemo(
       () =>
@@ -5560,6 +5646,8 @@ export default function CreatePlanningPage() {
                 group.controls.map(
                   (control) => ({
                     id: `${step.sequence}-${group.id}-${control.id}`,
+                    workStepId:
+                      step.workStepId ?? null,
                     stepSequence:
                       step.sequence,
                     stepTitle:
@@ -5580,13 +5668,15 @@ export default function CreatePlanningPage() {
       () =>
         allUnassignedUserControlReviewItems.filter(
           (item) =>
-            !hazardControlDecisionByRecommendationId.has(
+            !findHazardControlDecision(
+              hazardControlDecisions,
+              item.workStepId,
               item.control.id,
             ),
         ),
       [
         allUnassignedUserControlReviewItems,
-        hazardControlDecisionByRecommendationId,
+        hazardControlDecisions,
       ],
     );
 
@@ -5595,13 +5685,17 @@ export default function CreatePlanningPage() {
       () =>
         allUnassignedUserControlReviewItems.filter(
           (item) =>
-            hazardControlDecisionByRecommendationId.has(
-              item.control.id,
+            Boolean(
+              findHazardControlDecision(
+                hazardControlDecisions,
+                item.workStepId,
+                item.control.id,
+              ),
             ),
         ),
       [
         allUnassignedUserControlReviewItems,
-        hazardControlDecisionByRecommendationId,
+        hazardControlDecisions,
       ],
     );
 
@@ -8031,6 +8125,7 @@ export default function CreatePlanningPage() {
           record?: {
             id: string;
           };
+          generatedDraft?: GeneratedPlanningDraft;
           workSteps?: Array<{
             id: string;
             sequence: number;
@@ -8214,7 +8309,12 @@ export default function CreatePlanningPage() {
           [],
       );
 
-      if (invalidateGeneratedDraft) {
+      if (data.generatedDraft) {
+        setGeneratedPlanningDraft(
+          data.generatedDraft,
+        );
+        setDraftGenerated(true);
+      } else if (invalidateGeneratedDraft) {
         setDraftGenerated(false);
         setGeneratedPlanningDraft(null);
       }
@@ -8351,46 +8451,27 @@ export default function CreatePlanningPage() {
             return;
           }
 
-          const generatedHazards =
-            Array.from(
-              new Set(
-                generatedStep
-                  .suggestedHazards
-                  .map((hazard) =>
-                    hazard.trim(),
-                  )
-                  .filter(Boolean),
-              ),
-            );
-
-          const generatedControls =
-            Array.from(
-              new Set(
-                generatedStep
-                  .suggestedControls
-                  .map((control) =>
-                    control.trim(),
-                  )
-                  .filter(Boolean),
-              ),
-            );
-
+          /*
+           * Keep legacy planner-authored hazard/control fields separate
+           * from Qoreva's generated structured safety intelligence.
+           *
+           * Generated hazards and controls already live in the generated
+           * draft with explicit relationships and stable identities.
+           * Copying them into these legacy flat fields causes a later
+           * regeneration to reinterpret Qoreva-generated intelligence as
+           * user-entered data requiring hazard assignment.
+           *
+           * Preserve genuine existing legacy/manual values, but never
+           * backfill these fields from generated suggestions.
+           */
           nextWorkStepPlanning[
             step.id
           ] = {
             hazards:
-              currentPlanning.hazards.trim()
-                ? currentPlanning.hazards
-                : generatedHazards.join(
-                    "\n",
-                  ),
+              currentPlanning.hazards,
 
             controls:
-              currentPlanning.controls.trim()
-                ? currentPlanning.controls
-                : generatedControls.join(
-                    "\n",
-                  ),
+              currentPlanning.controls,
 
             safetyCritical:
               currentPlanning.safetyCritical ||
@@ -11589,6 +11670,8 @@ export default function CreatePlanningPage() {
               body: JSON.stringify({
                 recommendationId:
                   activeControlEditor.controlId,
+                workStepId:
+                  activeControlEditor.workStepId,
                 itemType:
                   "Control",
                 originalText:
@@ -11606,6 +11689,8 @@ export default function CreatePlanningPage() {
                 sourceMetadata: {
                   revisionNumber:
                     planningRevisionNumber,
+                  workStepId:
+                    activeControlEditor.workStepId,
                   stepSequence:
                     activeControlEditor.stepSequence,
                   stepTitle:
@@ -11997,6 +12082,8 @@ export default function CreatePlanningPage() {
             body: JSON.stringify({
               recommendationId:
                 control.id,
+              workStepId:
+                step.workStepId ?? null,
               itemType:
                 "Control",
               originalText:
@@ -12013,6 +12100,8 @@ export default function CreatePlanningPage() {
               sourceMetadata: {
                 revisionNumber:
                   planningRevisionNumber,
+                workStepId:
+                  step.workStepId ?? null,
                 stepSequence:
                   step.sequence,
                 stepTitle:
@@ -12067,9 +12156,12 @@ export default function CreatePlanningPage() {
         (current) => [
           ...current.filter(
             (existing) =>
-              existing.recommendationId !==
-              data.decision!
-                .recommendationId,
+              !(
+                hazardControlDecisionWorkStepId(existing) ===
+                  hazardControlDecisionWorkStepId(data.decision!) &&
+                existing.recommendationId ===
+                  data.decision!.recommendationId
+              ),
           ),
           data.decision!,
         ],
@@ -12086,6 +12178,8 @@ export default function CreatePlanningPage() {
           setHazardControlDecisionError(
             "The control decision was saved, but Qoreva could not refresh the draft automatically. Use Refresh Draft Plan before continuing.",
           );
+        } else {
+          await persistGuidedPlanning({ requireHazardReadinessPlanning: false, advanceToHazardReview: false, invalidateGeneratedDraft: false, validateQuestionReadiness: false });
         }
       }
     } catch (error) {
@@ -12159,10 +12253,10 @@ export default function CreatePlanningPage() {
       group.controls
         .filter(
           (control) =>
-            hazardControlDecisions.find(
-              (decision) =>
-                decision.recommendationId ===
-                control.id,
+            findHazardControlDecision(
+              hazardControlDecisions,
+              step.workStepId,
+              control.id,
             )?.decision !==
               "Accept" &&
             hasMeaningfulPlanningText(
@@ -12237,10 +12331,10 @@ export default function CreatePlanningPage() {
               control,
             ),
           ) &&
-          hazardControlDecisions.find(
-            (decision) =>
-              decision.recommendationId ===
-              control.id,
+          findHazardControlDecision(
+            hazardControlDecisions,
+            step.workStepId,
+            control.id,
           )?.decision !==
             "Accept",
       );
@@ -12741,6 +12835,8 @@ export default function CreatePlanningPage() {
             body: JSON.stringify({
               recommendationId:
                 item.control.id,
+              workStepId:
+                item.workStepId,
               itemType:
                 "Control",
               originalText:
@@ -12766,6 +12862,8 @@ export default function CreatePlanningPage() {
               sourceMetadata: {
                 revisionNumber:
                   planningRevisionNumber,
+                workStepId:
+                  item.workStepId,
                 stepSequence:
                   item.stepSequence,
                 stepTitle:
@@ -17717,14 +17815,14 @@ export default function CreatePlanningPage() {
                             group.controls.length === 0 ||
                             group.controls.some(
                               (control) =>
-                                hazardControlDecisions.find(
-                                  (decision) =>
-                                    decision.recommendationId ===
-                                    control.id,
+                                findHazardControlDecision(
+                                  hazardControlDecisions,
+                                  step.id,
+                                  control.id,
                                 )?.decision !==
                                   "Accept" ||
                                 !isControlVerificationReadyForCompletion(
-                                  index + 1,
+                                  step.id,
                                   group,
                                   control,
                                 ),
@@ -17785,10 +17883,10 @@ export default function CreatePlanningPage() {
                       const stepCoreAcceptedCount =
                         stepCoreCriticalControls.filter(
                           (evaluation) =>
-                            hazardControlDecisions.find(
-                              (decision) =>
-                                decision.recommendationId ===
-                                evaluation.controlId,
+                            findHazardControlDecision(
+                              hazardControlDecisions,
+                              step.id,
+                              evaluation.controlId,
                             )?.decision ===
                               "Accept",
                         ).length;
@@ -18080,14 +18178,14 @@ export default function CreatePlanningPage() {
                                         left.controls.length === 0 ||
                                         left.controls.some(
                                           (control) =>
-                                            hazardControlDecisions.find(
-                                              (decision) =>
-                                                decision.recommendationId ===
-                                                control.id,
+                                            findHazardControlDecision(
+                                              hazardControlDecisions,
+                                              step.id,
+                                              control.id,
                                             )?.decision !==
                                               "Accept" ||
                                             !isControlVerificationReadyForCompletion(
-                                              index + 1,
+                                              step.id,
                                               left,
                                               control,
                                             ),
@@ -18097,14 +18195,14 @@ export default function CreatePlanningPage() {
                                         right.controls.length === 0 ||
                                         right.controls.some(
                                           (control) =>
-                                            hazardControlDecisions.find(
-                                              (decision) =>
-                                                decision.recommendationId ===
-                                                control.id,
+                                            findHazardControlDecision(
+                                              hazardControlDecisions,
+                                              step.id,
+                                              control.id,
                                             )?.decision !==
                                               "Accept" ||
                                             !isControlVerificationReadyForCompletion(
-                                              index + 1,
+                                              step.id,
                                               right,
                                               control,
                                             ),
@@ -18122,10 +18220,10 @@ export default function CreatePlanningPage() {
                                     const acceptedControls =
                                       group.controls.filter(
                                         (control) =>
-                                          hazardControlDecisions.find(
-                                            (decision) =>
-                                              decision.recommendationId ===
-                                              control.id,
+                                          findHazardControlDecision(
+                                            hazardControlDecisions,
+                                            step.id,
+                                            control.id,
                                           )?.decision ===
                                           "Accept",
                                       ).length;
@@ -18133,14 +18231,14 @@ export default function CreatePlanningPage() {
                                     const verificationPendingControls =
                                       group.controls.filter(
                                         (control) =>
-                                          hazardControlDecisions.find(
-                                            (decision) =>
-                                              decision.recommendationId ===
-                                              control.id,
+                                          findHazardControlDecision(
+                                            hazardControlDecisions,
+                                            step.id,
+                                            control.id,
                                           )?.decision ===
                                             "Accept" &&
                                           !isControlVerificationReadyForCompletion(
-                                            index + 1,
+                                            step.id,
                                             group,
                                             control,
                                           ),
@@ -19479,8 +19577,18 @@ export default function CreatePlanningPage() {
                               "User-entered controls requiring hazard assignment",
                           );
 
+                          const fieldHazardPresentations =
+                            buildFieldHazardPresentations(
+                              visibleGroups,
+                            );
+
+                          const fieldDisplayGroups =
+                            flattenFieldHazardPresentationGroups(
+                              fieldHazardPresentations,
+                            );
+
                           const visibleHazardIds =
-                            visibleGroups.map(
+                            fieldDisplayGroups.map(
                               (group) =>
                                 group.hazard.id,
                             );
@@ -19546,8 +19654,8 @@ export default function CreatePlanningPage() {
                                       </p>
 
                                       <p className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
-                                        {visibleGroups.length} hazard
-                                        {visibleGroups.length === 1 ? "" : "s"}
+                                        {fieldHazardPresentations.length} hazard
+                                        {fieldHazardPresentations.length === 1 ? "" : "s"}
                                         {" • "}
                                         {controlCount} control
                                         {controlCount === 1 ? "" : "s"}
@@ -19691,12 +19799,48 @@ export default function CreatePlanningPage() {
 
                                 {visibleGroups.length > 0 ? (
                                   <div className="grid gap-3">
-                                    {visibleGroups.map((group) => {
+                                    {fieldDisplayGroups.map((group) => {
                                       const hazardPresentation =
                                         getHazardPresentation(
                                           group.hazard.text,
                                           group.hazard.sourceActivityCodes ?? [],
                                         );
+
+                                      const fieldPresentation =
+                                        findFieldHazardPresentationForGroup(
+                                          fieldHazardPresentations,
+                                          group.id,
+                                        );
+
+                                      const showFieldFamilyHeader =
+                                        Boolean(
+                                          fieldPresentation?.consolidated &&
+                                            isPrimaryFieldHazardPresentationGroup(
+                                              fieldPresentation,
+                                              group.id,
+                                            ),
+                                        );
+
+                                      const isRelatedFieldExposure =
+                                        Boolean(
+                                          fieldPresentation?.consolidated &&
+                                            !isPrimaryFieldHazardPresentationGroup(
+                                              fieldPresentation,
+                                              group.id,
+                                            ),
+                                        );
+
+                                      const fieldFamilyDisclosureKey =
+                                        fieldPresentation?.consolidated
+                                          ? `${step.sequence}:${fieldPresentation.id}`
+                                          : null;
+
+                                      const fieldFamilyExpanded =
+                                        fieldFamilyDisclosureKey
+                                          ? expandedFieldHazardFamilies.has(
+                                              fieldFamilyDisclosureKey,
+                                            )
+                                          : false;
 
                                       const hazardExpanded =
                                         expandedHazardIds.has(
@@ -19718,10 +19862,10 @@ export default function CreatePlanningPage() {
                                       const acceptedControlCount =
                                         group.controls.filter(
                                           (control) =>
-                                            hazardControlDecisions.find(
-                                              (decision) =>
-                                                decision.recommendationId ===
-                                                control.id,
+                                            findHazardControlDecision(
+                                              hazardControlDecisions,
+                                              step.workStepId,
+                                              control.id,
                                             )?.decision ===
                                             "Accept",
                                         ).length;
@@ -19736,14 +19880,14 @@ export default function CreatePlanningPage() {
                                       const verificationPendingControlCount =
                                         group.controls.filter(
                                           (control) =>
-                                            hazardControlDecisions.find(
-                                              (decision) =>
-                                                decision.recommendationId ===
-                                                control.id,
+                                            findHazardControlDecision(
+                                              hazardControlDecisions,
+                                              step.workStepId,
+                                              control.id,
                                             )?.decision ===
                                               "Accept" &&
                                             !isControlVerificationReadyForCompletion(
-                                              step.sequence,
+                                              step.workStepId,
                                               group,
                                               control,
                                             ),
@@ -19770,10 +19914,110 @@ export default function CreatePlanningPage() {
                                         group.hazard.source === "User" &&
                                         group.controls.length === 0;
 
+                                      if (
+                                        isRelatedFieldExposure &&
+                                        !fieldFamilyExpanded
+                                      ) {
+                                        return null;
+                                      }
+
                                       return (
-                                        <article
+                                        <div
                                           key={group.id}
-                                          data-guided-hazard-id={group.hazard.id}
+                                          className={`grid gap-2 ${
+                                            isRelatedFieldExposure
+                                              ? "ml-4 border-l-2 border-[rgba(102,87,232,0.18)] pl-3 sm:ml-6 sm:pl-4"
+                                              : ""
+                                          }`}
+                                        >
+                                          {isRelatedFieldExposure ? (
+                                            <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]">
+                                              Related Exposure
+                                            </p>
+                                          ) : null}
+
+                                          {showFieldFamilyHeader &&
+                                          fieldPresentation ? (
+                                            <div className="rounded-2xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-faint)] px-4 py-3">
+                                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="min-w-0">
+                                                  <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                                    Field Hazard Conversation
+                                                  </p>
+
+                                                  <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                                    {fieldPresentation.primaryGroup.hazard.text}
+                                                  </p>
+                                                </div>
+
+                                                <div className="flex shrink-0 flex-wrap gap-2">
+                                                  <span className="rounded-full border border-[rgba(102,87,232,0.20)] bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-violet-dark)]">
+                                                    {fieldPresentation.relatedDetailCount} related exposure
+                                                    {fieldPresentation.relatedDetailCount === 1
+                                                      ? ""
+                                                      : "s"}
+                                                  </span>
+
+                                                  <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                                    {fieldPresentation.totalControlCount} controls
+                                                  </span>
+                                                </div>
+                                              </div>
+
+                                              {fieldPresentation.relatedDetailCount > 0 &&
+                                              fieldFamilyDisclosureKey ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setExpandedFieldHazardFamilies(
+                                                      (current) => {
+                                                        const next =
+                                                          new Set(current);
+
+                                                        if (
+                                                          next.has(
+                                                            fieldFamilyDisclosureKey,
+                                                          )
+                                                        ) {
+                                                          next.delete(
+                                                            fieldFamilyDisclosureKey,
+                                                          );
+                                                        } else {
+                                                          next.add(
+                                                            fieldFamilyDisclosureKey,
+                                                          );
+                                                        }
+
+                                                        return next;
+                                                      },
+                                                    );
+                                                  }}
+                                                  aria-expanded={
+                                                    fieldFamilyExpanded
+                                                  }
+                                                  className="mt-3 flex min-h-10 w-full items-center justify-between gap-3 rounded-xl border border-[rgba(102,87,232,0.20)] bg-white px-3 py-2 text-left transition hover:bg-[var(--qoreva-porcelain)]"
+                                                >
+                                                  <span className="text-xs font-black text-[var(--qoreva-violet-dark)]">
+                                                    Related Exposures ({fieldPresentation.relatedDetailCount})
+                                                  </span>
+
+                                                  <span
+                                                    aria-hidden="true"
+                                                    className={`text-sm font-black text-[var(--qoreva-muted)] transition-transform ${
+                                                      fieldFamilyExpanded
+                                                        ? "rotate-180"
+                                                        : ""
+                                                    }`}
+                                                  >
+                                                    ▾
+                                                  </span>
+                                                </button>
+                                              ) : null}
+                                            </div>
+                                          ) : null}
+
+                                          <article
+                                            data-guided-hazard-id={group.hazard.id}
                                           tabIndex={-1}
                                           className={`overflow-hidden rounded-2xl border bg-white outline-none transition ${
                                             unresolvedControlRelationship
@@ -20595,7 +20839,7 @@ export default function CreatePlanningPage() {
                                                       const controlEvaluation =
                                                         controlEvaluationByIdentity.get(
                                                           [
-                                                            step.sequence,
+                                                            step.workStepId,
                                                             group.hazard.id,
                                                             control.id,
                                                           ].join(":"),
@@ -20622,10 +20866,10 @@ export default function CreatePlanningPage() {
                                                         );
 
                                                       const savedControlDecision =
-                                                        hazardControlDecisions.find(
-                                                          (decision) =>
-                                                            decision.recommendationId ===
-                                                            control.id,
+                                                        findHazardControlDecision(
+                                                          hazardControlDecisions,
+                                                          step.workStepId,
+                                                          control.id,
                                                         );
 
                                                       const controlAccepted =
@@ -20648,6 +20892,8 @@ export default function CreatePlanningPage() {
                                                         UnassignedUserControlReviewItem = {
                                                           id:
                                                             `visible-assignment:${step.sequence}:${control.id}`,
+                                                          workStepId:
+                                                            step.workStepId ?? null,
                                                           stepSequence:
                                                             step.sequence,
                                                           stepTitle:
@@ -21311,6 +21557,7 @@ export default function CreatePlanningPage() {
                                                                   )
                                                                 }
                                                                 disabled={
+                                                                  controlAccepted ||
                                                                   hazardControlDecisionSavingId !==
                                                                     null ||
                                                                   hazardControlOverrideSavingId !==
@@ -21672,6 +21919,7 @@ export default function CreatePlanningPage() {
                                             </div>
                                           ) : null}
                                         </article>
+                                        </div>
                                       );
                                     })}
                                   </div>
