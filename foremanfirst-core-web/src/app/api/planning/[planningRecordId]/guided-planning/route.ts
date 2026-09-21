@@ -885,6 +885,16 @@ export async function PUT(
         body.confirmedActivities,
       );
 
+    /*
+     * Activity lifecycle changes must be explicit.
+     *
+     * A general Guided Planning save must never interpret missing or
+     * transient browser activity state as a qualified-user decision to
+     * remove persisted confirmed activities.
+     */
+    const reconcileConfirmedActivities =
+      body.reconcileConfirmedActivities === true;
+
     const confirmedBy =
       authorization.user.displayName;
 
@@ -1071,7 +1081,10 @@ export async function PUT(
           generationContext,
 
         activities:
-          confirmedActivities.map(
+          (reconcileConfirmedActivities
+            ? confirmedActivities
+            : generationContext.activities
+          ).map(
             (activity) => ({
               activityCode:
                 activity.activityCode,
@@ -1426,6 +1439,7 @@ export async function PUT(
           // ===================================================
 
           if (
+            reconcileConfirmedActivities &&
             removedActivityCodes.length >
             0
           ) {
@@ -1463,7 +1477,9 @@ export async function PUT(
            */
           for (
             const activity of
-            incomingGenerationContext.activities
+            reconcileConfirmedActivities
+              ? incomingGenerationContext.activities
+              : []
           ) {
             const confidence =
               activity.confidence;

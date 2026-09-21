@@ -186,6 +186,13 @@ export async function PUT(
         body.activities,
       );
 
+    /*
+     * Re-analysis discovers additional activity context; it must not
+     * silently revoke a qualified user's existing applicability decisions.
+     */
+    const mergeDetectedActivities =
+      body.mergeDetectedActivities === true;
+
     const existing =
       await prisma.planningRecord.findFirst({
         where: {
@@ -252,8 +259,21 @@ export async function PUT(
 
               select: {
                 activityCode: true,
+                confirmationStatus: true,
+                confirmedBy: true,
+                confirmedAt: true,
               },
             });
+
+          const existingActivityByCode =
+            new Map(
+              existingActivities.map(
+                (activity) => [
+                  activity.activityCode,
+                  activity,
+                ],
+              ),
+            );
 
           const nextActivityCodes =
             activities.map(
@@ -280,6 +300,7 @@ export async function PUT(
               );
 
           if (
+            !mergeDetectedActivities &&
             removedActivityCodes.length >
             0
           ) {
@@ -317,8 +338,23 @@ export async function PUT(
                 activity.confirmationStatus,
               );
 
+            const existingActivity =
+              existingActivityByCode.get(
+                activity.activityCode,
+              );
+
+            const preserveExistingConfirmation =
+              mergeDetectedActivities &&
+              existingActivity?.confirmationStatus ===
+                "Confirmed";
+
+            const effectiveConfirmationStatus =
+              preserveExistingConfirmation
+                ? "Confirmed"
+                : confirmationStatus;
+
             const isConfirmed =
-              confirmationStatus ===
+              effectiveConfirmationStatus ===
               "Confirmed";
 
             await tx.planningActivity.upsert({
@@ -361,17 +397,22 @@ export async function PUT(
                  * must explicitly confirm applicability in Step 5 before
                  * the activity can drive the official planning record.
                  */
-                confirmationStatus,
+                confirmationStatus:
+                  effectiveConfirmationStatus,
 
                 confirmedBy:
-                  isConfirmed
-                    ? confirmedBy
-                    : null,
+                  preserveExistingConfirmation
+                    ? existingActivity?.confirmedBy
+                    : isConfirmed
+                      ? confirmedBy
+                      : null,
 
                 confirmedAt:
-                  isConfirmed
-                    ? now
-                    : null,
+                  preserveExistingConfirmation
+                    ? existingActivity?.confirmedAt
+                    : isConfirmed
+                      ? now
+                      : null,
 
                 isActive:
                   true,
@@ -397,17 +438,22 @@ export async function PUT(
                 aiConfidence:
                   confidence,
 
-                confirmationStatus,
+                confirmationStatus:
+                  effectiveConfirmationStatus,
 
                 confirmedBy:
-                  isConfirmed
-                    ? confirmedBy
-                    : null,
+                  preserveExistingConfirmation
+                    ? existingActivity?.confirmedBy
+                    : isConfirmed
+                      ? confirmedBy
+                      : null,
 
                 confirmedAt:
-                  isConfirmed
-                    ? now
-                    : null,
+                  preserveExistingConfirmation
+                    ? existingActivity?.confirmedAt
+                    : isConfirmed
+                      ? now
+                      : null,
 
                 isActive:
                   true,

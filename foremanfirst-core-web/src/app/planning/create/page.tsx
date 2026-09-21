@@ -262,6 +262,16 @@ type DetectedPlanningActivity = {
   sourceType: string;
 };
 
+function isQorevaRecommendedActivity(
+  activity: DetectedPlanningActivity,
+) {
+  return (
+    activity.score >= 75 ||
+    (activity.isHighRisk &&
+      activity.score >= 65)
+  );
+}
+
 type GuidedPlanningControlEvaluation = {
   workStepId: string;
   workStepSequence: number;
@@ -7435,6 +7445,8 @@ export default function CreatePlanningPage() {
                 "application/json",
             },
             body: JSON.stringify({
+              mergeDetectedActivities: true,
+
               activities:
                 nextDetectedActivities.map(
                   (activity) => ({
@@ -7489,35 +7501,71 @@ export default function CreatePlanningPage() {
         );
       }
 
-      setDetectedActivities(
-        nextDetectedActivities,
-      );
-
       /*
-       * Reanalysis must preserve prior qualified-user applicability
-       * decisions for activities that are still detected. Remove only
-       * confirmations that no longer apply; newly detected activities
-       * remain available for confirmation in Guided Planning.
-       *
-       * Existing planning answers remain keyed by question code so
-       * applicable responses survive normal backward navigation.
+       * Reanalysis is additive. Preserve existing activity context and
+       * qualified-user decisions while incorporating newly detected
+       * Qoreva recommendations.
        */
-      const nextDetectedActivityCodes =
+      const previouslyKnownActivityCodes =
         new Set(
-          nextDetectedActivities.map(
+          detectedActivities.map(
             (activity) =>
               activity.activityCode,
           ),
         );
 
-      setConfirmedActivityCodes(
-        (current) =>
-          current.filter(
-            (activityCode) =>
-              nextDetectedActivityCodes.has(
-                activityCode,
+      setDetectedActivities(
+        (current) => {
+          const merged =
+            new Map(
+              current.map(
+                (activity) => [
+                  activity.activityCode,
+                  activity,
+                ],
               ),
-          ),
+            );
+
+          for (const activity of nextDetectedActivities) {
+            merged.set(
+              activity.activityCode,
+              activity,
+            );
+          }
+
+          return Array.from(
+            merged.values(),
+          );
+        },
+      );
+
+      /*
+       * Newly discovered Qoreva recommendations start selected for
+       * qualified-user review. Existing selections and deselections are
+       * preserved during reanalysis.
+       */
+      setConfirmedActivityCodes(
+        (current) => {
+          const selected =
+            new Set(current);
+
+          for (const activity of nextDetectedActivities) {
+            if (
+              !previouslyKnownActivityCodes.has(
+                activity.activityCode,
+              ) &&
+              isQorevaRecommendedActivity(
+                activity,
+              )
+            ) {
+              selected.add(
+                activity.activityCode,
+              );
+            }
+          }
+
+          return Array.from(selected);
+        },
       );
 
       /*
@@ -7807,11 +7855,13 @@ export default function CreatePlanningPage() {
     advanceToHazardReview,
     invalidateGeneratedDraft,
     validateQuestionReadiness = true,
+    reconcileConfirmedActivities = false,
   }: {
     requireHazardReadinessPlanning: boolean;
     advanceToHazardReview: boolean;
     invalidateGeneratedDraft: boolean;
     validateQuestionReadiness?: boolean;
+    reconcileConfirmedActivities?: boolean;
   }): Promise<boolean> {
     const invalidAnsweredQuestions =
       guidedPlanningQuestions.filter(
@@ -8072,6 +8122,7 @@ export default function CreatePlanningPage() {
             },
             body: JSON.stringify({
               requireHazardReadinessPlanning,
+              reconcileConfirmedActivities,
 
               confirmedActivities:
                 detectedActivities
@@ -8092,8 +8143,6 @@ export default function CreatePlanningPage() {
                     score:
                       activity.score,
 
-                    confirmationStatus:
-                      "Pending",
                   })),
 
               confirmedBy:
@@ -8320,6 +8369,8 @@ export default function CreatePlanningPage() {
       advanceToHazardReview:
         true,
       invalidateGeneratedDraft:
+        true,
+      reconcileConfirmedActivities:
         true,
     });
   }
@@ -17004,20 +17055,20 @@ export default function CreatePlanningPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                      Detected Activities
+                      Qoreva Recommended Activities
                     </p>
 
                     <h3 className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
-                      Confirm what applies to this work
+                      Review what applies to this work
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Qoreva suggested these activities from the scope you entered. Remove any activity that does not apply. If the suggestions are incomplete, return to Work Scope and add the missing work detail before proceeding.
+                      Qoreva recommends activities based on the scope, work sequence, equipment, materials, and planning details entered so far. Review the recommendations, remove anything that does not apply, and confirm the applicable activities before continuing.
                     </p>
                   </div>
 
                   <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-violet-dark)]">
-                    {confirmedActivityCodes.length} confirmed
+                    {confirmedActivityCodes.length} selected
                   </span>
                 </div>
 
@@ -17072,8 +17123,15 @@ export default function CreatePlanningPage() {
                             </span>
 
                             <span className="min-w-0">
-                              <span className="block text-sm font-black text-[var(--qoreva-obsidian)]">
-                                {activity.name}
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                  {activity.name}
+                                </span>
+                                {isQorevaRecommendedActivity(activity) ? (
+                                  <span className="rounded-full border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]">
+                                    Qoreva Recommended
+                                  </span>
+                                ) : null}
                               </span>
                               <span className="mt-1 block text-xs font-medium text-[var(--qoreva-muted)]">
                                 {activity.category} • Match {activity.score}
