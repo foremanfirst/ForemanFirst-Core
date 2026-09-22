@@ -3666,6 +3666,110 @@ export default function CreatePlanningPage() {
     setWorkStepPlanning,
   ] = useState<Record<string, WorkStepPlanning>>({});
 
+  const workStepReadinessSummary = useMemo(() => {
+    const activeSteps = workSequence.filter(
+      (step) =>
+        step.title.trim() ||
+        step.description.trim(),
+    );
+
+    const readyForRiskReview = activeSteps.filter(
+      (step, index) => {
+        const planning =
+          workStepPlanning[step.id];
+
+        const generatedStep =
+          generatedPlanningDraft?.workSteps.find(
+            (candidate) =>
+              candidate.workStepId === step.id,
+          ) ??
+          generatedPlanningDraft?.workSteps.find(
+            (candidate) =>
+              !candidate.workStepId &&
+              candidate.sequence === index + 1,
+          ) ??
+          generatedPlanningDraft?.workSteps.find(
+            (candidate) =>
+              !candidate.workStepId &&
+              candidate.title.trim().toLowerCase() ===
+                step.title.trim().toLowerCase(),
+          );
+
+        const hazardGroups =
+          (
+            generatedStep?.hazardControlGroups ??
+            []
+          ).filter(
+            (group) =>
+              group.hazard.text !==
+              "User-entered controls requiring hazard assignment",
+          );
+
+        if (hazardGroups.length === 0) {
+          return false;
+        }
+
+        const hazardsReady =
+          hazardGroups.every(
+            (group) =>
+              group.controls.length > 0 &&
+              group.controls.every(
+                (control) =>
+                  findHazardControlDecision(
+                    hazardControlDecisions,
+                    step.id,
+                    control.id,
+                  )?.decision === "Accept" &&
+                  isControlVerificationReadyForCompletion(
+                    step.id,
+                    group,
+                    control,
+                  ),
+              ),
+          );
+
+        const criticalControlsReady =
+          guidedPlanningControlEvaluations
+            .filter(
+              (evaluation) =>
+                evaluation.workStepId === step.id ||
+                evaluation.workStepSequence ===
+                  index + 1,
+            )
+            .every(
+              (evaluation) =>
+                !evaluation.criticalControlRecommended ||
+                Boolean(
+                  evaluation.criticalControlDecision,
+                ),
+            );
+
+        return (
+          hazardsReady &&
+          criticalControlsReady &&
+          Boolean(
+            planning?.recommendedControlledRiskLevel,
+          )
+        );
+      },
+    ).length;
+
+    return {
+      total: activeSteps.length,
+      readyForRiskReview,
+      needSafetyReview: Math.max(
+        activeSteps.length - readyForRiskReview,
+        0,
+      ),
+    };
+  }, [
+    generatedPlanningDraft,
+    guidedPlanningControlEvaluations,
+    hazardControlDecisions,
+    workSequence,
+    workStepPlanning,
+  ]);
+
   const [
     confirmedRemovedWorkStepIds,
     setConfirmedRemovedWorkStepIds,
@@ -18944,11 +19048,9 @@ export default function CreatePlanningPage() {
                         />
 
                         <DocumentStatusBadge
-                          label={`${Math.max(controlReadinessSummary.total - controlReadinessSummary.readyForQualifiedRiskReview, 0)} Need Safety Review`}
+                          label={`${workStepReadinessSummary.needSafetyReview} Need Safety Review`}
                           tone={
-                            controlReadinessSummary.total -
-                              controlReadinessSummary.readyForQualifiedRiskReview >
-                            0
+                            workStepReadinessSummary.needSafetyReview > 0
                               ? "warning"
                               : "success"
                           }
