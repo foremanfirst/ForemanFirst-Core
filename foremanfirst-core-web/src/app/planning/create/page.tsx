@@ -18115,7 +18115,9 @@ export default function CreatePlanningPage() {
                                     ? "Hazard Review Required"
                                     : pendingHazardCount > 0
                                       ? `${pendingHazardCount} need attention`
-                                      : "Needs Review"}
+                                      : stepCriticalControlAwaitingCount > 0
+                                        ? "Critical Control Review"
+                                        : "Needs Review"}
                                 </span>
                               )}
 
@@ -18517,7 +18519,9 @@ export default function CreatePlanningPage() {
                                         label={
                                           pendingHazardCount > 0
                                             ? "Action Required"
-                                            : "Recommendation Pending"
+                                            : stepCriticalControlAwaitingCount > 0
+                                              ? "Critical Control Review"
+                                              : "Recommendation Pending"
                                         }
                                         tone={
                                           pendingHazardCount > 0
@@ -19831,7 +19835,7 @@ export default function CreatePlanningPage() {
                                         />
                                       ) : (
                                         <DocumentStatusBadge
-                                          label="Ready"
+                                          label="Controls Assigned"
                                           tone="success"
                                         />
                                       )}
