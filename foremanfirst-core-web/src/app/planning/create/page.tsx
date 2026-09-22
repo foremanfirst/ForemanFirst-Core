@@ -17949,6 +17949,7 @@ export default function CreatePlanningPage() {
                        * decision for every Critical Control candidate.
                        */
                       const readyForRiskReview =
+                        generatedHazardGroups.length > 0 &&
                         pendingHazardCount === 0 &&
                         stepCriticalControlAwaitingCount ===
                           0 &&
@@ -18006,9 +18007,11 @@ export default function CreatePlanningPage() {
                                 </span>
                               ) : (
                                 <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[#9B6212]">
-                                  {pendingHazardCount > 0
-                                    ? `${pendingHazardCount} need attention`
-                                    : "Needs Review"}
+                                  {generatedHazardGroups.length === 0
+                                    ? "Hazard Review Required"
+                                    : pendingHazardCount > 0
+                                      ? `${pendingHazardCount} need attention`
+                                      : "Needs Review"}
                                 </span>
                               )}
 
@@ -18019,6 +18022,22 @@ export default function CreatePlanningPage() {
                           </summary>
 
                           <div className="border-t border-[var(--qoreva-border)] p-4">
+                            {generatedHazardGroups.length === 0 ? (
+                              <div className="mb-4 rounded-2xl border border-[#E8C276] bg-[var(--qoreva-warning-soft)] p-4">
+                                <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#9B6212]">
+                                  Hazard Review Required
+                                </p>
+
+                                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                  No significant hazard is currently identified for this work step.
+                                </p>
+
+                                <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                  Review the work activity, conditions, equipment, materials, and surrounding exposures before continuing. Add the applicable hazard and controls.
+                                </p>
+                              </div>
+                            ) : null}
+
                             {stepCoreCriticalControls.length > 0 ? (
                               <div className="mb-4 rounded-2xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-faint)] p-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
