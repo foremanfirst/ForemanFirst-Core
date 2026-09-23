@@ -40,6 +40,31 @@ const ALLOWED_RISK_LEVELS =
     "High",
   ]);
 
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function getSnapshotGeneration(
+  snapshot: unknown,
+) {
+  if (!isRecord(snapshot)) {
+    return null;
+  }
+
+  const generation =
+    snapshot.qorevaDraftGeneration;
+
+  return isRecord(generation)
+    ? generation
+    : null;
+}
+
 function toNullableString(
   value: unknown,
 ) {
@@ -254,6 +279,318 @@ export async function PUT(
         {
           message:
             "Qoreva does not currently have enough structured evidence to recommend Controlled Risk for this work step.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    /*
+     * Controlled Risk is an official qualified-user decision.
+     *
+     * Rebuild readiness from the authoritative active-revision
+     * snapshot and persisted server evidence. Browser state alone
+     * must never be able to make an incomplete work step eligible.
+     */
+    const activeRevision =
+      await prisma.planningRevision.findFirst({
+        where: {
+          planningRecordId,
+
+          tenantId:
+            existingRecord.tenantId,
+
+          revisionNumber:
+            existingRecord.revisionNumber,
+        },
+
+        select: {
+          snapshot: true,
+        },
+      });
+
+    const generation =
+      getSnapshotGeneration(
+        activeRevision?.snapshot,
+      );
+
+    const generatedWorkSteps =
+      generation &&
+      Array.isArray(
+        generation.workSteps,
+      )
+        ? generation.workSteps
+        : null;
+
+    const generatedStep =
+      generatedWorkSteps?.find(
+        (candidate) =>
+          isRecord(candidate) &&
+          candidate.workStepId ===
+            workStep.id,
+      );
+
+    if (
+      !isRecord(generatedStep) ||
+      !Array.isArray(
+        generatedStep.hazardControlGroups,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Current hazard and control readiness could not be verified for this work step. Regenerate or refresh the planning draft before confirming Controlled Risk.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const hazardGroups =
+      generatedStep.hazardControlGroups.filter(
+        (group) =>
+          isRecord(group) &&
+          isRecord(group.hazard) &&
+          group.hazard.text !==
+            "User-entered controls requiring hazard assignment",
+      );
+
+    if (hazardGroups.length === 0) {
+      return NextResponse.json(
+        {
+          message:
+            "At least one current significant hazard with associated controls must be reviewed before confirming or overriding Controlled Risk.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const currentControls =
+      hazardGroups.flatMap(
+        (group) => {
+          if (
+            !isRecord(group) ||
+            !isRecord(group.hazard) ||
+            typeof group.hazard.id !==
+              "string" ||
+            typeof group.hazard.text !==
+              "string" ||
+            !Array.isArray(
+              group.controls,
+            ) ||
+            group.controls.length === 0
+          ) {
+            return [];
+          }
+
+          const hazard =
+            group.hazard;
+
+          return group.controls.flatMap(
+            (control) =>
+              isRecord(control) &&
+              typeof control.id ===
+                "string" &&
+              typeof control.text ===
+                "string"
+                ? [
+                    {
+                      hazardId:
+                        hazard.id,
+                      hazardText:
+                        hazard.text,
+                      controlId:
+                        control.id,
+                      controlText:
+                        control.text,
+                    },
+                  ]
+                : [],
+          );
+        },
+      );
+
+    const everyHazardHasControls =
+      hazardGroups.every(
+        (group) =>
+          isRecord(group) &&
+          Array.isArray(
+            group.controls,
+          ) &&
+          group.controls.length > 0,
+      );
+
+    if (
+      !everyHazardHasControls ||
+      currentControls.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Every current significant hazard must have at least one associated control before confirming or overriding Controlled Risk.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const [
+      controlDecisions,
+      controlEvaluations,
+    ] =
+      await Promise.all([
+        prisma.planningHazardControlDecision.findMany({
+          where: {
+            planningRecordId,
+
+            tenantId:
+              existingRecord.tenantId,
+
+            revisionNumber:
+              existingRecord.revisionNumber,
+
+            workStepId:
+              workStep.id,
+          },
+
+          select: {
+            recommendationId: true,
+            decision: true,
+          },
+        }),
+
+        prisma.planningControlEvaluation.findMany({
+          where: {
+            planningRecordId,
+
+            tenantId:
+              existingRecord.tenantId,
+
+            revisionNumber:
+              existingRecord.revisionNumber,
+
+            workStepId:
+              workStep.id,
+          },
+
+          select: {
+            hazardId: true,
+            controlId: true,
+            hazardText: true,
+            controlText: true,
+
+            verificationExpectation:
+              true,
+
+            verificationRequiredForCurrentContext:
+              true,
+
+            verificationCompleted:
+              true,
+          },
+        }),
+      ]);
+
+    const acceptedControlIds =
+      new Set(
+        controlDecisions
+          .filter(
+            (controlDecision) =>
+              controlDecision.decision ===
+              "Accept",
+          )
+          .map(
+            (controlDecision) =>
+              controlDecision.recommendationId,
+          ),
+      );
+
+    const evaluationByIdentity =
+      new Map(
+        controlEvaluations.map(
+          (evaluation) => [
+            [
+              evaluation.hazardId,
+              evaluation.controlId,
+            ].join(":"),
+            evaluation,
+          ],
+        ),
+      );
+
+    const unresolvedControlCount =
+      currentControls.filter(
+        (control) => {
+          if (
+            !acceptedControlIds.has(
+              control.controlId,
+            )
+          ) {
+            return true;
+          }
+
+          const evaluation =
+            evaluationByIdentity.get(
+              [
+                control.hazardId,
+                control.controlId,
+              ].join(":"),
+            );
+
+          if (
+            !evaluation ||
+            evaluation.hazardText !==
+              control.hazardText ||
+            evaluation.controlText !==
+              control.controlText
+          ) {
+            return true;
+          }
+
+          if (
+            evaluation.verificationExpectation ===
+            "Required"
+          ) {
+            return (
+              evaluation.verificationCompleted !==
+              true
+            );
+          }
+
+          if (
+            evaluation.verificationExpectation ===
+            "Conditional"
+          ) {
+            return !(
+              evaluation.verificationRequiredForCurrentContext ===
+                false ||
+              (
+                evaluation.verificationRequiredForCurrentContext ===
+                  true &&
+                evaluation.verificationCompleted ===
+                  true
+              )
+            );
+          }
+
+          return false;
+        },
+      ).length;
+
+    if (unresolvedControlCount > 0) {
+      return NextResponse.json(
+        {
+          message:
+            `Complete control acceptance and required verification for ${unresolvedControlCount} ${
+              unresolvedControlCount === 1
+                ? "control"
+                : "controls"
+            } before confirming or overriding Controlled Risk.`,
         },
         {
           status: 409,

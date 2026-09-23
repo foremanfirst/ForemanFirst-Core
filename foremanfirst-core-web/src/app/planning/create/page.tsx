@@ -18771,8 +18771,7 @@ export default function CreatePlanningPage() {
                                               disabled={
                                                 controlledRiskDecisionSavingId ===
                                                   step.id ||
-                                                stepCriticalControlAwaitingCount >
-                                                  0
+                                                !readyForRiskReview
                                               }
                                               className={`${primaryButtonClassName} min-h-10 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
                                             >
@@ -18804,8 +18803,7 @@ export default function CreatePlanningPage() {
                                               disabled={
                                                 controlledRiskDecisionSavingId ===
                                                   step.id ||
-                                                stepCriticalControlAwaitingCount >
-                                                  0
+                                                !readyForRiskReview
                                               }
                                               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)] disabled:cursor-not-allowed disabled:opacity-60"
                                             >
