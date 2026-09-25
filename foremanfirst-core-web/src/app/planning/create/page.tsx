@@ -3426,7 +3426,7 @@ export default function CreatePlanningPage() {
           evaluation.protectiveFunction === "Unresolved",
       ).length;
 
-    const readyForQualifiedRiskReview =
+    const riskCreditEligibleCount =
       guidedPlanningControlEvaluations.filter(
         (evaluation) =>
           evaluation.riskCreditEligible,
@@ -3435,7 +3435,7 @@ export default function CreatePlanningPage() {
     const score =
       total > 0
         ? Math.round(
-            (readyForQualifiedRiskReview / total) * 100,
+            (riskCreditEligibleCount / total) * 100,
           )
         : 0;
 
@@ -3457,7 +3457,7 @@ export default function CreatePlanningPage() {
       criticalNotApplicable,
       missingVerification,
       insufficientIntelligence,
-      readyForQualifiedRiskReview,
+      riskCreditEligibleCount,
       score,
       status,
     };
@@ -19100,7 +19100,7 @@ export default function CreatePlanningPage() {
                           <div className="flex items-end justify-between gap-3">
                             <div>
                               <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
-                                Control Readiness
+                                Risk Credit Eligibility
                               </p>
 
                               <p className="mt-1 text-2xl font-black text-[var(--qoreva-obsidian)]">
@@ -22342,7 +22342,7 @@ export default function CreatePlanningPage() {
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet)]">
-                            Control Evidence Readiness
+                            Risk Credit Eligibility
                           </p>
 
                           <p className="mt-1 text-3xl font-black text-[var(--qoreva-obsidian)]">
@@ -22426,7 +22426,7 @@ export default function CreatePlanningPage() {
 
                       <ReadinessItem
                         label="Risk-credit eligible"
-                        value={controlReadinessSummary.readyForQualifiedRiskReview}
+                        value={controlReadinessSummary.riskCreditEligibleCount}
                         detail={`of ${controlReadinessSummary.total} evaluated control relationships`}
                         tone="success"
                       />
