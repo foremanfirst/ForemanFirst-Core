@@ -7791,24 +7791,40 @@ export default function CreatePlanningPage() {
     field: keyof WorkStepPlanning,
     value: string | boolean,
   ) {
-    setWorkStepPlanning((current) => ({
-      ...current,
-      [stepId]: {
-        hazards: current[stepId]?.hazards ?? "",
-        controls: current[stepId]?.controls ?? "",
-        safetyCritical:
-          current[stepId]?.safetyCritical ?? false,
-        riskLevel:
-          current[stepId]?.riskLevel ?? "",
-        inherentRiskLevel:
-          current[stepId]?.inherentRiskLevel ?? "",
-        recommendedControlledRiskLevel:
-          current[stepId]?.recommendedControlledRiskLevel ?? "",
-        controlledRiskLevel:
-          current[stepId]?.controlledRiskLevel ?? "",
-        [field]: value,
-      },
-    }));
+    setWorkStepPlanning((current) => {
+      const existing =
+        current[stepId];
+
+      const inherentRiskChanged =
+        field === "inherentRiskLevel" &&
+        value !==
+          (existing?.inherentRiskLevel ?? "");
+
+      return {
+        ...current,
+        [stepId]: {
+          hazards: existing?.hazards ?? "",
+          controls: existing?.controls ?? "",
+          safetyCritical:
+            existing?.safetyCritical ?? false,
+          riskLevel:
+            inherentRiskChanged
+              ? ""
+              : existing?.riskLevel ?? "",
+          inherentRiskLevel:
+            existing?.inherentRiskLevel ?? "",
+          recommendedControlledRiskLevel:
+            inherentRiskChanged
+              ? ""
+              : existing?.recommendedControlledRiskLevel ?? "",
+          controlledRiskLevel:
+            inherentRiskChanged
+              ? ""
+              : existing?.controlledRiskLevel ?? "",
+          [field]: value,
+        },
+      };
+    });
 
     setStepError("");
   }
