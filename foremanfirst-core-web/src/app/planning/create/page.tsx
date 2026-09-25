@@ -3321,6 +3321,13 @@ export default function CreatePlanningPage() {
 
     if (
       evaluation.verificationExpectation ===
+      "Unresolved"
+    ) {
+      return false;
+    }
+
+    if (
+      evaluation.verificationExpectation ===
       "Required"
     ) {
       return (
