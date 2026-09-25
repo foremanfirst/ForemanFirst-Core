@@ -11009,13 +11009,6 @@ export default function CreatePlanningPage() {
         continue;
       }
 
-      const allRelationshipsEligible =
-        stepEvaluations.every(
-          (evaluation) =>
-            evaluation
-              .riskCreditEligible,
-        );
-
       const hasPendingCriticalControlDecision =
         stepEvaluations.some(
           (evaluation) =>
@@ -11026,7 +11019,6 @@ export default function CreatePlanningPage() {
         );
 
       if (
-        !allRelationshipsEligible ||
         hasPendingCriticalControlDecision ||
         controlledRiskRecommendationInFlightRef
           .current
