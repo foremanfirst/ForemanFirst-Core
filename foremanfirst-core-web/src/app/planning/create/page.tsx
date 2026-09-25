@@ -18117,7 +18117,11 @@ export default function CreatePlanningPage() {
                                       ? `${pendingHazardCount} need attention`
                                       : stepCriticalControlAwaitingCount > 0
                                         ? "Critical Control Review"
-                                        : "Needs Review"}
+                                        : !planning.inherentRiskLevel
+                                          ? "Select Inherent Risk"
+                                          : !planning.recommendedControlledRiskLevel
+                                            ? "Risk Evaluation Pending"
+                                            : "Confirm Controlled Risk"}
                                 </span>
                               )}
 
