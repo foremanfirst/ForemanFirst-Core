@@ -25,12 +25,8 @@ import {
 } from "@/lib/planning/draft-generator";
 
 import {
-  evaluateControlledRisk,
-} from "@/lib/planning/controlled-risk-evaluator";
-
-import {
-  evaluateWorkingControlCandidates,
-} from "@/lib/planning/control-effectiveness-evaluator";
+  syncPlanningControlEvaluations,
+} from "@/lib/planning/control-evaluation-sync";
 
 import {
   buildCriticalControlRelationshipFingerprint,
@@ -1186,154 +1182,6 @@ export async function PUT(
      * hazard, and control identities; changed content cannot inherit
      * unrelated verification.
      */
-    const existingControlVerificationEvidence =
-      await prisma.planningControlEvaluation.findMany({
-        where: {
-          planningRecordId,
-
-          tenantId:
-            existing.tenantId,
-
-          revisionNumber:
-            generationContext.revisionNumber,
-        },
-
-        select: {
-          workStepId: true,
-          hazardId: true,
-          controlId: true,
-
-          verificationRequiredForCurrentContext:
-            true,
-          verificationEvidenceMethod:
-            true,
-          verificationEvidence:
-            true,
-          verificationCompleted:
-            true,
-
-          verifiedById: true,
-          verifiedByName: true,
-          verifiedByRole: true,
-          verifiedAt: true,
-        },
-      });
-
-    const existingControlVerificationEvidenceByKey =
-      new Map(
-        existingControlVerificationEvidence.map(
-          (evaluation) => [
-            JSON.stringify([
-              evaluation.workStepId,
-              evaluation.hazardId,
-              evaluation.controlId,
-            ]),
-
-            evaluation,
-          ],
-        ),
-      );
-
-    /*
-     * Control Intelligence is independent of Inherent Risk.
-     *
-     * Every structured working control can be evaluated for
-     * effectiveness, verification expectations, and Critical Control
-     * candidacy even when the planner has not yet selected Inherent Risk.
-     *
-     * Controlled Risk remains separately gated by a valid Inherent Risk.
-     */
-    const workingControlEvaluations =
-      generatedDraft.workSteps.map(
-        (generatedStep) =>
-          evaluateWorkingControlCandidates(
-            generatedStep.hazardControlGroups,
-          ),
-      );
-
-
-    const controlledRiskEvaluations =
-      generatedDraft.workSteps.map(
-        (generatedStep) => {
-          const incomingStep =
-            generatedStep.workStepId
-              ? incomingWorkStepContext.find(
-                  (candidate) =>
-                    candidate.workStepId ===
-                    generatedStep.workStepId,
-                )
-              : undefined;
-
-          if (
-            !incomingStep ||
-            !incomingStep.workStepId ||
-            ![
-              "Low",
-              "Medium",
-              "High",
-            ].includes(
-              incomingStep.inherentRiskLevel ??
-              "",
-            )
-          ) {
-            return null;
-          }
-
-          return evaluateControlledRisk({
-            inherentRiskLevel:
-              incomingStep.inherentRiskLevel as
-                | "Low"
-                | "Medium"
-                | "High",
-
-            hazardControlGroups:
-              generatedStep.hazardControlGroups,
-
-            verificationEvidenceByControlId:
-              Object.fromEntries(
-                generatedStep.hazardControlGroups.flatMap(
-                  (group) =>
-                    group.controls.flatMap(
-                      (control) => {
-                        const preservedEvidence =
-                          existingControlVerificationEvidenceByKey.get(
-                            JSON.stringify([
-                              incomingStep.workStepId,
-                              group.hazard.id,
-                              control.id,
-                            ]),
-                          );
-
-                        if (!preservedEvidence) {
-                          return [];
-                        }
-
-                        return [
-                          [
-                            control.id,
-                            {
-                              verificationRequiredForCurrentContext:
-                                preservedEvidence.verificationRequiredForCurrentContext,
-
-                              verificationEvidenceMethod:
-                                preservedEvidence.verificationEvidenceMethod,
-
-                              verificationEvidence:
-                                preservedEvidence.verificationEvidence,
-
-                              verificationCompleted:
-                                preservedEvidence.verificationCompleted,
-                            },
-                          ],
-                        ];
-                      },
-                    ),
-                ),
-              ),
-          });
-        },
-      );
-
     const saved =
       await prisma.$transaction(
         async (tx) => {
@@ -1557,6 +1405,134 @@ export async function PUT(
             });
           }
 
+          /*
+           * These rows describe Qoreva's current evaluation of the
+           * working controls for this formal PTP revision.
+           *
+           * Replace the active revision's rows atomically with the
+           * work-step save so recommendation and reasoning cannot drift
+           * apart.
+           *
+           * Prior revisions are preserved for history.
+           */
+          const {
+            controlledRiskEvaluations,
+            controlEvaluationRows,
+          } = await syncPlanningControlEvaluations({
+            tx,
+            tenantId: existing.tenantId,
+            planningRecordId,
+            revisionNumber:
+              generationContext.revisionNumber,
+            generatedDraft,
+            workSteps:
+              incomingWorkStepContext,
+            evaluatedById:
+              authorization.user.id,
+            evaluatedByName:
+              confirmedBy,
+            evaluatedByRole:
+              actorRole,
+            evaluatedAt:
+              now,
+          });
+
+          /*
+           * Critical Control decisions are qualified-user records stored
+           * separately from Qoreva's computed control evaluations.
+           *
+           * Rejoin only exact current-revision relationship fingerprints
+           * before returning the PUT response. This keeps an unchanged
+           * qualified-user decision visible after Save & Refresh Draft
+           * without copying that decision into PlanningControlEvaluation.
+           */
+          const criticalControlDecisions =
+            await tx.planningCriticalControlDecision.findMany({
+              where: {
+                planningRecordId,
+                tenantId: existing.tenantId,
+                revisionNumber:
+                  generationContext.revisionNumber,
+              },
+
+              select: {
+                relationshipFingerprint: true,
+                decision: true,
+                decisionReason: true,
+                decidedById: true,
+                decidedByName: true,
+                decidedByRole: true,
+                decidedAt: true,
+              },
+            });
+
+          const criticalControlDecisionByFingerprint =
+            new Map(
+              criticalControlDecisions.map(
+                (decision) => [
+                  decision.relationshipFingerprint,
+                  decision,
+                ],
+              ),
+            );
+
+          const controlEvaluationsWithCriticalControlDecisions =
+            controlEvaluationRows.map(
+              (evaluation) => {
+                const relationshipFingerprint =
+                  buildCriticalControlRelationshipFingerprint({
+                    planningRecordId,
+                    revisionNumber:
+                      generationContext.revisionNumber,
+                    workStepId:
+                      evaluation.workStepId,
+                    hazardId:
+                      evaluation.hazardId,
+                    controlId:
+                      evaluation.controlId,
+                    canonicalHazardConceptId:
+                      evaluation.canonicalHazardConceptId,
+                    hazardText:
+                      evaluation.hazardText,
+                    controlText:
+                      evaluation.controlText,
+                    criticalControlClassification:
+                      evaluation.criticalControlClassification,
+                    criticalControlTrigger:
+                      evaluation.criticalControlTrigger,
+                    evaluatorVersion:
+                      evaluation.evaluatorVersion,
+                  });
+
+                const criticalControlDecision =
+                  criticalControlDecisionByFingerprint.get(
+                    relationshipFingerprint,
+                  );
+
+                return {
+                  ...evaluation,
+
+                  criticalControlDecision:
+                    criticalControlDecision?.decision ?? null,
+
+                  criticalControlDecisionReason:
+                    criticalControlDecision?.decisionReason ?? null,
+
+                  criticalControlDecidedById:
+                    criticalControlDecision?.decidedById ?? null,
+
+                  criticalControlDecidedByName:
+                    criticalControlDecision?.decidedByName ?? null,
+
+                  criticalControlDecidedByRole:
+                    criticalControlDecision?.decidedByRole ?? null,
+
+                  criticalControlDecidedAt:
+                    criticalControlDecision?.decidedAt ?? null,
+                };
+              },
+            );
+
           // ===================================================
           // REPLACE WORK STEPS
           // ===================================================
@@ -1678,249 +1654,6 @@ export async function PUT(
           // ===================================================
           // REPLACE CONTROL EVALUATION EVIDENCE
           // ===================================================
-
-          /*
-           * These rows describe Qoreva's current evaluation of the
-           * working controls for this formal PTP revision.
-           *
-           * Replace the active revision's rows atomically with the
-           * work-step save so recommendation and reasoning cannot drift
-           * apart.
-           *
-           * Prior revisions are preserved for history.
-           */
-          await tx.planningControlEvaluation.deleteMany({
-            where: {
-              planningRecordId,
-              tenantId:
-                existing.tenantId,
-
-              revisionNumber:
-                generationContext.revisionNumber,
-            },
-          });
-
-          const controlEvaluationRows =
-            controlledRiskEvaluations.flatMap(
-              (
-                evaluation,
-                workStepIndex,
-              ) => {
-                const generatedStep =
-                  generatedDraft.workSteps[
-                    workStepIndex
-                  ];
-
-                const controlEvaluations =
-                  evaluation?.controlEvaluations ??
-                  workingControlEvaluations[
-                    workStepIndex
-                  ] ??
-                  [];
-
-                const incomingStep =
-                  generatedStep?.workStepId
-                    ? incomingWorkStepContext.find(
-                        (candidate) =>
-                          candidate.workStepId ===
-                          generatedStep.workStepId,
-                      )
-                    : undefined;
-
-                if (
-                  !generatedStep ||
-                  !incomingStep ||
-                  !incomingStep.workStepId
-                ) {
-                  return [];
-                }
-
-                /*
-                 * Capture the validated stable identity before entering
-                 * nested callbacks so TypeScript and runtime behavior both
-                 * treat this as a guaranteed PlanningWorkStep ID.
-                 */
-                const stableWorkStepId =
-                  incomingStep.workStepId;
-
-                const riskCreditByControlId =
-                  new Map(
-                    (
-                      evaluation?.riskCreditAssessments ??
-                      []
-                    ).map(
-                      (assessment) => [
-                        assessment.controlId,
-                        assessment,
-                      ],
-                    ),
-                  );
-
-                return controlEvaluations.map(
-                  (controlEvaluation) => {
-                    const riskCreditAssessment =
-                      riskCreditByControlId.get(
-                        controlEvaluation.controlId,
-                      );
-
-                    const preservedEvidence =
-                      existingControlVerificationEvidenceByKey.get(
-                        JSON.stringify([
-                          stableWorkStepId,
-                          controlEvaluation.hazardId,
-                          controlEvaluation.controlId,
-                        ]),
-                      );
-
-                    return {
-                      tenantId:
-                        existing.tenantId,
-
-                      planningRecordId,
-
-                      revisionNumber:
-                        generationContext.revisionNumber,
-
-                      /*
-                       * Authoritative stable PlanningWorkStep identity.
-                       */
-                      workStepId:
-                        stableWorkStepId,
-
-                      workStepSequence:
-                        incomingStep.sequence,
-
-                      workStepTitle:
-                        incomingStep.title,
-
-                      hazardId:
-                        controlEvaluation.hazardId,
-
-                      controlId:
-                        controlEvaluation.controlId,
-
-                      hazardText:
-                        controlEvaluation.hazardText,
-
-                      canonicalHazardConceptId:
-                        controlEvaluation
-                          .canonicalHazardConceptId,
-
-                      controlText:
-                        controlEvaluation.controlText,
-
-                      controlHierarchy:
-                        controlEvaluation.controlHierarchy,
-
-                      protectiveFunction:
-                        controlEvaluation.protectiveFunction,
-
-                      effectiveness:
-                        controlEvaluation.effectiveness,
-
-                      verificationExpectation:
-                        controlEvaluation.verificationExpectation,
-
-                      verificationRequired:
-                        riskCreditAssessment
-                          ?.verificationRequired ??
-                        controlEvaluation.verificationRequired,
-
-                      verificationMethod:
-                        riskCreditAssessment
-                          ?.verificationMethod ??
-                        controlEvaluation.verificationMethod,
-
-                      verificationRequiredForCurrentContext:
-                        preservedEvidence
-                          ?.verificationRequiredForCurrentContext ??
-                        null,
-
-                      verificationEvidenceMethod:
-                        preservedEvidence
-                          ?.verificationEvidenceMethod ??
-                        null,
-
-                      verificationEvidence:
-                        preservedEvidence
-                          ?.verificationEvidence ??
-                        null,
-
-                      verificationCompleted:
-                        preservedEvidence
-                          ?.verificationCompleted ??
-                        false,
-
-                      verifiedById:
-                        preservedEvidence
-                          ?.verifiedById ??
-                        null,
-
-                      verifiedByName:
-                        preservedEvidence
-                          ?.verifiedByName ??
-                        null,
-
-                      verifiedByRole:
-                        preservedEvidence
-                          ?.verifiedByRole ??
-                        null,
-
-                      verifiedAt:
-                        preservedEvidence
-                          ?.verifiedAt ??
-                        null,
-
-                      riskCreditEligible:
-                        riskCreditAssessment
-                          ?.riskCreditEligible ??
-                        false,
-
-                      criticalControlRecommended:
-                        controlEvaluation
-                          .criticalControlRecommended,
-
-                      criticalControlClassification:
-                        controlEvaluation
-                          .criticalControlClassification,
-
-                      criticalControlTrigger:
-                        controlEvaluation
-                          .criticalControlTrigger,
-
-                      evaluationReason:
-                        controlEvaluation.evaluationReason,
-
-                      evaluatorVersion:
-                        evaluation?.evaluatorVersion ??
-                        controlEvaluation.evaluatorVersion,
-
-                      evaluatedById:
-                        authorization.user.id,
-
-                      evaluatedByName:
-                        confirmedBy,
-
-                      evaluatedByRole:
-                        actorRole,
-
-                      evaluatedAt:
-                        now,
-                    };
-                  },
-                );
-              },
-            );
-
-          if (
-            controlEvaluationRows.length >
-            0
-          ) {
-            await tx.planningControlEvaluation.createMany({
-              data:
-                controlEvaluationRows,
-            });
-          }
 
           // ===================================================
           // REPLACE GUIDED QUESTION RESPONSES
@@ -2150,7 +1883,7 @@ export async function PUT(
             },
 
             controlEvaluations:
-              controlEvaluationRows,
+              controlEvaluationsWithCriticalControlDecisions,
           };
         },
       );

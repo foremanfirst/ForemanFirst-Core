@@ -253,6 +253,26 @@ const hazardRiskTreatmentPolicies:
 
     {
       canonicalHazardConceptId:
+        "GENERAL_ADJACENT_OPERATIONS",
+
+      supportedInherentRiskLevels: [
+        "Low",
+        "Medium",
+        "High",
+      ],
+
+      maximumAutomaticReductionLevels:
+        0,
+
+      basis:
+        "Pre-work awareness, coordinated work boundaries and sequencing, and stop-work reassessment form the current adjacent-operations control system, but the Qoreva pilot does not yet contain a validated hazard-specific likelihood model that authorizes automatically lowering the planner-selected Inherent Risk category.",
+
+      policyVersion:
+        PILOT_POLICY_VERSION,
+    },
+
+    {
+      canonicalHazardConceptId:
         "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION",
 
       supportedInherentRiskLevels: [

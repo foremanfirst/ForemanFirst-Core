@@ -236,8 +236,8 @@ export async function PUT(
           revisionNumber:
             existingRecord.revisionNumber,
 
-          workStepSequence:
-            workStep.sequence,
+          workStepId:
+            workStep.id,
         },
 
         select: {

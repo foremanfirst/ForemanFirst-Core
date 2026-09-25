@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 import {
+  syncPlanningControlEvaluations,
+} from "@/lib/planning/control-evaluation-sync";
+
+import type {
+  PlanningDraftGenerationResult,
+  PlanningWorkStepContext,
+} from "@/lib/planning/planning-types";
+
+import {
   PlanningEditorAuthorizationError,
   requireAuthorizedPlanningEditor,
 } from "@/lib/planning/planning-editor-authorization";
@@ -50,6 +59,129 @@ function isJsonObject(
     value !== null &&
     !Array.isArray(value)
   );
+}
+
+function isGeneratedHazardControlItem(
+  value: unknown,
+) {
+  return (
+    isJsonObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.text === "string" &&
+    typeof value.required === "boolean" &&
+    Array.isArray(value.sourceActivityCodes) &&
+    Array.isArray(value.sourceQuestionCodes) &&
+    Array.isArray(value.sourceRequirementIds)
+  );
+}
+
+function isGeneratedHazardControlGroup(
+  value: unknown,
+) {
+  return (
+    isJsonObject(value) &&
+    typeof value.id === "string" &&
+    isGeneratedHazardControlItem(value.hazard) &&
+    Array.isArray(value.controls) &&
+    value.controls.every(
+      isGeneratedHazardControlItem,
+    )
+  );
+}
+
+function getPlanningWorkSteps(
+  snapshot: Record<string, unknown>,
+): PlanningWorkStepContext[] | null {
+  if (!Array.isArray(snapshot.workSteps)) {
+    return null;
+  }
+
+  const workSteps: PlanningWorkStepContext[] = [];
+
+  for (const value of snapshot.workSteps) {
+    if (
+      !isJsonObject(value) ||
+      typeof value.sourceId !== "string" ||
+      value.sourceId.trim().length === 0 ||
+      !Number.isInteger(value.sequence) ||
+      typeof value.title !== "string"
+    ) {
+      return null;
+    }
+
+    workSteps.push({
+      workStepId: value.sourceId,
+      sequence: value.sequence as number,
+      title: value.title,
+      description: toNullableString(value.description),
+      hazards: toNullableString(value.hazards),
+      controls: toNullableString(value.controls),
+      safetyCritical: value.safetyCritical === true,
+      riskLevel: toNullableString(value.riskLevel),
+      inherentRiskLevel:
+        toNullableString(value.inherentRiskLevel),
+      recommendedControlledRiskLevel: null,
+      controlledRiskLevel:
+        toNullableString(value.controlledRiskLevel),
+    });
+  }
+
+  return workSteps;
+}
+
+function getPlanningGeneration(
+  snapshot: Record<string, unknown>,
+): PlanningDraftGenerationResult | null {
+  const generation =
+    snapshot.qorevaDraftGeneration;
+
+  if (!isJsonObject(generation)) {
+    return null;
+  }
+
+  const metadata = generation.metadata;
+
+  const arrays = [
+    generation.workSteps,
+    generation.ppeSuggestions,
+    generation.permitSuggestions,
+    generation.emergencySuggestions,
+    generation.stopWorkSuggestions,
+    generation.requirementControlSuggestions,
+    generation.reviewFlags,
+  ];
+
+  const workStepsValid =
+    Array.isArray(generation.workSteps) &&
+    generation.workSteps.every(
+      (step) =>
+        isJsonObject(step) &&
+        Number.isInteger(step.sequence) &&
+        typeof step.title === "string" &&
+        (step.workStepId === undefined ||
+          step.workStepId === null ||
+          typeof step.workStepId === "string") &&
+        Array.isArray(step.hazardControlGroups) &&
+        step.hazardControlGroups.every(
+          isGeneratedHazardControlGroup,
+        ),
+    );
+
+  if (
+    !workStepsValid ||
+    typeof generation.generatedAt !== "string" ||
+    !isJsonObject(metadata) ||
+    typeof metadata.activityCount !== "number" ||
+    typeof metadata.questionCount !== "number" ||
+    typeof metadata.requirementCount !== "number" ||
+    typeof metadata.sourceDocumentCount !== "number" ||
+    typeof metadata.generatorVersion !== "string" ||
+    arrays.some((value) => !Array.isArray(value))
+  ) {
+    return null;
+  }
+
+  return generation as PlanningDraftGenerationResult;
 }
 
 export async function PUT(
@@ -145,6 +277,27 @@ export async function PUT(
       );
     }
 
+    const generatedDraft =
+      getPlanningGeneration(body.snapshot);
+
+    const planningWorkSteps =
+      getPlanningWorkSteps(body.snapshot);
+
+    if (
+      !generatedDraft ||
+      !planningWorkSteps
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "The draft snapshot does not contain valid generated planning intelligence and stable work-step identities.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const status =
       toNullableString(
         body.status,
@@ -214,6 +367,25 @@ export async function PUT(
                       authorization.user.id,
                   },
                 });
+
+          await syncPlanningControlEvaluations({
+            tx,
+            tenantId:
+              existingRecord.tenantId,
+            planningRecordId,
+            revisionNumber,
+            generatedDraft,
+            workSteps:
+              planningWorkSteps,
+            evaluatedById:
+              authorization.user.id,
+            evaluatedByName:
+              authorization.user.displayName,
+            evaluatedByRole:
+              authorization.membership.roleCodes.join(
+                ", ",
+              ) || "Planning Editor",
+          });
 
           let reviewInvalidated = false;
           let invalidatedReviewId:

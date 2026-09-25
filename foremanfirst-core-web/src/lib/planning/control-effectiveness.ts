@@ -838,6 +838,84 @@ const canonicalControlEffectivenessDefinitions:
 
     {
       canonicalHazardConceptId:
+        "GENERAL_ADJACENT_OPERATIONS",
+
+      controlText:
+        "Review adjacent operations with the crew before starting work.",
+
+      controlHierarchy:
+        "Administrative",
+
+      protectiveFunction:
+        "SupportReadiness",
+
+      expectedEffectiveness:
+        "Moderate",
+
+      verificationExpectation:
+        "NotNormallyRequired",
+
+      effectivenessBasis:
+        "Pre-work review gives the crew shared awareness of nearby and simultaneous operations so coordination needs can be identified before work begins, but the review alone does not separate conflicting operations.",
+
+      criticalControlCandidate:
+        false,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "GENERAL_ADJACENT_OPERATIONS",
+
+      controlText:
+        "Coordinate work boundaries, access, equipment movement, and sequencing with affected crews.",
+
+      controlHierarchy:
+        "Administrative",
+
+      protectiveFunction:
+        "SeparateExposure",
+
+      expectedEffectiveness:
+        "Moderate",
+
+      verificationExpectation:
+        "Required",
+
+      effectivenessBasis:
+        "Coordinated boundaries, access, equipment movement, and sequencing reduce conflicting simultaneous-work exposure by keeping affected crews and operations appropriately separated in space or time.",
+
+      criticalControlCandidate:
+        true,
+    },
+
+    {
+      canonicalHazardConceptId:
+        "GENERAL_ADJACENT_OPERATIONS",
+
+      controlText:
+        "Stop and reassess when adjacent work creates a new or uncontrolled exposure.",
+
+      controlHierarchy:
+        "Administrative",
+
+      protectiveFunction:
+        "DetectCondition",
+
+      expectedEffectiveness:
+        "Moderate",
+
+      verificationExpectation:
+        "NotNormallyRequired",
+
+      effectivenessBasis:
+        "Stop-work and reassessment provide a defined response when changing adjacent operations introduce a new or uncontrolled exposure that was not addressed by the original coordination plan.",
+
+      criticalControlCandidate:
+        false,
+    },
+
+    {
+      canonicalHazardConceptId:
         "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION",
 
       controlText:

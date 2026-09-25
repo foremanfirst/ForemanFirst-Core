@@ -476,6 +476,55 @@ const hazardProtectiveCoverageDefinitions:
 
     {
       canonicalHazardConceptId:
+        "GENERAL_ADJACENT_OPERATIONS",
+
+      protectiveFunctions: [
+        {
+          protectiveFunction:
+            "SupportReadiness",
+
+          role:
+            "Assurance",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "The crew must understand nearby and simultaneous operations before work begins so coordination needs and potential conflicts can be addressed.",
+        },
+
+        {
+          protectiveFunction:
+            "SeparateExposure",
+
+          role:
+            "Primary",
+
+          requiredForCoverage:
+            true,
+
+          basis:
+            "Work boundaries, access, equipment movement, and sequencing must be coordinated so affected crews and conflicting operations are appropriately separated in space or time.",
+        },
+
+        {
+          protectiveFunction:
+            "DetectCondition",
+
+          role:
+            "Supporting",
+
+          requiredForCoverage:
+            false,
+
+          basis:
+            "Stop-work and reassessment provide additional protection when changing adjacent operations introduce a new or uncontrolled exposure.",
+        },
+      ],
+    },
+
+    {
+      canonicalHazardConceptId:
         "MOBILE_EQUIPMENT_PERSONNEL_INTERACTION",
 
       protectiveFunctions: [
