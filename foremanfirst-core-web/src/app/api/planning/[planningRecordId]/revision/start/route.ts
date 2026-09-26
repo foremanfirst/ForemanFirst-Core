@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import type { Prisma } from "@/generated/prisma/client";
+
 import { prisma } from "@/lib/prisma";
 
 import {
@@ -28,6 +30,16 @@ function toNullableString(
   return trimmed.length > 0
     ? trimmed
     : null;
+}
+
+function isJsonObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
 function getAuditRole(
@@ -175,6 +187,7 @@ export async function POST(
 
         select: {
           id: true,
+          snapshot: true,
         },
       });
 
@@ -189,6 +202,21 @@ export async function POST(
         },
       );
     }
+
+    if (!isJsonObject(previousRevision.snapshot)) {
+      return NextResponse.json(
+        {
+          message:
+            "The previous planning revision snapshot is invalid and cannot be used to start a new revision.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const previousRevisionSnapshot =
+      previousRevision.snapshot as Prisma.InputJsonValue;
 
     const existingNextRevision =
       await prisma.planningRevision.findFirst({
@@ -303,6 +331,29 @@ export async function POST(
               409,
             );
           }
+
+          await tx.planningRevision.create({
+            data: {
+              tenantId:
+                existing.tenantId,
+
+              planningRecordId,
+
+              revisionNumber:
+                nextRevisionNumber,
+
+              status:
+                "Draft",
+
+              revisionReason,
+
+              snapshot:
+                previousRevisionSnapshot,
+
+              createdBy:
+                authorized.user.id,
+            },
+          });
 
           const updated =
             await tx.planningRecord.update({
