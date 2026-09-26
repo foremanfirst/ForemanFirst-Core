@@ -445,6 +445,69 @@ export default function PlanningFieldViewPage() {
         <div className="space-y-5">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--qoreva-violet)]">
+              Field Safety Essentials
+            </p>
+
+            <h2 className="mt-2 text-xl font-black tracking-tight text-[var(--qoreva-obsidian)]">
+              Before Work Begins
+            </h2>
+
+            <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+              Review the plan-wide requirements, stop-work conditions, and emergency response before work proceeds.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
+                Required PPE
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                {data.record.requiredPpe || "No additional PPE requirements listed."}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
+                Required Permits
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                {data.record.requiredPermits || "No additional permits listed."}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#F1D19A] bg-[#FFF8E8] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#E7BD70] bg-white text-sm font-black text-[#8A5A00]">
+                !
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#8A5A00]">
+                  Stop-Work Triggers
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+                  {data.record.stopWorkTriggers || "No specific stop-work triggers listed."}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-violet-soft)] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet-dark)]">
+              Emergency Response
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--qoreva-obsidian)]">
+              {data.record.emergencyPlan || "Follow the project emergency response plan."}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-5 shadow-[var(--qoreva-shadow-sm)] sm:p-6">
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--qoreva-violet)]">
               Work Sequence
             </p>
 
