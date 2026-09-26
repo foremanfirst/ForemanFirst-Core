@@ -312,6 +312,14 @@ export async function GET(
               hazardsById.values(),
             );
 
+          const requiredVerificationCount =
+            stepEvaluations.filter(
+              (evaluation) =>
+                evaluation
+                  .verificationRequiredForCurrentContext ===
+                true,
+            ).length;
+
           const controlsAwaitingVerification =
             stepEvaluations.filter(
               (evaluation) =>
@@ -352,6 +360,8 @@ export async function GET(
 
               confirmedCriticalControlCount:
                 confirmedCriticalControls,
+
+              requiredVerificationCount,
 
               controlsAwaitingVerification,
 
