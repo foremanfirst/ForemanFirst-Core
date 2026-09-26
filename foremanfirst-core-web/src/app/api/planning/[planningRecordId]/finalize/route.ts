@@ -285,26 +285,37 @@ export async function POST(
            * Do not replace or mutate its
            * submitted snapshot.
            */
-          await tx.planningRevision.update(
-            {
-              where: {
-                planningRecordId_revisionNumber:
-                  {
-                    planningRecordId:
-                      currentRecord.id,
+          const revisionTransition =
+            await tx.planningRevision.updateMany(
+              {
+                where: {
+                  planningRecordId:
+                    currentRecord.id,
 
-                    revisionNumber:
-                      currentRecord
-                        .revisionNumber,
-                  },
-              },
+                  tenantId:
+                    currentRecord.tenantId,
 
-              data: {
-                status:
-                  "Approved",
+                  revisionNumber:
+                    currentRecord.revisionNumber,
+
+                  status:
+                    "Submitted",
+                },
+
+                data: {
+                  status:
+                    "Approved",
+                },
               },
-            },
-          );
+            );
+
+          if (
+            revisionTransition.count !== 1
+          ) {
+            throw new Error(
+              "FINALIZATION_REVISION_STATE_CONFLICT",
+            );
+          }
 
           await tx.planningEvent.create(
             {

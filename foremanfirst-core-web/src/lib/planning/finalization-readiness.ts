@@ -5,6 +5,7 @@ export type PlanningFinalizationBlocker = {
     | "PLANNING_RECORD_NOT_SUBMITTED"
     | "REVISION_SNAPSHOT_REQUIRED"
     | "REVISION_TENANT_MISMATCH"
+    | "REVISION_NOT_SUBMITTED"
     | "NO_REQUIRED_APPROVALS"
     | "REVISION_REQUIRED_DECISION"
     | "REJECTED_APPROVAL"
@@ -307,6 +308,17 @@ export async function evaluatePlanningFinalizationReadiness(
 
       message:
         "The planning revision does not belong to the current tenant.",
+    });
+  } else if (
+    revision.status !==
+    "Submitted"
+  ) {
+    blockers.push({
+      code:
+        "REVISION_NOT_SUBMITTED",
+
+      message:
+        "The current planning revision must be submitted before it can be finalized.",
     });
   }
 
