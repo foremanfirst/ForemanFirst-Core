@@ -628,6 +628,22 @@ export async function POST(
       );
     }
 
+    if (
+      error instanceof Error &&
+      error.message ===
+        "APPROVAL_SIGNING_STATE_CONFLICT"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "This approval changed before the signature could be recorded. Refresh and try again.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     console.error(
       "Approve and sign planning approval failed:",
       error,
