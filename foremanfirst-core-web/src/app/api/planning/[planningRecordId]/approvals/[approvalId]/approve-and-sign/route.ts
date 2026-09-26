@@ -310,11 +310,30 @@ export async function POST(
               },
             );
 
-          const updatedApproval =
-            await tx.planningApproval.update(
+          const approvalTransition =
+            await tx.planningApproval.updateMany(
               {
                 where: {
-                  id: currentApproval.id,
+                  id:
+                    currentApproval.id,
+
+                  tenantId:
+                    currentRecord.tenantId,
+
+                  planningRecordId:
+                    currentRecord.id,
+
+                  revisionNumber:
+                    currentRecord.revisionNumber,
+
+                  approverId:
+                    authorization.user.id,
+
+                  status:
+                    "Pending",
+
+                  planningSignatureId:
+                    null,
                 },
 
                 data: {
@@ -339,6 +358,24 @@ export async function POST(
 
                   planningSignatureId:
                     signature.id,
+                },
+              },
+            );
+
+          if (
+            approvalTransition.count !== 1
+          ) {
+            throw new Error(
+              "APPROVAL_SIGNING_STATE_CONFLICT",
+            );
+          }
+
+          const updatedApproval =
+            await tx.planningApproval.findUniqueOrThrow(
+              {
+                where: {
+                  id:
+                    currentApproval.id,
                 },
               },
             );
