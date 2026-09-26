@@ -236,12 +236,21 @@ export async function POST(
            * effectiveness remain separate
            * lifecycle concepts.
            */
-          const updatedRecord =
-            await tx.planningRecord.update(
+          const recordTransition =
+            await tx.planningRecord.updateMany(
               {
                 where: {
                   id:
                     currentRecord.id,
+
+                  tenantId:
+                    currentRecord.tenantId,
+
+                  revisionNumber:
+                    currentRecord.revisionNumber,
+
+                  status:
+                    "Submitted",
                 },
 
                 data: {
@@ -252,8 +261,25 @@ export async function POST(
                     finalizedAt,
 
                   updatedBy:
-                    authorization
-                      .user.id,
+                    authorization.user.id,
+                },
+              },
+            );
+
+          if (
+            recordTransition.count !== 1
+          ) {
+            throw new Error(
+              "FINALIZATION_RECORD_STATE_CONFLICT",
+            );
+          }
+
+          const updatedRecord =
+            await tx.planningRecord.findUniqueOrThrow(
+              {
+                where: {
+                  id:
+                    currentRecord.id,
                 },
 
                 select: {
