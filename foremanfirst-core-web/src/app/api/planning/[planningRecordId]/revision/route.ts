@@ -391,7 +391,6 @@ export async function PUT(
           let invalidatedReviewId:
             | string
             | null = null;
-          let invalidatedSignatureCount = 0;
 
           /*
            * Step 7B — Pre-Submission Review Invalidation
@@ -451,23 +450,7 @@ export async function PUT(
               reviewInvalidated = true;
             }
 
-            const signatureDeleteResult =
-              await tx.planningSignature.deleteMany({
-                where: {
-                  planningRecordId,
-                  tenantId:
-                    existingRecord.tenantId,
-                  revisionNumber,
-                },
-              });
-
-            invalidatedSignatureCount =
-              signatureDeleteResult.count;
-
-            if (
-              reviewInvalidated ||
-              invalidatedSignatureCount > 0
-            ) {
+            if (reviewInvalidated) {
               await tx.planningEvent.create({
                 data: {
                   tenantId:
@@ -495,7 +478,6 @@ export async function PUT(
                       invalidatedReviewId,
                     revisionId:
                       revision.id,
-                    invalidatedSignatureCount,
                   },
                 },
               });
@@ -532,7 +514,6 @@ export async function PUT(
                 revisionId:
                   revision.id,
                 reviewInvalidated,
-                invalidatedSignatureCount,
               },
             },
           });
@@ -540,7 +521,6 @@ export async function PUT(
           return {
             revision,
             reviewInvalidated,
-            invalidatedSignatureCount,
           };
         },
       );
@@ -549,8 +529,6 @@ export async function PUT(
       revision: result.revision,
       reviewInvalidated:
         result.reviewInvalidated,
-      invalidatedSignatureCount:
-        result.invalidatedSignatureCount,
     });
   } catch (error) {
     if (
