@@ -256,7 +256,6 @@ export async function evaluatePlanningFinalizationReadiness(
 
     if (
       approval.approverId &&
-      signature.signerId &&
       approval.approverId !==
         signature.signerId
     ) {
