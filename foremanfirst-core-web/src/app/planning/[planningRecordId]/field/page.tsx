@@ -245,6 +245,53 @@ export default function PlanningFieldViewPage() {
     );
   }
 
+  if (data.fieldLifecycleState === "Unavailable") {
+    return (
+      <main className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
+        <Link
+          href={`/planning/${planningRecordId}`}
+          className="text-xs font-black text-[var(--qoreva-violet)]"
+        >
+          ← Planning Record
+        </Link>
+
+        <section className="rounded-[1.75rem] border border-[var(--qoreva-border)] bg-white p-6 shadow-[var(--qoreva-shadow-sm)] sm:p-8">
+          <div className="mx-auto max-w-xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--qoreva-surface-muted)] text-xl font-black text-[var(--qoreva-muted)]">
+              —
+            </div>
+
+            <p className="mt-5 text-xs font-black uppercase tracking-[0.16em] text-[var(--qoreva-muted)]">
+              Field View Unavailable
+            </p>
+
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-[var(--qoreva-obsidian)]">
+              This PTP is not authorized for field use
+            </h1>
+
+            <p className="mt-3 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+              This plan must reach an approved and effective lifecycle state before it can be used as the active field PTP.
+            </p>
+
+            <div className="mt-6 rounded-2xl bg-[var(--qoreva-surface-muted)] p-4 text-left">
+              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                Current Status
+              </p>
+
+              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                {data.record.status}
+              </p>
+
+              <p className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
+                Revision {data.record.revisionNumber}
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   const lifecycleStyles =
     data.fieldLifecycleState === "Effective"
       ? "border-[#BDE8D4] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
@@ -297,9 +344,17 @@ export default function PlanningFieldViewPage() {
                 {data.fieldLifecycleState}
               </span>
 
-              {data.fieldUseAllowed ? (
+              {data.fieldLifecycleState === "Effective" ? (
                 <span className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-black">
                   Field Use Active
+                </span>
+              ) : data.fieldLifecycleState === "Upcoming" ? (
+                <span className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-black">
+                  Review Only
+                </span>
+              ) : data.fieldLifecycleState === "Expired" ? (
+                <span className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-black">
+                  Historical Reference
                 </span>
               ) : null}
             </div>
