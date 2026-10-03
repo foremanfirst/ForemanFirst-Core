@@ -20542,65 +20542,63 @@ export default function CreatePlanningPage() {
 
                                                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                                   <span className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
-                                                    {group.controls.length} active control
-                                                    {group.controls.length === 1
+                                                    {visibleControls.length} active control
+                                                    {visibleControls.length === 1
                                                       ? ""
                                                       : "s"}
                                                   </span>
-
-                                                  {group.controls.length > 0 ? (
-                                                    <>
-                                                      <span className="rounded-full border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-success)]">
-                                                        {acceptedControlCount} accepted
-                                                      </span>
-
-                                                      {pendingControlCount > 0 ? (
-                                                        <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[#8A5A12]">
-                                                          {pendingControlCount} pending
-                                                        </span>
-                                                      ) : null}
-
-                                                      {verificationPendingControlCount >
-                                                      0 ? (
-                                                        <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[#8A5A12]">
-                                                          {verificationPendingControlCount} verification pending
-                                                        </span>
-                                                      ) : null}
-
-                                                      {notApplicableControlCount > 0 ? (
-                                                        <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
-                                                          {notApplicableControlCount} N/A
-                                                        </span>
-                                                      ) : null}
-
-                                                      {controlReviewComplete ? (
-                                                        <span className="rounded-full border border-[#B9DCCB] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-success)]">
-                                                          Complete
-                                                        </span>
-                                                      ) : null}
-                                                    </>
-                                                  ) : null}
 
                                                   {unresolvedControlRelationship ? (
                                                     <DocumentStatusBadge
                                                       label="Control Required"
                                                       tone="danger"
                                                     />
+                                                  ) : verificationPendingControlCount > 0 ? (
+                                                    <DocumentStatusBadge
+                                                      label={`${verificationPendingControlCount} Verification Pending`}
+                                                      tone="warning"
+                                                    />
+                                                  ) : pendingControlCount > 0 ? (
+                                                    <DocumentStatusBadge
+                                                      label={`${pendingControlCount} Pending`}
+                                                      tone="warning"
+                                                    />
+                                                  ) : controlReviewComplete ? (
+                                                    <DocumentStatusBadge
+                                                      label="Ready"
+                                                      tone="success"
+                                                    />
+                                                  ) : acceptedControlCount > 0 ? (
+                                                    <DocumentStatusBadge
+                                                      label={`${acceptedControlCount} Accepted`}
+                                                      tone="success"
+                                                    />
+                                                  ) : visibleControls.length > 0 ? (
+                                                    <DocumentStatusBadge
+                                                      label="Needs Review"
+                                                      tone="neutral"
+                                                    />
                                                   ) : null}
 
-                                                  <span
-                                                    aria-hidden="true"
-                                                    className={`text-sm font-black text-[var(--qoreva-muted)] transition-transform ${
-                                                      hazardExpanded
-                                                        ? "rotate-180"
-                                                        : ""
-                                                    }`}
-                                                  >
-                                                    ▾
-                                                  </span>
+                                                  {notApplicableControlCount > 0 ? (
+                                                    <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                                      {notApplicableControlCount} N/A
+                                                    </span>
+                                                  ) : null}
                                                 </div>
                                               </div>
                                             </div>
+
+                                            <span
+                                              aria-hidden="true"
+                                              className={`mt-1 shrink-0 text-sm font-black text-[var(--qoreva-muted)] transition-transform ${
+                                                hazardExpanded
+                                                  ? "rotate-180"
+                                                  : ""
+                                              }`}
+                                            >
+                                              ▾
+                                            </span>
                                           </button>
 
                                           {unresolvedControlRelationship ? (
