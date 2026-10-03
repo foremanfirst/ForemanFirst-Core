@@ -283,6 +283,7 @@ type GuidedPlanningControlEvaluation = {
     string | null;
 
   controlId: string;
+  controlConceptKey: string | null;
   controlText: string;
 
   controlHierarchy: string | null;
@@ -620,6 +621,8 @@ type GeneratedDraftControlSuggestion = {
 type GeneratedHazardControlItem = {
   id: string;
   text: string;
+
+  controlConceptKey?: string | null;
 
   source:
     | "User"
@@ -7800,34 +7803,64 @@ export default function CreatePlanningPage() {
   ) {
     setWorkStepPlanning((current) => {
       const existing =
-        current[stepId];
+        current[stepId] ?? {
+          hazards: "",
+          controls: "",
+          safetyCritical: false,
+          riskLevel: "",
+          inherentRiskLevel: "",
+          recommendedControlledRiskLevel: "",
+          controlledRiskLevel: "",
+        };
 
-      const inherentRiskChanged =
-        field === "inherentRiskLevel" &&
-        value !==
-          (existing?.inherentRiskLevel ?? "");
+      if (field === "inherentRiskLevel") {
+        const nextInherentRisk =
+          value as WorkStepRiskLevel;
+
+        const inherentRiskChanged =
+          nextInherentRisk !==
+          existing.inherentRiskLevel;
+
+        return {
+          ...current,
+
+          [stepId]: {
+            ...existing,
+
+            /*
+             * Inherent Risk is planner-owned.
+             */
+            inherentRiskLevel:
+              nextInherentRisk,
+
+            /*
+             * Any previous Controlled Risk chain
+             * becomes stale when Inherent Risk changes.
+             */
+            riskLevel:
+              inherentRiskChanged
+                ? ""
+                : existing.riskLevel,
+
+            recommendedControlledRiskLevel:
+              inherentRiskChanged
+                ? ""
+                : existing.recommendedControlledRiskLevel,
+
+            controlledRiskLevel:
+              inherentRiskChanged
+                ? ""
+                : existing.controlledRiskLevel,
+          },
+        };
+      }
 
       return {
         ...current,
+
         [stepId]: {
-          hazards: existing?.hazards ?? "",
-          controls: existing?.controls ?? "",
-          safetyCritical:
-            existing?.safetyCritical ?? false,
-          riskLevel:
-            inherentRiskChanged
-              ? ""
-              : existing?.riskLevel ?? "",
-          inherentRiskLevel:
-            existing?.inherentRiskLevel ?? "",
-          recommendedControlledRiskLevel:
-            inherentRiskChanged
-              ? ""
-              : existing?.recommendedControlledRiskLevel ?? "",
-          controlledRiskLevel:
-            inherentRiskChanged
-              ? ""
-              : existing?.controlledRiskLevel ?? "",
+          ...existing,
+
           [field]: value,
         },
       };
@@ -10386,6 +10419,22 @@ export default function CreatePlanningPage() {
     ]);
   }
 
+  function controlConceptRelationshipCount(
+    evaluation: GuidedPlanningControlEvaluation,
+  ) {
+    if (!evaluation.controlConceptKey) {
+      return 1;
+    }
+
+    return guidedPlanningControlEvaluations.filter(
+      (candidate) =>
+        candidate.workStepId ===
+          evaluation.workStepId &&
+        candidate.controlConceptKey ===
+          evaluation.controlConceptKey,
+    ).length;
+  }
+
   function openControlVerificationEditor(
     evaluation: GuidedPlanningControlEvaluation,
   ) {
@@ -10485,6 +10534,9 @@ export default function CreatePlanningPage() {
               controlId:
                 evaluation.controlId,
 
+              controlConceptKey:
+                evaluation.controlConceptKey,
+
               verificationRequiredForCurrentContext:
                 evaluation.verificationExpectation ===
                   "Required"
@@ -10505,8 +10557,8 @@ export default function CreatePlanningPage() {
 
       const data =
         (await response.json()) as {
-          controlEvaluation?:
-            GuidedPlanningControlEvaluation;
+          controlEvaluations?:
+            GuidedPlanningControlEvaluation[];
 
           requiresRiskRefresh?:
             boolean;
@@ -10521,21 +10573,36 @@ export default function CreatePlanningPage() {
         );
       }
 
-      if (!data.controlEvaluation) {
+      if (
+        !data.controlEvaluations ||
+        data.controlEvaluations.length === 0
+      ) {
         throw new Error(
-          "Verification was saved but Qoreva did not return the updated control evaluation.",
+          "Verification was saved but Qoreva did not return the updated control evaluations.",
         );
       }
+
+      const updatedEvaluationByKey =
+        new Map(
+          data.controlEvaluations.map(
+            (updatedEvaluation) => [
+              controlVerificationKey(
+                updatedEvaluation,
+              ),
+              updatedEvaluation,
+            ],
+          ),
+        );
 
       setGuidedPlanningControlEvaluations(
         (current) =>
           current.map(
             (currentEvaluation) =>
-              controlVerificationKey(
-                currentEvaluation,
-              ) === key
-                ? data.controlEvaluation!
-                : currentEvaluation,
+              updatedEvaluationByKey.get(
+                controlVerificationKey(
+                  currentEvaluation,
+                ),
+              ) ?? currentEvaluation,
           ),
       );
 
@@ -12105,6 +12172,9 @@ export default function CreatePlanningPage() {
                   planningRevisionNumber,
                 parentHazardText:
                   group.hazard.text,
+                controlConceptKey:
+                  control.controlConceptKey ??
+                  null,
                 sourceActivityCodes:
                   control.sourceActivityCodes,
                 sourceQuestionCodes:
@@ -17763,9 +17833,9 @@ export default function CreatePlanningPage() {
             >
               <StepHeading
                 number="05"
-                eyebrow="Hazards, Controls & Readiness"
-                title="Review the Work Controls"
-                description="Review each work step, confirm its hazards and controls, resolve missing intelligence, and document how critical controls will be verified. Qoreva assists with structure and analysis; qualified people make the safety decisions."
+                eyebrow="Hazards & Readiness"
+                title="Review Hazards, Controls & Risk"
+                description="Review hazards and controls, confirm critical controls and verification, and evaluate controlled risk before submission."
               />
             </div>
 
@@ -17896,15 +17966,15 @@ export default function CreatePlanningPage() {
               <section id="step-five-control-review" className="order-2 overflow-hidden rounded-2xl border border-[rgba(102,87,232,0.20)] bg-white shadow-[var(--qoreva-shadow-sm)]">
                 <div className="border-b border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)] p-5">
                   <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                    Step 5
+                    Qoreva Safety Review
                   </p>
 
                   <h3 className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-                    Review Controls for Qualified Hazards
+                    Control Readiness & Risk
                   </h3>
 
                   <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                    Review the controls attached to each qualified hazard, complete Critical Control and verification decisions, then confirm Controlled Risk. Qoreva preserves supporting intelligence and sources without replacing qualified-person judgment.
+                    Review control readiness, critical controls, verification requirements, and controlled risk before submission.
                   </p>
                 </div>
 
@@ -18090,8 +18160,8 @@ export default function CreatePlanningPage() {
                           key={step.id}
                           className="group overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white"
                         >
-                          <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 p-4 transition hover:bg-[var(--qoreva-porcelain)] [&::-webkit-details-marker]:hidden">
-                            <div className="flex min-w-0 items-center gap-3">
+                          <summary className="flex min-h-20 cursor-pointer list-none flex-col gap-4 p-4 transition hover:bg-[var(--qoreva-porcelain)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:p-5 [&::-webkit-details-marker]:hidden">
+                            <div className="flex min-w-0 items-start gap-3">
                               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-obsidian)] text-sm font-black text-[#B9B0FF]">
                                 {index + 1}
                               </span>
@@ -18109,40 +18179,120 @@ export default function CreatePlanningPage() {
                                   ) : null}
                                 </div>
 
-                                <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
-                                  {generatedHazardGroups.length} hazard
-                                  {generatedHazardGroups.length === 1
-                                    ? ""
-                                    : "s"}{" "}
-                                  • {activeControlCount} active controls
-                                </p>
+                                {step.description ? (
+                                  <p className="mt-1 max-w-2xl truncate text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                    {step.description}
+                                  </p>
+                                ) : null}
+
+                                <div className="mt-3 grid grid-cols-4 gap-2 sm:hidden">
+                                  <div className="rounded-lg border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-2">
+                                    <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                      Hazards
+                                    </p>
+                                    <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      {generatedHazardGroups.length}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-lg border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-2">
+                                    <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                      Controls
+                                    </p>
+                                    <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      {activeControlCount}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-lg border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-2 py-2">
+                                    <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-violet-dark)]">
+                                      Critical
+                                    </p>
+                                    <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                      {criticalControlCount}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2 py-2">
+                                    <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                      Risk
+                                    </p>
+                                    <p className="mt-0.5 truncate text-[10px] font-black text-[var(--qoreva-obsidian)]">
+                                      {planning.inherentRiskLevel || "Pending"}
+                                      {" → "}
+                                      {planning.controlledRiskLevel || "Pending"}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="flex shrink-0 items-center gap-2">
-                              {stepComplete ? (
-                                <span className="rounded-full border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-success)]">
-                                  ✓ Complete
-                                </span>
-                              ) : (
-                                <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[#9B6212]">
-                                  {generatedHazardGroups.length === 0
-                                    ? "Hazard Review Required"
-                                    : pendingHazardCount > 0
-                                      ? `${pendingHazardCount} need attention`
-                                      : stepCriticalControlAwaitingCount > 0
-                                        ? "Critical Control Review"
-                                        : !planning.inherentRiskLevel
-                                          ? "Select Inherent Risk"
-                                          : !planning.recommendedControlledRiskLevel
-                                            ? "Risk Evaluation Pending"
-                                            : "Confirm Controlled Risk"}
-                                </span>
-                              )}
+                            <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                              <div className="hidden items-center gap-2 sm:grid sm:grid-cols-4">
+                                <div className="min-w-[4.5rem] rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2">
+                                  <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                    Hazards
+                                  </p>
+                                  <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    {generatedHazardGroups.length}
+                                  </p>
+                                </div>
 
-                              <span className="text-sm font-black text-[var(--qoreva-muted)] transition-transform group-open:rotate-180">
-                                ▾
-                              </span>
+                                <div className="min-w-[4.5rem] rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2">
+                                  <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                    Controls
+                                  </p>
+                                  <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    {activeControlCount}
+                                  </p>
+                                </div>
+
+                                <div className="min-w-[4.5rem] rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] px-3 py-2">
+                                  <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-violet-dark)]">
+                                    Critical
+                                  </p>
+                                  <p className="mt-0.5 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                    {criticalControlCount}
+                                  </p>
+                                </div>
+
+                                <div className="min-w-[6.5rem] rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2">
+                                  <p className="text-[8px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                    Risk
+                                  </p>
+                                  <p className="mt-0.5 truncate text-[10px] font-black text-[var(--qoreva-obsidian)]">
+                                    {planning.inherentRiskLevel || "Pending"}
+                                    {" → "}
+                                    {planning.controlledRiskLevel || "Pending"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {stepComplete ? (
+                                  <span className="rounded-full border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-success)]">
+                                    ✓ Complete
+                                  </span>
+                                ) : (
+                                  <span className="rounded-full border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.06em] text-[#9B6212]">
+                                    {generatedHazardGroups.length === 0
+                                      ? "Hazard Review Required"
+                                      : pendingHazardCount > 0
+                                        ? `${pendingHazardCount} need attention`
+                                        : stepCriticalControlAwaitingCount > 0
+                                          ? "Critical Control Review"
+                                          : !planning.inherentRiskLevel
+                                            ? "Select Inherent Risk"
+                                            : !planning.recommendedControlledRiskLevel
+                                              ? "Risk Evaluation Pending"
+                                              : "Confirm Controlled Risk"}
+                                  </span>
+                                )}
+
+                                <span className="text-sm font-black text-[var(--qoreva-muted)] transition-transform group-open:rotate-180">
+                                  ▾
+                                </span>
+                              </div>
                             </div>
                           </summary>
 
@@ -18438,14 +18588,14 @@ export default function CreatePlanningPage() {
                                     return (
                                       <div
                                         key={group.id}
-                                        className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${
+                                        className={`flex flex-col gap-4 rounded-2xl border p-4 transition sm:flex-row sm:items-center sm:justify-between ${
                                           hazardPending
                                             ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
                                             : "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
                                         }`}
                                       >
                                         <div className="flex min-w-0 items-start gap-3">
-                                          <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white ${
+                                          <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-sm font-black text-white ${
                                             hazardPending
                                               ? "bg-[#D78A13]"
                                               : "bg-[var(--qoreva-success)]"
@@ -18455,9 +18605,9 @@ export default function CreatePlanningPage() {
                                               : "✓"}
                                           </span>
 
-                                          <div className="min-w-0">
+                                          <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
-                                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                              <p className="text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
                                                 {group.hazard.text}
                                               </p>
 
@@ -18469,12 +18619,43 @@ export default function CreatePlanningPage() {
                                               ) : null}
                                             </div>
 
-                                            <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
-                                              {acceptedControls} of{" "}
-                                              {group.controls.length} controls accepted
-                                              {verificationPendingControls > 0
-                                                ? ` • ${verificationPendingControls} verification pending`
-                                                : ""}
+                                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                              <span className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                                <span className="text-[var(--qoreva-obsidian)]">
+                                                  {group.controls.length}
+                                                </span>{" "}
+                                                Controls
+                                              </span>
+
+                                              <span className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                                <span className="text-[var(--qoreva-obsidian)]">
+                                                  {acceptedControls}
+                                                </span>{" "}
+                                                Accepted
+                                              </span>
+
+                                              {verificationPendingControls > 0 ? (
+                                                <span className="rounded-lg border border-[rgba(102,87,232,0.18)] bg-white px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-violet-dark)]">
+                                                  <span className="text-[var(--qoreva-obsidian)]">
+                                                    {verificationPendingControls}
+                                                  </span>{" "}
+                                                  Verification Pending
+                                                </span>
+                                              ) : (
+                                                <span className="rounded-lg border border-[#B9DCCB] bg-white px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-success)]">
+                                                  ✓ Verification Ready
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            <p className={`mt-2 text-[10px] font-black ${
+                                              hazardPending
+                                                ? "text-[#9B6212]"
+                                                : "text-[var(--qoreva-success)]"
+                                            }`}>
+                                              {hazardPending
+                                                ? "Attention required before this hazard is ready."
+                                                : "Hazard controls and verification are ready."}
                                             </p>
                                           </div>
                                         </div>
@@ -18510,7 +18691,7 @@ export default function CreatePlanningPage() {
 
                             <details className="group/details mt-4 rounded-xl border border-[var(--qoreva-border)] bg-white">
                               <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-xs font-black text-[var(--qoreva-violet-dark)] [&::-webkit-details-marker]:hidden">
-                                <span>Edit Step Details & Confirm Risk</span>
+                                <span>Risk Assessment & Controlled Risk</span>
                                 <span className="transition-transform group-open/details:rotate-180">
                                   ▾
                                 </span>
@@ -18521,11 +18702,11 @@ export default function CreatePlanningPage() {
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <div>
                                       <p className="text-[10px] font-black uppercase tracking-[0.09em] text-[var(--qoreva-violet)]">
-                                        Qoreva Step Summary
+                                        Readiness Summary
                                       </p>
 
                                       <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                                        Structured hazard and control review
+                                        Hazard, control and readiness status
                                       </p>
 
                                       <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
@@ -18556,64 +18737,82 @@ export default function CreatePlanningPage() {
                                     )}
                                   </div>
 
-                                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
-                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
+                                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2.5">
+                                      <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
                                         Hazards
                                       </p>
 
-                                      <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-                                        {generatedHazardGroups.length}
-                                      </p>
-
-                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
-                                        Structured hazards assigned to this work step
-                                      </p>
+                                      <div className="mt-1 flex items-baseline gap-1.5">
+                                        <span className="text-xl font-black text-[var(--qoreva-obsidian)]">
+                                          {generatedHazardGroups.length}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                                          identified
+                                        </span>
+                                      </div>
                                     </div>
 
-                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
-                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
-                                        Mapped Controls
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-white px-3 py-2.5">
+                                      <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                        Controls
                                       </p>
 
-                                      <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-                                        {activeControlCount}
-                                      </p>
-
-                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
-                                        Controls currently connected to specific hazards
-                                      </p>
+                                      <div className="mt-1 flex items-baseline gap-1.5">
+                                        <span className="text-xl font-black text-[var(--qoreva-obsidian)]">
+                                          {activeControlCount}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                                          mapped
+                                        </span>
+                                      </div>
                                     </div>
 
                                     <div
-                                      className={`rounded-xl border bg-white p-3 ${
+                                      className={`rounded-xl border px-3 py-2.5 ${
                                         pendingHazardCount > 0
-                                          ? "border-[#F0BDC4]"
-                                          : "border-[#B9DCCB]"
+                                          ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                                          : "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
                                       }`}
                                     >
-                                      <p className="text-[10px] font-black uppercase tracking-[0.07em] text-[var(--qoreva-muted)]">
-                                        Missing Coverage
-                                      </p>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                          Missing Coverage
+                                        </p>
 
-                                      <p
-                                        className={`mt-1 text-xl font-black ${
-                                          pendingHazardCount > 0
-                                            ? "text-[var(--qoreva-danger)]"
-                                            : "text-[var(--qoreva-success)]"
-                                        }`}
-                                      >
-                                        {
-                                          generatedHazardGroups.filter(
-                                            (group) =>
-                                              group.controls.length === 0,
-                                          ).length
-                                        }
-                                      </p>
+                                        <span
+                                          className={`text-[9px] font-black uppercase tracking-[0.05em] ${
+                                            pendingHazardCount > 0
+                                              ? "text-[var(--qoreva-danger)]"
+                                              : "text-[var(--qoreva-success)]"
+                                          }`}
+                                        >
+                                          {pendingHazardCount > 0
+                                            ? "Action Required"
+                                            : "Clear"}
+                                        </span>
+                                      </div>
 
-                                      <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
-                                        Hazards that still require at least one control
-                                      </p>
+                                      <div className="mt-1 flex items-baseline gap-1.5">
+                                        <span
+                                          className={`text-xl font-black ${
+                                            pendingHazardCount > 0
+                                              ? "text-[var(--qoreva-danger)]"
+                                              : "text-[var(--qoreva-success)]"
+                                          }`}
+                                        >
+                                          {
+                                            generatedHazardGroups.filter(
+                                              (group) =>
+                                                group.controls.length === 0,
+                                            ).length
+                                          }
+                                        </span>
+
+                                        <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                                          hazards without controls
+                                        </span>
+                                      </div>
                                     </div>
                                   </div>
 
@@ -18632,11 +18831,23 @@ export default function CreatePlanningPage() {
 
                                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                                   <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
-                                    <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
-                                      Inherent Risk
-                                    </p>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div>
+                                        <p className="text-[9px] font-black uppercase tracking-[0.09em] text-[var(--qoreva-violet)]">
+                                          01 · Before Controls
+                                        </p>
 
-                                    <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                          Inherent Risk
+                                        </p>
+                                      </div>
+
+                                      <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-[0.05em] text-[var(--qoreva-muted)]">
+                                        Planner Input
+                                      </span>
+                                    </div>
+
+                                    <p className="mt-2 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
                                       Select the credible risk before planned controls are credited.
                                     </p>
 
@@ -18688,40 +18899,62 @@ export default function CreatePlanningPage() {
                                   <div className="rounded-xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-faint)] p-3">
                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                       <div>
-                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.09em] text-[var(--qoreva-violet)]">
+                                          02 · After Controls
+                                        </p>
+
+                                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
                                           Qoreva Controlled Risk
                                         </p>
 
-                                        <p className="mt-1 text-xs font-black text-[var(--qoreva-obsidian)]">
+                                        <p className="mt-0.5 text-[10px] font-bold text-[var(--qoreva-muted)]">
                                           Post-control recommendation
                                         </p>
                                       </div>
 
-                                      <span
-                                        className={`rounded-full border px-3 py-1 text-xs font-black ${
-                                          planning.recommendedControlledRiskLevel ===
-                                          "Low"
-                                            ? "border-[#B9DCCB] bg-white text-[var(--qoreva-success)]"
-                                            : planning.recommendedControlledRiskLevel ===
-                                                "Medium"
-                                              ? "border-[#E8C276] bg-white text-[#9B6212]"
-                                              : planning.recommendedControlledRiskLevel ===
-                                                  "High"
-                                                ? "border-[#F0BDC4] bg-white text-[var(--qoreva-danger)]"
-                                                : "border-[var(--qoreva-border)] bg-white text-[var(--qoreva-muted)]"
-                                        }`}
-                                      >
-                                        {planning.recommendedControlledRiskLevel ||
-                                          (controlledRiskDecisionSavingId ===
-                                          step.id
-                                            ? "Evaluating..."
-                                            : !planning.inherentRiskLevel
-                                              ? "Select Inherent Risk"
-                                              : controlledRiskDecisionError?.stepId ===
-                                                  step.id
-                                                ? "Needs Attention"
-                                                : "Pending")}
-                                      </span>
+                                      <div className="shrink-0 text-right">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                          Qoreva Recommendation
+                                        </p>
+
+                                        {planning.recommendedControlledRiskLevel ? (
+                                          <div className="mt-1 flex items-center justify-end gap-2">
+                                            <span className="text-lg font-black text-[var(--qoreva-muted)]">
+                                              {planning.inherentRiskLevel || "—"}
+                                            </span>
+
+                                            <span className="text-base font-black text-[var(--qoreva-violet)]">
+                                              →
+                                            </span>
+
+                                            <span
+                                              className={`text-2xl font-black ${
+                                                planning.recommendedControlledRiskLevel ===
+                                                "Low"
+                                                  ? "text-[var(--qoreva-success)]"
+                                                  : planning.recommendedControlledRiskLevel ===
+                                                      "Medium"
+                                                    ? "text-[#9B6212]"
+                                                    : "text-[var(--qoreva-danger)]"
+                                              }`}
+                                            >
+                                              {planning.recommendedControlledRiskLevel}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <span className="mt-1 inline-block rounded-full border border-[var(--qoreva-border)] bg-white px-3 py-1 text-[10px] font-black text-[var(--qoreva-muted)]">
+                                            {controlledRiskDecisionSavingId ===
+                                            step.id
+                                              ? "Evaluating..."
+                                              : !planning.inherentRiskLevel
+                                                ? "Select Inherent Risk"
+                                                : controlledRiskDecisionError?.stepId ===
+                                                    step.id
+                                                  ? "Needs Attention"
+                                                  : "Pending"}
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
 
                                     {planning.recommendedControlledRiskLevel ? (
@@ -18731,103 +18964,120 @@ export default function CreatePlanningPage() {
                                         </p>
 
                                         {planning.controlledRiskLevel ? (
-                                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] px-3 py-2">
-                                            <span className="text-xs font-black text-[var(--qoreva-success)]">
-                                              ✓ Controlled Risk confirmed:{" "}
-                                              {planning.controlledRiskLevel}
-                                            </span>
+                                          <div className="mt-4 rounded-xl border border-[#B9DCCB] bg-[var(--qoreva-success-soft)] p-4">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                              <div>
+                                                <p className="text-[9px] font-black uppercase tracking-[0.09em] text-[var(--qoreva-success)]">
+                                                  ✓ Qualified Person Confirmed
+                                                </p>
 
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setControlledRiskOverrideStepId(
-                                                  step.id,
-                                                );
+                                                <p className="mt-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                                  Official Controlled Risk
+                                                </p>
 
-                                                setControlledRiskOverrideLevel(
-                                                  planning.controlledRiskLevel,
-                                                );
+                                                <p className="mt-0.5 text-2xl font-black text-[var(--qoreva-obsidian)]">
+                                                  {planning.controlledRiskLevel}
+                                                </p>
+                                              </div>
 
-                                                setControlledRiskOverrideReason(
-                                                  "",
-                                                );
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setControlledRiskOverrideStepId(
+                                                    step.id,
+                                                  );
 
-                                                setControlledRiskDecisionError(
-                                                  null,
-                                                );
-                                              }}
-                                              className="rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)]"
-                                            >
-                                              Override
-                                            </button>
+                                                  setControlledRiskOverrideLevel(
+                                                    planning.controlledRiskLevel,
+                                                  );
+
+                                                  setControlledRiskOverrideReason(
+                                                    "",
+                                                  );
+
+                                                  setControlledRiskDecisionError(
+                                                    null,
+                                                  );
+                                                }}
+                                                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-[10px] font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)]"
+                                              >
+                                                Override Decision
+                                              </button>
+                                            </div>
                                           </div>
                                         ) : (
-                                          <div className="mt-3 flex flex-wrap gap-2">
+                                          <div className="mt-4 space-y-3">
                                             {stepCriticalControlAwaitingCount >
                                             0 ? (
-                                              <p className="w-full rounded-lg border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-3 py-2 text-[10px] font-bold leading-4 text-[#8A5A12]">
-                                                Complete{" "}
-                                                {
-                                                  stepCriticalControlAwaitingCount
-                                                }{" "}
-                                                Critical Control candidate{" "}
-                                                {stepCriticalControlAwaitingCount ===
-                                                1
-                                                  ? "decision"
-                                                  : "decisions"}{" "}
-                                                before confirming or overriding Controlled Risk.
-                                              </p>
+                                              <div className="rounded-xl border border-[#E8C276] bg-[var(--qoreva-warning-soft)] px-3 py-2.5">
+                                                <p className="text-[9px] font-black uppercase tracking-[0.07em] text-[#8A5A12]">
+                                                  Critical Control Review Required
+                                                </p>
+
+                                                <p className="mt-1 text-[10px] font-bold leading-4 text-[#8A5A12]">
+                                                  Complete{" "}
+                                                  {stepCriticalControlAwaitingCount}{" "}
+                                                  Critical Control{" "}
+                                                  {stepCriticalControlAwaitingCount ===
+                                                  1
+                                                    ? "decision"
+                                                    : "decisions"}{" "}
+                                                  before confirming or overriding Controlled Risk.
+                                                </p>
+                                              </div>
                                             ) : null}
 
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                void saveControlledRiskDecision(
-                                                  step.id,
-                                                  "Confirm",
-                                                )
-                                              }
-                                              disabled={
-                                                controlledRiskDecisionSavingId ===
-                                                  step.id ||
-                                                !readyForRiskReview
-                                              }
-                                              className={`${primaryButtonClassName} min-h-10 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
-                                            >
-                                              {controlledRiskDecisionSavingId ===
-                                              step.id
-                                                ? "Saving..."
-                                                : "Confirm Recommendation"}
-                                            </button>
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  void saveControlledRiskDecision(
+                                                    step.id,
+                                                    "Confirm",
+                                                  )
+                                                }
+                                                disabled={
+                                                  controlledRiskDecisionSavingId ===
+                                                    step.id ||
+                                                  !readyForRiskReview
+                                                }
+                                                className={`${primaryButtonClassName} min-h-11 flex-1 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60`}
+                                              >
+                                                {controlledRiskDecisionSavingId ===
+                                                step.id
+                                                  ? "Saving..."
+                                                  : "Confirm Recommendation"}
+                                              </button>
 
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setControlledRiskOverrideStepId(
-                                                  step.id,
-                                                );
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setControlledRiskOverrideStepId(
+                                                    step.id,
+                                                  );
 
-                                                setControlledRiskOverrideLevel(
-                                                  "",
-                                                );
+                                                  setControlledRiskOverrideLevel(
+                                                    "",
+                                                  );
 
-                                                setControlledRiskOverrideReason(
-                                                  "",
-                                                );
+                                                  setControlledRiskOverrideReason(
+                                                    "",
+                                                  );
 
-                                                setControlledRiskDecisionError(
-                                                  null,
-                                                );
-                                              }}
-                                              disabled={
-                                                controlledRiskDecisionSavingId ===
-                                                  step.id ||
-                                                !readyForRiskReview
-                                              }
-                                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-                                            >
-                                              Override
-                                            </button>
+                                                  setControlledRiskDecisionError(
+                                                    null,
+                                                  );
+                                                }}
+                                                disabled={
+                                                  controlledRiskDecisionSavingId ===
+                                                    step.id ||
+                                                  !readyForRiskReview
+                                                }
+                                                className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-4 py-2 text-xs font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                                              >
+                                                Override Recommendation
+                                              </button>
+                                            </div>
                                           </div>
                                         )}
 
@@ -19090,7 +19340,7 @@ export default function CreatePlanningPage() {
 
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
-                              Qoreva Safety Review
+                              Plan Readiness
                             </p>
 
                             <h4 className="mt-1 text-base font-black text-[var(--qoreva-obsidian)]">
@@ -19098,7 +19348,7 @@ export default function CreatePlanningPage() {
                             </h4>
 
                             <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
-                              Qoreva evaluated the current hazard-to-control relationships and identified items that still require intelligence, verification, or qualified-person review. This review does not automatically lower Controlled Risk or authorize field work.
+                              Overall readiness across controls, critical-control decisions, verification, and Qoreva intelligence. Readiness does not approve the plan or authorize field work.
                             </p>
                           </div>
                         </div>
@@ -19139,63 +19389,94 @@ export default function CreatePlanningPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {[
-                        {
-                          label: "Evaluated Controls",
-                          value: controlReadinessSummary.total,
-                          tone: "neutral",
-                        },
-                        {
-                          label: "Critical Candidates",
-                          value:
-                            controlReadinessSummary.criticalCandidates,
-                          tone: "violet",
-                        },
-                        {
-                          label: "Verification Missing",
-                          value:
-                            controlReadinessSummary.missingVerification,
-                          tone: "warning",
-                        },
-                        {
-                          label: "Intelligence Unresolved",
-                          value:
-                            controlReadinessSummary.insufficientIntelligence,
-                          tone: "danger",
-                        },
-                      ].map((metric) => (
-                        <div
-                          key={metric.label}
-                          className={`rounded-xl border p-3 ${
-                            metric.tone === "violet"
-                              ? "border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)]"
-                              : metric.tone === "warning"
-                                ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
-                                : metric.tone === "danger"
-                                  ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
-                                  : "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
-                          }`}
-                        >
-                          <p
-                            className={`text-[9px] font-black uppercase tracking-[0.08em] ${
-                              metric.tone === "violet"
-                                ? "text-[var(--qoreva-violet-dark)]"
-                                : metric.tone === "warning"
-                                  ? "text-[#8A5A12]"
-                                  : metric.tone === "danger"
-                                    ? "text-[var(--qoreva-danger)]"
-                                    : "text-[var(--qoreva-muted)]"
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                          Controls
+                        </p>
+
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className="text-xl font-black text-[var(--qoreva-obsidian)]">
+                            {controlReadinessSummary.total}
+                          </span>
+
+                          <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                            evaluated
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[rgba(102,87,232,0.22)] bg-[var(--qoreva-violet-faint)] px-3 py-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]">
+                          Critical
+                        </p>
+
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className="text-xl font-black text-[var(--qoreva-obsidian)]">
+                            {controlReadinessSummary.criticalCandidates}
+                          </span>
+
+                          <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                            candidates
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`rounded-xl border px-3 py-2.5 ${
+                          controlReadinessSummary.missingVerification > 0
+                            ? "border-[#E8C276] bg-[var(--qoreva-warning-soft)]"
+                            : "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                          Verification
+                        </p>
+
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span
+                            className={`text-xl font-black ${
+                              controlReadinessSummary.missingVerification > 0
+                                ? "text-[#9B6212]"
+                                : "text-[var(--qoreva-success)]"
                             }`}
                           >
-                            {metric.label}
-                          </p>
+                            {controlReadinessSummary.missingVerification}
+                          </span>
 
-                          <p className="mt-1 text-xl font-black text-[var(--qoreva-obsidian)]">
-                            {metric.value}
-                          </p>
+                          <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                            missing
+                          </span>
                         </div>
-                      ))}
+                      </div>
+
+                      <div
+                        className={`rounded-xl border px-3 py-2.5 ${
+                          controlReadinessSummary.insufficientIntelligence > 0
+                            ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                            : "border-[#B9DCCB] bg-[var(--qoreva-success-soft)]"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                          Intelligence
+                        </p>
+
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span
+                            className={`text-xl font-black ${
+                              controlReadinessSummary.insufficientIntelligence > 0
+                                ? "text-[var(--qoreva-danger)]"
+                                : "text-[var(--qoreva-success)]"
+                            }`}
+                          >
+                            {controlReadinessSummary.insufficientIntelligence}
+                          </span>
+
+                          <span className="text-[9px] font-bold text-[var(--qoreva-muted)]">
+                            unresolved
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -20041,8 +20322,19 @@ export default function CreatePlanningPage() {
                                         hazardControlOverrideSavingId ===
                                           group.hazard.id;
 
-                                      const acceptedControlCount =
+                                      const visibleControls =
                                         group.controls.filter(
+                                          (control) =>
+                                            findHazardControlDecision(
+                                              hazardControlDecisions,
+                                              step.workStepId,
+                                              control.id,
+                                            )?.decision !==
+                                              "NotApplicable",
+                                        );
+
+                                      const acceptedControlCount =
+                                        visibleControls.filter(
                                           (control) =>
                                             findHazardControlDecision(
                                               hazardControlDecisions,
@@ -20055,12 +20347,12 @@ export default function CreatePlanningPage() {
                                       const pendingControlCount =
                                         Math.max(
                                           0,
-                                          group.controls.length -
+                                          visibleControls.length -
                                             acceptedControlCount,
                                         );
 
                                       const verificationPendingControlCount =
-                                        group.controls.filter(
+                                        visibleControls.filter(
                                           (control) =>
                                             findHazardControlDecision(
                                               hazardControlDecisions,
@@ -20087,7 +20379,7 @@ export default function CreatePlanningPage() {
                                         ).length;
 
                                       const controlReviewComplete =
-                                        group.controls.length > 0 &&
+                                        visibleControls.length > 0 &&
                                         pendingControlCount === 0 &&
                                         verificationPendingControlCount ===
                                           0;
@@ -21016,7 +21308,7 @@ export default function CreatePlanningPage() {
                                                     </div>
                                                   </div>
 
-                                                  {group.controls.map(
+                                                  {visibleControls.map(
                                                     (control) => {
                                                       const controlEvaluation =
                                                         controlEvaluationByIdentity.get(
@@ -21552,6 +21844,27 @@ export default function CreatePlanningPage() {
                                                                   controlEvaluation,
                                                                 ) ? (
                                                                   <div className="mt-3 rounded-xl border border-[rgba(102,87,232,0.20)] bg-white p-3">
+                                                                    {controlConceptRelationshipCount(
+                                                                      controlEvaluation,
+                                                                    ) > 1 ? (
+                                                                      <div className="mb-3 rounded-lg border border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-3">
+                                                                        <p className="text-[10px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-violet-dark)]">
+                                                                          Shared control verification
+                                                                        </p>
+
+                                                                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                                          This verification applies to{" "}
+                                                                          <span className="font-black text-[var(--qoreva-text)]">
+                                                                            {controlConceptRelationshipCount(
+                                                                              controlEvaluation,
+                                                                            )}{" "}
+                                                                            related hazard relationships
+                                                                          </span>{" "}
+                                                                          within this work step. Qoreva will update each applicable relationship while maintaining separate risk evaluations.
+                                                                        </p>
+                                                                      </div>
+                                                                    ) : null}
+
                                                                     {controlEvaluation.verificationExpectation ===
                                                                     "Conditional" ? (
                                                                       <div>
@@ -21743,149 +22056,155 @@ export default function CreatePlanningPage() {
                                                               </div>
                                                             ) : null}
 
-                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                              <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                  void acceptVisibleControl(
-                                                                    step,
-                                                                    group,
-                                                                    control,
-                                                                  )
-                                                                }
-                                                                disabled={
-                                                                  controlAccepted ||
-                                                                  hazardControlDecisionSavingId !==
-                                                                    null ||
-                                                                  hazardControlOverrideSavingId !==
-                                                                    null
-                                                                }
-                                                                aria-pressed={
-                                                                  controlAccepted
-                                                                }
-                                                                className={`inline-flex min-h-9 items-center justify-center rounded-lg border px-3 py-1.5 text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                                                                  controlAccepted
-                                                                    ? "border-[var(--qoreva-success)] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
-                                                                    : "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white hover:bg-[var(--qoreva-violet-dark)]"
-                                                                }`}
-                                                              >
-                                                                {hazardControlDecisionSavingId ===
-                                                                control.id
-                                                                  ? "Saving..."
-                                                                  : controlAccepted
-                                                                    ? "✓ Accepted"
-                                                                    : "✓ Accept"}
-                                                              </button>
-
-                                                              <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                  openHazardControlReview(
-                                                                    visibleControlAssignmentItem,
-                                                                    "Assign",
-                                                                    savedTargetHazardIds,
-                                                                  )
-                                                                }
-                                                                disabled={
-                                                                  hazardControlDecisionSavingId !==
-                                                                    null ||
-                                                                  hazardControlOverrideSavingId !==
-                                                                    null
-                                                                }
-                                                                aria-pressed={
-                                                                  visibleAssignmentActive
-                                                                }
-                                                                className={`inline-flex min-h-8 items-center justify-center rounded-lg border px-2.5 py-1 text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                                                                  visibleAssignmentActive
-                                                                    ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)] text-[var(--qoreva-violet-dark)]"
-                                                                    : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
-                                                                }`}
-                                                              >
-                                                                Change Assignment
-                                                              </button>
-
-                                                              <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                  openEditControlEditor(
-                                                                    step,
-                                                                    group,
-                                                                    control,
-                                                                  )
-                                                                }
-                                                                disabled={
-                                                                  hazardControlOverrideSavingId !==
-                                                                    null ||
-                                                                  hazardControlDecisionSavingId !==
-                                                                    null
-                                                                }
-                                                                className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
-                                                              >
-                                                                Modify
-                                                              </button>
-
-                                                              {control.source ===
-                                                                "User" &&
-                                                              !control.required ? (
+                                                            <div className="mt-3 space-y-2">
+                                                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                                                 <button
                                                                   type="button"
                                                                   onClick={() =>
-                                                                    removeUserControl(
+                                                                    void acceptVisibleControl(
                                                                       step,
                                                                       group,
                                                                       control,
                                                                     )
                                                                   }
                                                                   disabled={
-                                                                    hazardControlOverrideSavingId !==
-                                                                      null ||
+                                                                    controlAccepted ||
                                                                     hazardControlDecisionSavingId !==
+                                                                      null ||
+                                                                    hazardControlOverrideSavingId !==
                                                                       null
                                                                   }
-                                                                  className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-                                                                >
-                                                                  {hazardControlOverrideSavingId ===
-                                                                  control.id
-                                                                    ? "Removing..."
-                                                                    : "Remove"}
-                                                                </button>
-                                                              ) : (
-                                                                <button
-                                                                  type="button"
-                                                                  onClick={() =>
-                                                                    markVisibleControlNotApplicable(
-                                                                      step,
-                                                                      group,
-                                                                      control,
-                                                                    )
+                                                                  aria-pressed={
+                                                                    controlAccepted
                                                                   }
-                                                                  disabled={
-                                                                    hazardControlOverrideSavingId !==
-                                                                      null ||
-                                                                    hazardControlDecisionSavingId !==
-                                                                      null
-                                                                  }
-                                                                  className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                                                                  className={`inline-flex min-h-10 items-center justify-center rounded-xl border px-4 py-2 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                                    controlAccepted
+                                                                      ? "border-[var(--qoreva-success)] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                                                      : "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet)] text-white hover:bg-[var(--qoreva-violet-dark)]"
+                                                                  }`}
                                                                 >
                                                                   {hazardControlDecisionSavingId ===
                                                                   control.id
                                                                     ? "Saving..."
-                                                                    : "Not Applicable"}
+                                                                    : controlAccepted
+                                                                      ? "✓ Accepted"
+                                                                      : "✓ Accept Control"}
                                                                 </button>
-                                                              )}
 
-                                                              <span className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                <div className="flex flex-wrap gap-2">
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      openHazardControlReview(
+                                                                        visibleControlAssignmentItem,
+                                                                        "Assign",
+                                                                        savedTargetHazardIds,
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlDecisionSavingId !==
+                                                                        null ||
+                                                                      hazardControlOverrideSavingId !==
+                                                                        null
+                                                                    }
+                                                                    aria-pressed={
+                                                                      visibleAssignmentActive
+                                                                    }
+                                                                    className={`inline-flex min-h-9 items-center justify-center rounded-lg border px-3 py-1.5 text-[10px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                                      visibleAssignmentActive
+                                                                        ? "border-[var(--qoreva-violet)] bg-[var(--qoreva-violet-faint)] text-[var(--qoreva-violet-dark)]"
+                                                                        : "border-[var(--qoreva-border-strong)] bg-white text-[var(--qoreva-text)] hover:bg-[var(--qoreva-surface-muted)]"
+                                                                    }`}
+                                                                  >
+                                                                    Change Assignment
+                                                                  </button>
+
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      openEditControlEditor(
+                                                                        step,
+                                                                        group,
+                                                                        control,
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlOverrideSavingId !==
+                                                                        null ||
+                                                                      hazardControlDecisionSavingId !==
+                                                                        null
+                                                                    }
+                                                                    className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[var(--qoreva-border-strong)] bg-white px-3 py-1.5 text-[10px] font-black text-[var(--qoreva-text)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+                                                                  >
+                                                                    Modify
+                                                                  </button>
+                                                                </div>
+                                                              </div>
+
+                                                              <div className="flex flex-wrap items-center gap-2">
                                                                 {control.source ===
-                                                                "Rule"
-                                                                  ? "Qoreva Rule"
-                                                                  : control.source}
-                                                              </span>
+                                                                  "User" &&
+                                                                !control.required ? (
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      removeUserControl(
+                                                                        step,
+                                                                        group,
+                                                                        control,
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlOverrideSavingId !==
+                                                                        null ||
+                                                                      hazardControlDecisionSavingId !==
+                                                                        null
+                                                                    }
+                                                                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                                                                  >
+                                                                    {hazardControlOverrideSavingId ===
+                                                                    control.id
+                                                                      ? "Removing..."
+                                                                      : "Remove"}
+                                                                  </button>
+                                                                ) : (
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                      markVisibleControlNotApplicable(
+                                                                        step,
+                                                                        group,
+                                                                        control,
+                                                                      )
+                                                                    }
+                                                                    disabled={
+                                                                      hazardControlOverrideSavingId !==
+                                                                        null ||
+                                                                      hazardControlDecisionSavingId !==
+                                                                        null
+                                                                    }
+                                                                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                                                                  >
+                                                                    {hazardControlDecisionSavingId ===
+                                                                    control.id
+                                                                      ? "Saving..."
+                                                                      : "Not Applicable"}
+                                                                  </button>
+                                                                )}
 
-                                                              {control.required ? (
-                                                                <span className="rounded-full border border-[#F0BDC4] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-danger)]">
-                                                                  Requirement-backed
+                                                                <span className="text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-muted)]">
+                                                                  {control.source ===
+                                                                  "Rule"
+                                                                    ? "Qoreva Rule"
+                                                                    : control.source}
                                                                 </span>
-                                                              ) : null}
+
+                                                                {control.required ? (
+                                                                  <span className="rounded-full border border-[#F0BDC4] bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-danger)]">
+                                                                    Requirement-backed
+                                                                  </span>
+                                                                ) : null}
+                                                              </div>
                                                             </div>
 
                                                             {visibleAssignmentActive ? (
@@ -25611,6 +25930,7 @@ function SortableWorkStepCard({
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -25621,12 +25941,15 @@ function SortableWorkStepCard({
   return (
     <article
       ref={setNodeRef}
-      {...attributes}
-      {...listeners}
       style={{
         transform:
           DndCSS.Transform.toString(
-            transform,
+            transform
+              ? {
+                  ...transform,
+                  x: 0,
+                }
+              : null,
           ),
         transition,
         zIndex:
@@ -25657,18 +25980,31 @@ function SortableWorkStepCard({
 
             {totalSteps > 1 ? (
               <p className="mt-0.5 text-[10px] font-bold text-[var(--qoreva-subtle)]">
-                Hold and drag to reorder
+                Use the handle to reorder
               </p>
             ) : null}
           </div>
         </div>
 
         {totalSteps > 1 ? (
-          <button
-            type="button"
-            onPointerDown={(
-              event,
-            ) => {
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              ref={setActivatorNodeRef}
+              {...attributes}
+              {...listeners}
+              aria-label={`Reorder Work Step ${index + 1}`}
+              title="Drag to reorder"
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-[var(--qoreva-border)] bg-white px-2 text-sm font-black text-[var(--qoreva-muted)] cursor-grab touch-none active:cursor-grabbing"
+            >
+              ⋮⋮
+            </button>
+
+            <button
+              type="button"
+              onPointerDown={(
+                event,
+              ) => {
               /*
                * Prevent the card's drag listener
                * from activating from this button.
@@ -25682,9 +26018,10 @@ function SortableWorkStepCard({
               onRemove();
             }}
             className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#F0BDC4] bg-white px-3 py-2 text-xs font-black text-[var(--qoreva-danger)] transition hover:bg-[var(--qoreva-danger-soft)]"
-          >
-            Remove
-          </button>
+            >
+              Remove
+            </button>
+          </div>
         ) : null}
       </div>
 
