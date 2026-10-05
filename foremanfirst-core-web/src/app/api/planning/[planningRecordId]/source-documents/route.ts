@@ -165,13 +165,19 @@ export async function GET(
                 "asc",
             },
 
-            include: {
-              questionCandidates: {
-                orderBy: {
-                  createdAt:
-                    "asc",
-                },
-              },
+          },
+
+          questionCandidates: {
+            where: {
+              revisionNumber:
+                authorization
+                  .planningRecord
+                  .revisionNumber,
+            },
+
+            orderBy: {
+              createdAt:
+                "asc",
             },
           },
         },
@@ -192,14 +198,9 @@ export async function GET(
           (document) => {
             const {
               findings,
+              questionCandidates,
               ...sourceDocument
             } = document;
-
-            const questionCandidates =
-              findings.flatMap(
-                (finding) =>
-                  finding.questionCandidates,
-              );
 
             return {
               ...sourceDocument,
@@ -211,7 +212,8 @@ export async function GET(
                 sourceDocument.updatedAt.toISOString(),
 
               analysis:
-                findings.length > 0
+                findings.length > 0 ||
+                questionCandidates.length > 0
                   ? {
                       status:
                         "existing",

@@ -1071,7 +1071,8 @@ model PlanningQuestionResponse {
 }
 
 model PlanningSourceDocument {
-  findings PlanningDocumentFinding[]
+  findings           PlanningDocumentFinding[]
+  questionCandidates PlanningQuestionCandidate[]
 
   id       String @id @default(cuid())
   tenantId String
@@ -1208,6 +1209,7 @@ model PlanningQuestionCandidate {
   tenantId String
 
   planningRecordId String
+  sourceDocumentId String
   revisionNumber   Int
   findingId        String?
 
@@ -1270,11 +1272,14 @@ model PlanningQuestionCandidate {
 
   planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
 
+  sourceDocument PlanningSourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
   finding PlanningDocumentFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([planningRecordId])
   @@index([planningRecordId, revisionNumber])
+  @@index([sourceDocumentId])
   @@index([findingId])
   @@index([status])
   @@index([category])

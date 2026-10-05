@@ -363,6 +363,9 @@ export async function analyzePlanningSourceDocument(
 
                 planningRecordId,
 
+                sourceDocumentId:
+                  document.id,
+
                 revisionNumber:
                   planningRecord.revisionNumber,
 
