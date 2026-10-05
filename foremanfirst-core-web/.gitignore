@@ -44,3 +44,12 @@ next-env.d.ts
 
 # Local uploaded development files
 /storage/contractor-documents/
+
+# Qoreva local development backups
+*.before-*
+*.backup
+*.step1-plan-types-backup
+*.step5-remodel-backup
+
+# Local Planning document storage
+/storage/
