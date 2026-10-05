@@ -524,7 +524,67 @@ model ContractorDocumentEvent {
   @@index([createdAt])
 }
 
+model EvaAuditEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  // Groups all Eva activity belonging to one user request.
+  requestId String
+
+  // Eva capability and executable tool involved.
+  skillId String?
+  toolId  String?
+
+  // What Eva attempted to do.
+  action     String
+  actionRisk String
+
+  // Human responsible for the request.
+  actorType String  @default("USER")
+  actorId   String?
+  actorName String?
+  actorRole String?
+
+  // Qoreva resource affected or inspected.
+  resourceType String?
+  resourceId   String?
+
+  // Optional project/planning context.
+  projectId        String?
+  planningRecordId String?
+
+  // Confirmation lifecycle.
+  confirmationRequired Boolean @default(false)
+  confirmationStatus   String?
+
+  // Execution result.
+  success      Boolean
+  errorCode    String?
+  errorMessage String?
+
+  // Structured non-sensitive audit metadata.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  planningRecord PlanningRecord? @relation(fields: [planningRecordId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([requestId])
+  @@index([skillId])
+  @@index([toolId])
+  @@index([actorId])
+  @@index([resourceType, resourceId])
+  @@index([projectId])
+  @@index([planningRecordId])
+  @@index([success])
+  @@index([createdAt])
+}
+
 model PlanningRecord {
+  documentFindings   PlanningDocumentFinding[]
+  questionCandidates PlanningQuestionCandidate[]
+
   id       String @id @default(cuid())
   tenantId String
 
@@ -581,22 +641,23 @@ model PlanningRecord {
   project    Project     @relation(fields: [projectId], references: [id])
   contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
 
-  workSteps               PlanningWorkStep[]
-  activities              PlanningActivity[]
-  questionResponses       PlanningQuestionResponse[]
-  sourceDocuments         PlanningSourceDocument[]
-  revisions               PlanningRevision[]
-  revisionSourceDocuments PlanningRevisionSourceDocument[]
-  reviews                 PlanningReview[]
-  reviewComments          PlanningReviewComment[]
-  approvals               PlanningApproval[]
-  signatures              PlanningSignature[]
-  events                  PlanningEvent[]
-  dailyWseRecords         DailyWorkerSafetyEngagement[]
-  hazardControlDecisions  PlanningHazardControlDecision[]
-  hazardControlOverrides    PlanningHazardControlOverride[]
-  controlEvaluations        PlanningControlEvaluation[]
-  criticalControlDecisions  PlanningCriticalControlDecision[]
+  workSteps                PlanningWorkStep[]
+  activities               PlanningActivity[]
+  questionResponses        PlanningQuestionResponse[]
+  sourceDocuments          PlanningSourceDocument[]
+  revisions                PlanningRevision[]
+  revisionSourceDocuments  PlanningRevisionSourceDocument[]
+  reviews                  PlanningReview[]
+  reviewComments           PlanningReviewComment[]
+  approvals                PlanningApproval[]
+  signatures               PlanningSignature[]
+  events                   PlanningEvent[]
+  dailyWseRecords          DailyWorkerSafetyEngagement[]
+  hazardControlDecisions   PlanningHazardControlDecision[]
+  hazardControlOverrides   PlanningHazardControlOverride[]
+  controlEvaluations       PlanningControlEvaluation[]
+  criticalControlDecisions PlanningCriticalControlDecision[]
+  evaAuditEvents           EvaAuditEvent[]
 
   @@index([tenantId])
   @@index([companyId])
@@ -734,7 +795,7 @@ model PlanningControlEvaluation {
   //
   // Contextual controls retain their explicit trigger so applicability
   // can be decided without inferring from display wording.
-  criticalControlClassification String @default("Supporting")
+  criticalControlClassification String  @default("Supporting")
   criticalControlTrigger        String?
 
   evaluationReason String?
@@ -1010,6 +1071,8 @@ model PlanningQuestionResponse {
 }
 
 model PlanningSourceDocument {
+  findings PlanningDocumentFinding[]
+
   id       String @id @default(cuid())
   tenantId String
 
@@ -1057,6 +1120,166 @@ model PlanningSourceDocument {
   @@index([contractorDocumentId])
   @@index([sourceType])
   @@index([isSelected])
+}
+
+model PlanningDocumentFinding {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  sourceDocumentId String
+  revisionNumber   Int
+
+  /**
+   * Finding classification.
+   * Examples:
+   * SafetyCritical
+   * MissingInformation
+   * RequirementGap
+   * DocumentConflict
+   * PlanningConcern
+   * Informational
+   */
+  findingType String
+
+  /**
+   * Advisory severity assigned by document intelligence.
+   * Final safety decisions remain with qualified users.
+   */
+  severity String
+
+  title       String
+  description String
+
+  /**
+   * Evidence supporting the finding.
+   * This may contain extracted text, structured values,
+   * source locations, page references, and other provenance.
+   */
+  evidence Json?
+
+  /**
+   * AI confidence is advisory metadata only.
+   */
+  confidence Decimal? @db.Decimal(5, 4)
+
+  /**
+   * Lifecycle:
+   * Proposed
+   * Reviewed
+   * Accepted
+   * Dismissed
+   * Superseded
+   */
+  status String @default("Proposed")
+
+  resolutionNotes String?
+
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+
+  /**
+   * Stable idempotency key for repeated document analysis.
+   */
+  analysisKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord         @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  sourceDocument PlanningSourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
+  questionCandidates PlanningQuestionCandidate[]
+
+  @@index([sourceDocumentId, analysisKey])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([sourceDocumentId])
+  @@index([findingType])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PlanningQuestionCandidate {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+  findingId        String?
+
+  /**
+   * This is a Planning-Record-specific AI-generated question.
+   * It does NOT become a reusable PlanningQuestionDefinition.
+   */
+  questionText String
+  helpText     String?
+
+  category String
+  section  String?
+
+  /**
+   * Examples:
+   * Text
+   * TextArea
+   * Boolean
+   * SingleSelect
+   * MultiSelect
+   * Number
+   * Date
+   * Person
+   * Equipment
+   */
+  questionType String @default("TextArea")
+
+  isCritical Boolean @default(false)
+
+  /**
+   * Lifecycle:
+   * Proposed
+   * Accepted
+   * Dismissed
+   * Superseded
+   */
+  status String @default("Proposed")
+
+  /**
+   * Why Qoreva generated the question.
+   */
+  generationReason String?
+
+  /**
+   * Additional provenance and generation context.
+   */
+  sourceMetadata Json?
+
+  confidence Decimal? @db.Decimal(5, 4)
+
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+
+  acceptedAt  DateTime?
+  dismissedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  finding PlanningDocumentFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([findingId])
+  @@index([status])
+  @@index([category])
+  @@index([isCritical])
+  @@index([createdAt])
 }
 
 model PlanningRevision {

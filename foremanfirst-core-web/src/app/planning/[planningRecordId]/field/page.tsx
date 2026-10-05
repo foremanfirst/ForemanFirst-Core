@@ -369,60 +369,58 @@ export default function PlanningFieldViewPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Project
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.project.name}
-              </p>
+          <div className="rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                  Project
+                </p>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  {data.record.project.name}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                  Location
+                </p>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  {data.record.workLocation || "Not set"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                  Supervisor
+                </p>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  {data.record.responsibleSupervisor || "Not assigned"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                  Crew / Shift
+                </p>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  {data.record.crewSize ?? "—"}{" "}
+                  {data.record.shift
+                    ? `• ${data.record.shift}`
+                    : ""}
+                </p>
+              </div>
             </div>
 
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Contractor
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.contractor?.name || "Not assigned"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Location
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.workLocation || "Not set"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Responsible Supervisor
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.responsibleSupervisor || "Not assigned"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Crew
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.crewSize ?? "Not set"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-[var(--qoreva-surface-muted)] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                Shift
-              </p>
-              <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                {data.record.shift || "Not set"}
-              </p>
-            </div>
+            {data.record.contractor?.name ? (
+              <div className="mt-4 border-t border-[var(--qoreva-border)] pt-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                  Contractor
+                </p>
+                <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                  {data.record.contractor.name}
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -575,130 +573,397 @@ export default function PlanningFieldViewPage() {
             </p>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {data.record.workSteps.map((step) => (
               <article
                 key={step.id}
-                className="rounded-2xl border border-[var(--qoreva-border)] p-4 sm:p-5"
+                className="overflow-hidden rounded-[1.5rem] border border-[var(--qoreva-border)] bg-white shadow-[var(--qoreva-shadow-sm)]"
               >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--qoreva-violet-soft)] text-sm font-black text-[var(--qoreva-violet-dark)]">
-                    {step.sequence}
+                <div className="border-b border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-sm font-black text-white">
+                      {String(step.sequence).padStart(2, "0")}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet-dark)]">
+                            Work Step {step.sequence}
+                          </p>
+
+                          <h3 className="mt-1 text-base font-black leading-6 text-[var(--qoreva-obsidian)] sm:text-lg">
+                            {step.title}
+                          </h3>
+                        </div>
+
+                        {step.safetyCritical ? (
+                          <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-red-700">
+                            Safety Critical
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {step.description ? (
+                        <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
+                          {step.description}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
+                </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <h3 className="text-base font-black leading-6 text-[var(--qoreva-obsidian)]">
-                        {step.title}
-                      </h3>
+                <div className="space-y-4 p-4 sm:p-5">
+                  <div className="rounded-2xl border border-[var(--qoreva-border)] bg-white p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-muted)]">
+                          Risk Profile
+                        </p>
 
-                      {step.safetyCritical ? (
-                        <span className="rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-black text-red-700">
-                          Safety Critical
+                        <p className="mt-1 text-xs font-medium text-[var(--qoreva-muted)]">
+                          Risk before and after planned controls
+                        </p>
+                      </div>
+
+                      {!step.inherentRiskLevel ? (
+                        <span className="rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                          Risk Data Incomplete
                         </span>
                       ) : null}
                     </div>
 
-                    {step.description ? (
-                      <p className="mt-2 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                        {step.description}
-                      </p>
-                    ) : null}
+                    {step.inherentRiskLevel ? (
+                      <div className="mt-4 grid grid-cols-1 items-stretch gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                        <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-muted)]">
+                            Inherent Risk
+                          </p>
 
-                    {step.fieldSummary.confirmedCriticalControlCount > 0 ? (
-                      <div className="mt-4 rounded-2xl border border-[var(--qoreva-border)] bg-[var(--qoreva-violet-soft)] p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet-dark)]">
-                              Confirmed Critical Controls
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
-                              These controls were confirmed for this work step and require field attention.
-                            </p>
-                          </div>
+                          <p className="mt-1 text-lg font-black text-[var(--qoreva-obsidian)]">
+                            {step.inherentRiskLevel}
+                          </p>
 
-                          <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-white px-2 text-xs font-black text-[var(--qoreva-violet-dark)]">
-                            {step.fieldSummary.confirmedCriticalControlCount}
-                          </span>
+                          <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                            Before planned controls are credited
+                          </p>
                         </div>
 
-                        <div className="mt-3 space-y-2">
-                          {step.hazards.flatMap((hazard) =>
-                            hazard.controls
-                              .filter(
-                                (control) =>
-                                  control.criticalControlDecision === "Confirmed",
-                              )
-                              .map((control) => (
-                                <div
-                                  key={control.id}
-                                  className="rounded-xl bg-white p-3"
-                                >
-                                  <p className="text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
-                                    {control.controlText}
-                                  </p>
+                        <div className="flex items-center justify-center text-xs font-black text-[var(--qoreva-muted)] sm:px-1">
+                          <span className="hidden sm:inline">→</span>
+                          <span className="sm:hidden">↓</span>
+                        </div>
 
-                                  {control.verificationRequiredForCurrentContext === true ? (
-                                    <p className="mt-2 text-xs font-bold text-[var(--qoreva-muted)]">
-                                      Verification:{" "}
-                                      {control.verificationCompleted
-                                        ? "Completed"
-                                        : "Required"}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              )),
-                          )}
+                        <div className="rounded-xl border border-[rgba(102,87,232,0.24)] bg-[var(--qoreva-violet-soft)] p-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet-dark)]">
+                            Controlled Risk
+                          </p>
+
+                          <p className="mt-1 text-lg font-black text-[var(--qoreva-violet-dark)]">
+                            {step.controlledRiskLevel || "Not confirmed"}
+                          </p>
+
+                          <p className="mt-1 text-[10px] font-medium leading-4 text-[var(--qoreva-muted)]">
+                            After planned controls and qualified confirmation
+                          </p>
                         </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-[#F1D19A] bg-[#FFF8E8] p-4">
+                        <p className="text-sm font-black text-amber-900">
+                          Risk data incomplete
+                        </p>
 
-                    <details className="group mt-4 overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white">
-                      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                        <p className="mt-1 text-xs font-medium leading-5 text-amber-800">
+                          This PTP does not contain a structured inherent risk
+                          rating for this work step. Qoreva will not represent
+                          a controlled-risk transition until the required risk
+                          data is available.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {step.fieldSummary.confirmedCriticalControlCount > 0 ? (
+                    <div className="overflow-hidden rounded-2xl border border-[rgba(102,87,232,0.28)] bg-[var(--qoreva-violet-soft)]">
+                      <div className="flex items-center justify-between gap-3 border-b border-[rgba(102,87,232,0.18)] px-4 py-3">
                         <div>
-                          <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
-                            Hazards & Controls
+                          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--qoreva-violet-dark)]">
+                            Critical Controls
                           </p>
-                          <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
-                            {step.fieldSummary.hazardCount} hazards •{" "}
-                            {step.fieldSummary.controlCount} controls
+
+                          <p className="mt-1 text-xs font-bold leading-5 text-[var(--qoreva-muted)]">
+                            Controls that require field attention.
                           </p>
                         </div>
 
-                        <span className="text-xs font-black text-[var(--qoreva-violet-dark)]">
-                          Review
+                        <span className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-white px-2 text-xs font-black text-[var(--qoreva-violet-dark)]">
+                          {step.fieldSummary.confirmedCriticalControlCount}
                         </span>
-                      </summary>
+                      </div>
 
-                      <div className="space-y-3 border-t border-[var(--qoreva-border)] p-4">
-                        {step.hazards.map((hazard) => (
-                          <details
-                            key={hazard.hazardId}
-                            className="group/hazard overflow-hidden rounded-xl bg-[var(--qoreva-surface-muted)]"
-                          >
-                            <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
-                                  {hazard.hazardText}
+                      <div className="space-y-2 p-3">
+                        {step.hazards.flatMap((hazard) =>
+                          hazard.controls
+                            .filter(
+                              (control) =>
+                                control.criticalControlDecision === "Confirmed",
+                            )
+                            .map((control) => (
+                              <div
+                                key={control.id}
+                                className="rounded-xl border border-[var(--qoreva-border)] bg-white p-4"
+                              >
+                                <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet-dark)]">
+                                  Critical Control
                                 </p>
 
-                                <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
-                                  {hazard.controls.length} control
-                                  {hazard.controls.length === 1 ? "" : "s"}
+                                <p className="mt-1.5 text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
+                                  {control.controlText}
                                 </p>
+
+                                {control.verificationRequiredForCurrentContext ===
+                                true ? (
+                                  <div
+                                    className={`mt-3 rounded-lg px-3 py-2 ${
+                                      control.verificationCompleted
+                                        ? "bg-[var(--qoreva-success-soft)]"
+                                        : "bg-amber-50"
+                                    }`}
+                                  >
+                                    <p
+                                      className={`text-[10px] font-black uppercase tracking-wide ${
+                                        control.verificationCompleted
+                                          ? "text-[var(--qoreva-success)]"
+                                          : "text-amber-800"
+                                      }`}
+                                    >
+                                      Verification
+                                    </p>
+
+                                    <p
+                                      className={`mt-1 text-xs font-black ${
+                                        control.verificationCompleted
+                                          ? "text-[var(--qoreva-success)]"
+                                          : "text-amber-800"
+                                      }`}
+                                    >
+                                      {control.verificationCompleted
+                                        ? "Completed"
+                                        : "Required before work proceeds"}
+                                    </p>
+                                  </div>
+                                ) : null}
                               </div>
+                            )),
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
-                              <span className="shrink-0 text-xs font-black text-[var(--qoreva-violet-dark)]">
-                                Review
-                              </span>
-                            </summary>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div
+                      className={`rounded-xl p-3 ${
+                        step.fieldSummary.hazardCount > 0
+                          ? "bg-[var(--qoreva-surface-muted)]"
+                          : "border border-[#F1D19A] bg-[#FFF8E8]"
+                      }`}
+                    >
+                      <p
+                        className={`text-[10px] font-black uppercase tracking-wide ${
+                          step.fieldSummary.hazardCount > 0
+                            ? "text-[var(--qoreva-muted)]"
+                            : "text-amber-800"
+                        }`}
+                      >
+                        Hazards
+                      </p>
 
-                            <div className="space-y-2 border-t border-[var(--qoreva-border)] p-3">
+                      <p
+                        className={`mt-1 text-sm font-black ${
+                          step.fieldSummary.hazardCount > 0
+                            ? "text-[var(--qoreva-obsidian)]"
+                            : "text-amber-900"
+                        }`}
+                      >
+                        {step.fieldSummary.hazardCount > 0
+                          ? step.fieldSummary.hazardCount
+                          : "Not available"}
+                      </p>
+
+                      {step.fieldSummary.hazardCount === 0 ? (
+                        <p className="mt-1 text-[9px] font-bold leading-4 text-amber-800">
+                          Legacy plan data
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div
+                      className={`rounded-xl p-3 ${
+                        step.fieldSummary.controlCount > 0
+                          ? "bg-[var(--qoreva-surface-muted)]"
+                          : "border border-[#F1D19A] bg-[#FFF8E8]"
+                      }`}
+                    >
+                      <p
+                        className={`text-[10px] font-black uppercase tracking-wide ${
+                          step.fieldSummary.controlCount > 0
+                            ? "text-[var(--qoreva-muted)]"
+                            : "text-amber-800"
+                        }`}
+                      >
+                        Controls
+                      </p>
+
+                      <p
+                        className={`mt-1 text-sm font-black ${
+                          step.fieldSummary.controlCount > 0
+                            ? "text-[var(--qoreva-obsidian)]"
+                            : "text-amber-900"
+                        }`}
+                      >
+                        {step.fieldSummary.controlCount > 0
+                          ? step.fieldSummary.controlCount
+                          : "Not available"}
+                      </p>
+
+                      {step.fieldSummary.controlCount === 0 ? (
+                        <p className="mt-1 text-[9px] font-bold leading-4 text-amber-800">
+                          Legacy plan data
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div
+                      className={`rounded-xl p-3 ${
+                        step.fieldSummary.hazardCount === 0
+                          ? "border border-[#F1D19A] bg-[#FFF8E8]"
+                          : "bg-[var(--qoreva-violet-soft)]"
+                      }`}
+                    >
+                      <p
+                        className={`text-[10px] font-black uppercase tracking-wide ${
+                          step.fieldSummary.hazardCount === 0
+                            ? "text-amber-800"
+                            : "text-[var(--qoreva-violet-dark)]"
+                        }`}
+                      >
+                        Critical
+                      </p>
+
+                      <p
+                        className={`mt-1 text-sm font-black ${
+                          step.fieldSummary.hazardCount === 0
+                            ? "text-amber-900"
+                            : "text-[var(--qoreva-violet-dark)]"
+                        }`}
+                      >
+                        {step.fieldSummary.hazardCount === 0
+                          ? "Not available"
+                          : step.fieldSummary.confirmedCriticalControlCount}
+                      </p>
+
+                      {step.fieldSummary.hazardCount === 0 ? (
+                        <p className="mt-1 text-[9px] font-bold leading-4 text-amber-800">
+                          Legacy plan data
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div
+                      className={`rounded-xl p-3 ${
+                        step.fieldSummary.hazardCount === 0
+                          ? "border border-[#F1D19A] bg-[#FFF8E8]"
+                          : step.fieldSummary.controlsAwaitingVerification > 0
+                            ? "bg-amber-50"
+                            : step.fieldSummary.requiredVerificationCount > 0
+                              ? "bg-[var(--qoreva-success-soft)]"
+                              : "bg-[var(--qoreva-surface-muted)]"
+                      }`}
+                    >
+                      <p
+                        className={`text-[10px] font-black uppercase tracking-wide ${
+                          step.fieldSummary.hazardCount === 0
+                            ? "text-amber-800"
+                            : "text-[var(--qoreva-muted)]"
+                        }`}
+                      >
+                        Verification
+                      </p>
+
+                      <p
+                        className={`mt-1 text-sm font-black ${
+                          step.fieldSummary.hazardCount === 0
+                            ? "text-amber-900"
+                            : step.fieldSummary.controlsAwaitingVerification > 0
+                              ? "text-amber-800"
+                              : step.fieldSummary.requiredVerificationCount > 0
+                                ? "text-[var(--qoreva-success)]"
+                                : "text-[var(--qoreva-obsidian)]"
+                        }`}
+                      >
+                        {step.fieldSummary.hazardCount === 0
+                          ? "Not available"
+                          : step.fieldSummary.requiredVerificationCount === 0
+                            ? "Not Required"
+                            : step.fieldSummary.controlsAwaitingVerification > 0
+                              ? "Action Required"
+                              : "Complete"}
+                      </p>
+
+                      {step.fieldSummary.hazardCount === 0 ? (
+                        <p className="mt-1 text-[9px] font-bold leading-4 text-amber-800">
+                          Legacy plan data
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white">
+                    <div className="border-b border-[var(--qoreva-border)] px-4 py-3">
+                      <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                        Hazards & Controls
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
+                        Task-specific hazards and required controls.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 p-4">
+                      {step.hazards.length > 0 ? (
+                        step.hazards.map((hazard, hazardIndex) => (
+                          <div
+                            key={hazard.hazardId}
+                            className="overflow-hidden rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                          >
+                            <div className="px-4 py-3">
+                              <div className="flex items-start gap-3">
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                  {String(hazardIndex + 1).padStart(2, "0")}
+                                </span>
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
+                                    {hazard.hazardText}
+                                  </p>
+
+                                  <p className="mt-1 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                                    {hazard.controls.length}{" "}
+                                    {hazard.controls.length === 1
+                                      ? "control"
+                                      : "controls"}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 border-t border-[var(--qoreva-border)] bg-white p-3">
                               {hazard.controls.length > 0 ? (
                                 hazard.controls.map((control) => (
                                   <div
                                     key={control.id}
-                                    className="rounded-xl bg-white p-3"
+                                    className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3"
                                   >
                                     <div className="flex items-start gap-2">
                                       <span
@@ -711,10 +976,13 @@ export default function PlanningFieldViewPage() {
                                       </p>
                                     </div>
 
-                                    {control.criticalControlDecision === "Confirmed" ? (
-                                      <p className="mt-2 text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-violet-dark)]">
-                                        Confirmed Critical Control
-                                      </p>
+                                    {control.criticalControlDecision ===
+                                    "Confirmed" ? (
+                                      <div className="mt-2 inline-flex rounded-full bg-[var(--qoreva-violet-soft)] px-2.5 py-1">
+                                        <p className="text-[9px] font-black uppercase tracking-wide text-[var(--qoreva-violet-dark)]">
+                                          Critical Control
+                                        </p>
+                                      </div>
                                     ) : null}
                                   </div>
                                 ))
@@ -724,105 +992,34 @@ export default function PlanningFieldViewPage() {
                                 </p>
                               )}
                             </div>
-                          </details>
-                        ))}
-                      </div>
-                    </details>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-[#F1D19A] bg-[#FFF8E8] p-4">
+                          <p className="text-sm font-black text-amber-900">
+                            Structured hazard data unavailable
+                          </p>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <div className="rounded-xl bg-[var(--qoreva-surface-muted)] p-3">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                          Hazards
-                        </p>
-                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                          {step.fieldSummary.hazardCount}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-[var(--qoreva-surface-muted)] p-3">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                          Controls
-                        </p>
-                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
-                          {step.fieldSummary.controlCount}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-[var(--qoreva-violet-soft)] p-3">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-[var(--qoreva-violet-dark)]">
-                          Critical
-                        </p>
-                        <p className="mt-1 text-sm font-black text-[var(--qoreva-violet-dark)]">
-                          {step.fieldSummary.confirmedCriticalControlCount}
-                        </p>
-                      </div>
-
-                      <div
-                        className={`rounded-xl p-3 ${
-                          step.fieldSummary.controlsAwaitingVerification > 0
-                            ? "bg-amber-50"
-                            : step.fieldSummary.requiredVerificationCount > 0
-                              ? "bg-[var(--qoreva-success-soft)]"
-                              : "bg-[var(--qoreva-surface-muted)]"
-                        }`}
-                      >
-                        <p
-                          className={`text-[10px] font-black uppercase tracking-wide ${
-                            step.fieldSummary.controlsAwaitingVerification > 0
-                              ? "text-amber-800"
-                              : step.fieldSummary.requiredVerificationCount > 0
-                                ? "text-[var(--qoreva-success)]"
-                                : "text-[var(--qoreva-muted)]"
-                          }`}
-                        >
-                          Verification
-                        </p>
-
-                        <p
-                          className={`mt-1 text-sm font-black ${
-                            step.fieldSummary.controlsAwaitingVerification > 0
-                              ? "text-amber-800"
-                              : step.fieldSummary.requiredVerificationCount > 0
-                                ? "text-[var(--qoreva-success)]"
-                                : "text-[var(--qoreva-obsidian)]"
-                          }`}
-                        >
-                          {step.fieldSummary.requiredVerificationCount === 0
-                            ? "Not Required"
-                            : step.fieldSummary.controlsAwaitingVerification > 0
-                              ? "Action Required"
-                              : "Complete"}
-                        </p>
-                      </div>
+                          <p className="mt-1 text-xs font-medium leading-5 text-amber-800">
+                            This work step comes from an older PTP revision
+                            that does not contain structured hazard and control
+                            data. Qoreva will not interpret this as a
+                            determination that no hazards exist.
+                          </p>
+                        </div>
+                      )}
                     </div>
+                  </div>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-[var(--qoreva-surface-muted)] px-3 py-1.5 text-xs font-black text-[var(--qoreva-obsidian)]">
-                        Inherent Risk: {step.inherentRiskLevel || "Not set"}
-                      </span>
-
-                      <span className="text-xs font-black text-[var(--qoreva-muted)]">
-                        →
-                      </span>
-
-                      <span className="rounded-full bg-[var(--qoreva-surface-muted)] px-3 py-1.5 text-xs font-black text-[var(--qoreva-obsidian)]">
-                        Controlled Risk: {step.controlledRiskLevel || "Not confirmed"}
-                      </span>
-
-                      {step.fieldSummary.controlsAwaitingVerification > 0 ? (
-                        <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-800">
-                          {step.fieldSummary.controlsAwaitingVerification} awaiting verification
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {step.fieldSummary.requiredVerificationCount > 0 ? (
-                      <details className="group mt-4 overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white">
-                        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                  {step.fieldSummary.requiredVerificationCount > 0 ? (
+                    <div className="overflow-hidden rounded-2xl border border-[var(--qoreva-border)] bg-white">
+                      <div className="border-b border-[var(--qoreva-border)] px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
                               Verification Evidence
                             </p>
+
                             <p className="mt-1 text-xs font-bold text-[var(--qoreva-muted)]">
                               {step.fieldSummary.completedVerifications} of{" "}
                               {step.fieldSummary.requiredVerificationCount} complete
@@ -830,92 +1027,107 @@ export default function PlanningFieldViewPage() {
                           </div>
 
                           <span
-                            className={`shrink-0 text-xs font-black ${
+                            className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wide ${
                               step.fieldSummary.controlsAwaitingVerification > 0
-                                ? "text-amber-800"
-                                : "text-[var(--qoreva-success)]"
+                                ? "bg-amber-50 text-amber-800"
+                                : "bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
                             }`}
                           >
                             {step.fieldSummary.controlsAwaitingVerification > 0
                               ? "Action Required"
                               : "Complete"}
                           </span>
-                        </summary>
+                        </div>
+                      </div>
 
-                        <div className="space-y-3 border-t border-[var(--qoreva-border)] p-4">
-                          {step.hazards.flatMap((hazard) =>
-                            hazard.controls
-                              .filter(
-                                (control) =>
-                                  control.verificationRequiredForCurrentContext === true,
-                              )
-                              .map((control) => (
-                                <div
-                                  key={control.id}
-                                  className="rounded-xl bg-[var(--qoreva-surface-muted)] p-4"
-                                >
-                                  <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <p className="min-w-0 flex-1 text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
+                      <div className="space-y-3 p-4">
+                        {step.hazards.flatMap((hazard) =>
+                          hazard.controls
+                            .filter(
+                              (control) =>
+                                control.verificationRequiredForCurrentContext ===
+                                true,
+                            )
+                            .map((control) => (
+                              <div
+                                key={control.id}
+                                className={`rounded-xl border p-4 ${
+                                  control.verificationCompleted
+                                    ? "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                                    : "border-[#F1D19A] bg-[#FFF8E8]"
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-muted)]">
+                                      Required Verification
+                                    </p>
+
+                                    <p className="mt-1.5 text-sm font-black leading-6 text-[var(--qoreva-obsidian)]">
                                       {control.controlText}
                                     </p>
-
-                                    <span
-                                      className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${
-                                        control.verificationCompleted
-                                          ? "bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
-                                          : "bg-amber-50 text-amber-800"
-                                      }`}
-                                    >
-                                      {control.verificationCompleted
-                                        ? "Complete"
-                                        : "Action Required"}
-                                    </span>
                                   </div>
 
-                                  <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                                    <div>
-                                      <p className="font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                                        Method
-                                      </p>
-                                      <p className="mt-1 font-bold text-[var(--qoreva-obsidian)]">
-                                        {control.verificationEvidenceMethod ||
-                                          "Not recorded"}
-                                      </p>
-                                    </div>
+                                  <span
+                                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${
+                                      control.verificationCompleted
+                                        ? "bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                        : "bg-amber-50 text-amber-800"
+                                    }`}
+                                  >
+                                    {control.verificationCompleted
+                                      ? "Complete"
+                                      : "Action Required"}
+                                  </span>
+                                </div>
 
-                                    <div>
-                                      <p className="font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                                        Verified By
-                                      </p>
-                                      <p className="mt-1 font-bold text-[var(--qoreva-obsidian)]">
-                                        {control.verifiedByName || "Not recorded"}
-                                        {control.verifiedByRole
-                                          ? ` • ${control.verifiedByRole}`
-                                          : ""}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-3">
-                                    <p className="text-xs font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
-                                      Evidence
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                  <div className="rounded-lg bg-white/80 p-3">
+                                    <p className="text-[9px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                                      Method
                                     </p>
-                                    <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-obsidian)]">
-                                      {control.verificationEvidence ||
-                                        "No evidence recorded."}
+
+                                    <p className="mt-1 text-xs font-bold leading-5 text-[var(--qoreva-obsidian)]">
+                                      {control.verificationEvidenceMethod ||
+                                        "Not recorded"}
                                     </p>
                                   </div>
 
-                                  <p className="mt-3 text-xs font-bold text-[var(--qoreva-muted)]">
-                                    Verified: {formatFieldDateTime(control.verifiedAt)}
+                                  <div className="rounded-lg bg-white/80 p-3">
+                                    <p className="text-[9px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                                      Verified By
+                                    </p>
+
+                                    <p className="mt-1 text-xs font-bold leading-5 text-[var(--qoreva-obsidian)]">
+                                      {control.verifiedByName || "Not recorded"}
+                                      {control.verifiedByRole
+                                        ? ` • ${control.verifiedByRole}`
+                                        : ""}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 rounded-lg bg-white/80 p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-wide text-[var(--qoreva-muted)]">
+                                    Evidence
+                                  </p>
+
+                                  <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-obsidian)]">
+                                    {control.verificationEvidence ||
+                                      "No evidence recorded."}
                                   </p>
                                 </div>
-                              )),
-                          )}
-                        </div>
-                      </details>
-                    ) : null}
-                  </div>
+
+                                <p className="mt-3 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                  Verified:{" "}
+                                  {formatFieldDateTime(control.verifiedAt)}
+                                </p>
+                              </div>
+                            )),
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </article>
             ))}

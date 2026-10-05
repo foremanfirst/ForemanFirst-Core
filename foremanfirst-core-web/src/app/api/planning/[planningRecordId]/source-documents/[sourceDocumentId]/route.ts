@@ -1,6 +1,7 @@
 import {
   readFile,
   stat,
+  unlink,
 } from "node:fs/promises";
 
 import path from "node:path";
@@ -287,6 +288,285 @@ export async function GET(
           error instanceof Error
             ? error.message
             : "Unable to open the Planning source document.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+
+export async function DELETE(
+  _request: Request,
+  context: RouteContext,
+) {
+  try {
+    const {
+      planningRecordId,
+      sourceDocumentId,
+    } = await context.params;
+
+    const cleanedPlanningRecordId =
+      planningRecordId?.trim();
+
+    const cleanedSourceDocumentId =
+      sourceDocumentId?.trim();
+
+    if (!cleanedPlanningRecordId) {
+      return NextResponse.json(
+        {
+          message:
+            "Planning Record ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (!cleanedSourceDocumentId) {
+      return NextResponse.json(
+        {
+          message:
+            "Source Document ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const authorization =
+      await requireAuthorizedPlanningEditor(
+        cleanedPlanningRecordId,
+      );
+
+    if (
+      authorization.planningRecord.status !==
+      "Draft"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "Planning source documents can only be deleted while the planning record is in Draft status.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    const document =
+      await prisma.planningSourceDocument.findFirst({
+        where: {
+          id:
+            cleanedSourceDocumentId,
+
+          planningRecordId:
+            cleanedPlanningRecordId,
+
+          tenantId:
+            authorization.planningRecord.tenantId,
+        },
+
+        select: {
+          id: true,
+          storageProvider: true,
+          storageKey: true,
+        },
+      });
+
+    if (!document) {
+      return NextResponse.json(
+        {
+          message:
+            "The Planning source document could not be found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    let absoluteFilePath:
+      string | null = null;
+
+    if (
+      document.storageProvider ===
+        "local" &&
+      document.storageKey
+    ) {
+      const storageRoot =
+        path.resolve(
+          process.cwd(),
+          "storage",
+        );
+
+      const candidatePath =
+        path.resolve(
+          storageRoot,
+          document.storageKey,
+        );
+
+      const relativePath =
+        path.relative(
+          storageRoot,
+          candidatePath,
+        );
+
+      const pointsOutsideStorage =
+        relativePath.startsWith("..") ||
+        path.isAbsolute(
+          relativePath,
+        );
+
+      if (pointsOutsideStorage) {
+        console.error(
+          "Blocked invalid Planning source-document delete path:",
+          document.storageKey,
+        );
+
+        return NextResponse.json(
+          {
+            message:
+              "The source-document storage path is invalid.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      absoluteFilePath =
+        candidatePath;
+    }
+
+    /*
+     * Remove AI-generated question candidates tied
+     * to this source document before deleting it.
+     *
+     * Findings cascade with the source document,
+     * while question candidates use SetNull on the
+     * finding relation. Deleting the candidates
+     * explicitly prevents orphaned AI questions
+     * from surviving document removal.
+     */
+    await prisma.$transaction(
+      async (tx) => {
+        const findings =
+          await tx.planningDocumentFinding.findMany({
+            where: {
+              tenantId:
+                authorization.planningRecord.tenantId,
+
+              planningRecordId:
+                cleanedPlanningRecordId,
+
+              sourceDocumentId:
+                document.id,
+            },
+
+            select: {
+              id: true,
+            },
+          });
+
+        const findingIds =
+          findings.map(
+            (finding) =>
+              finding.id,
+          );
+
+        if (findingIds.length > 0) {
+          await tx.planningQuestionCandidate.deleteMany({
+            where: {
+              tenantId:
+                authorization.planningRecord.tenantId,
+
+              planningRecordId:
+                cleanedPlanningRecordId,
+
+              findingId: {
+                in:
+                  findingIds,
+              },
+            },
+          });
+        }
+
+        await tx.planningSourceDocument.delete({
+          where: {
+            id:
+              document.id,
+          },
+        });
+      },
+    );
+
+    if (absoluteFilePath) {
+      try {
+        await unlink(
+          absoluteFilePath,
+        );
+      } catch (error) {
+        const errorCode =
+          (
+            error as
+              NodeJS.ErrnoException
+          ).code;
+
+        /*
+         * A missing file does not invalidate the
+         * successful database deletion.
+         */
+        if (errorCode !== "ENOENT") {
+          console.error(
+            "Planning source-document file cleanup failed:",
+            error,
+          );
+        }
+      }
+    }
+
+    return NextResponse.json(
+      {
+        deleted: true,
+        sourceDocumentId:
+          document.id,
+      },
+      {
+        status: 200,
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof
+      PlanningEditorAuthorizationError
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            error.message,
+        },
+        {
+          status:
+            error.status,
+        },
+      );
+    }
+
+    console.error(
+      "Delete Planning source document error:",
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to delete the Planning source document.",
       },
       {
         status: 500,

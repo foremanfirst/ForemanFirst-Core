@@ -34,6 +34,9 @@ import {
   flattenFieldHazardPresentationGroups,
   isPrimaryFieldHazardPresentationGroup,
 } from "@/lib/planning/field-hazard-presentation";
+import type {
+  EvaDraftAnswer,
+} from "@/lib/ai/eva";
 
 
 
@@ -174,11 +177,54 @@ type PersistedPlanningSourceDocument = {
   storageKey: string | null;
   storageUrl: string | null;
   isSelected: boolean;
+  aiProcessingStatus: string;
   isAiReady: boolean;
   approvalStatusAtSelection: string | null;
   reviewStatusAtSelection: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type DocumentIntelligenceEvidence = {
+  pageNumber: number | null;
+  excerpt: string | null;
+  description: string;
+  sourceType: string;
+  confidence: number | null;
+};
+
+type DocumentIntelligenceFinding = {
+  findingType: string;
+  severity: string;
+  title: string;
+  description: string;
+  evidence: DocumentIntelligenceEvidence[];
+  confidence: number | null;
+  status?: string;
+};
+
+type DocumentIntelligenceQuestionCandidate = {
+  questionText: string;
+  helpText: string | null;
+  category: string;
+  section: string | null;
+  questionType: string;
+  isCritical: boolean;
+  generationReason: string;
+  evidence: DocumentIntelligenceEvidence[];
+  confidence: number | null;
+  status?: string;
+};
+
+type DocumentIntelligenceAnalysis = {
+  status?: string;
+  provider?: string;
+  model?: string;
+  documentType?: string | null;
+  evidence?: DocumentIntelligenceEvidence[];
+  findings: DocumentIntelligenceFinding[];
+  questionCandidates: DocumentIntelligenceQuestionCandidate[];
+  confidence?: number | null;
 };
 
 type PlanningRequirementsResponse = {
@@ -2467,6 +2513,42 @@ function internalStepFromWorkflowStep(
   );
 }
 
+
+async function readPlanningJson<T>(
+  response: Response,
+  fallbackMessage: string,
+): Promise<T> {
+  const rawBody = await response.text();
+
+  if (!rawBody.trim()) {
+    throw new Error(
+      `${fallbackMessage} The server returned an empty response (${response.status}).`,
+    );
+  }
+
+  try {
+    return JSON.parse(rawBody) as T;
+  } catch {
+    const contentType =
+      response.headers.get("content-type") ?? "";
+
+    console.error(
+      "Planning API returned an invalid JSON response:",
+      {
+        status: response.status,
+        statusText: response.statusText,
+        contentType,
+        url: response.url,
+        bodyPreview: rawBody.slice(0, 200),
+      },
+    );
+
+    throw new Error(
+      `${fallbackMessage} The server returned an invalid response (${response.status}).`,
+    );
+  }
+}
+
 export default function CreatePlanningPage() {
   const [currentStep, setCurrentStep] =
     useState(1);
@@ -3023,6 +3105,48 @@ export default function CreatePlanningPage() {
     setPlanSpecificUploadError,
   ] = useState("");
 
+  const [
+    analyzingDocumentIds,
+    setAnalyzingDocumentIds,
+  ] = useState<string[]>([]);
+
+  const [
+    deletingDocumentIds,
+    setDeletingDocumentIds,
+  ] = useState<string[]>([]);
+
+  const [
+    expandedDocumentFindingIds,
+    setExpandedDocumentFindingIds,
+  ] = useState<string[]>([]);
+
+  const [
+    expandedFindingDetailIds,
+    setExpandedFindingDetailIds,
+  ] = useState<string[]>([]);
+
+  const [
+    expandedDocumentQuestionIds,
+    setExpandedDocumentQuestionIds,
+  ] = useState<string[]>([]);
+
+  const [
+    documentAnalysisById,
+    setDocumentAnalysisById,
+  ] = useState<
+    Record<
+      string,
+      DocumentIntelligenceAnalysis
+    >
+  >({});
+
+  const [
+    documentAnalysisErrors,
+    setDocumentAnalysisErrors,
+  ] = useState<
+    Record<string, string>
+  >({});
+
   useEffect(() => {
     if (!planningRecordId) {
       setPlanSpecificDocuments([]);
@@ -3043,7 +3167,12 @@ export default function CreatePlanningPage() {
 
         const data =
           (await response.json()) as {
-            documents?: PersistedPlanningSourceDocument[];
+            documents?: Array<
+              PersistedPlanningSourceDocument & {
+                analysis?:
+                  DocumentIntelligenceAnalysis | null;
+              }
+            >;
             message?: string;
           };
 
@@ -3055,9 +3184,29 @@ export default function CreatePlanningPage() {
         }
 
         if (!cancelled) {
+          const documents =
+            data.documents ?? [];
+
           setPlanSpecificDocuments(
-            data.documents ?? [],
+            documents,
           );
+
+          setDocumentAnalysisById(
+            Object.fromEntries(
+              documents.flatMap(
+                (document) =>
+                  document.analysis
+                    ? [
+                        [
+                          document.id,
+                          document.analysis,
+                        ],
+                      ]
+                    : [],
+              ),
+            ),
+          );
+
           setPlanSpecificUploadError("");
         }
       } catch (error) {
@@ -3963,9 +4112,37 @@ export default function CreatePlanningPage() {
           },
         );
 
+        const contentType =
+          response.headers.get("content-type") ?? "";
+
+        if (
+          !contentType
+            .toLowerCase()
+            .includes("application/json")
+        ) {
+          console.error(
+            "Planning revision returned a non-JSON response:",
+            {
+              planningRecordId:
+                editPlanningRecordId,
+              status: response.status,
+              statusText:
+                response.statusText,
+              contentType,
+              url: response.url,
+            },
+          );
+
+          throw new Error(
+            `Unable to load this Planning revision (${response.status}). Please retry.`,
+          );
+        }
+
         const data =
-          (await response.json()) as
-            EditablePlanningRecordResponse;
+          await readPlanningJson<EditablePlanningRecordResponse>(
+            response,
+            "Unable to load this Planning revision.",
+          );
 
         if (
           !response.ok ||
@@ -3973,7 +4150,7 @@ export default function CreatePlanningPage() {
         ) {
           throw new Error(
             data.message ||
-              "Unable to load the planning revision for editing.",
+              `Unable to load this Planning revision (${response.status}).`,
           );
         }
 
@@ -4062,8 +4239,10 @@ export default function CreatePlanningPage() {
           );
 
         const activityHydrationData =
-          (await activityHydrationResponse.json()) as
-            GuidedPlanningActivitiesResponse;
+          await readPlanningJson<GuidedPlanningActivitiesResponse>(
+            activityHydrationResponse,
+            "Unable to restore the confirmed planning activities.",
+          );
 
         if (!activityHydrationResponse.ok) {
           throw new Error(
@@ -4676,11 +4855,15 @@ export default function CreatePlanningPage() {
             );
 
           const requirementsResult =
-            (await requirementsResponse.json()) as
+            await readPlanningJson<
               | PlanningRequirementsResponse
               | {
                   message?: string;
-                };
+                }
+            >(
+              requirementsResponse,
+              "Unable to restore requirements and documents.",
+            );
 
           if (
             requirementsResponse.ok &&
@@ -6227,12 +6410,15 @@ export default function CreatePlanningPage() {
           );
 
         const createData =
-          (await createResponse.json()) as {
+          await readPlanningJson<{
             record?: {
               id: string;
             };
             message?: string;
-          };
+          }>(
+            createResponse,
+            "Unable to create the planning draft.",
+          );
 
         if (!createResponse.ok) {
           throw new Error(
@@ -6324,12 +6510,15 @@ export default function CreatePlanningPage() {
           );
 
         const updateData =
-          (await updateResponse.json()) as {
+          await readPlanningJson<{
             record?: {
               id: string;
             };
             message?: string;
-          };
+          }>(
+            updateResponse,
+            "Unable to update the planning draft.",
+          );
 
         if (!updateResponse.ok) {
           throw new Error(
@@ -6509,14 +6698,11 @@ export default function CreatePlanningPage() {
       /*
        * Continue is a progression action, not a Save button.
        *
-       * Start persistence and requirements discovery together so the user
-       * does not wait for one network operation before the other begins.
-       *
-       * We still require the draft save to succeed before entering the next
-       * step, preserving Qoreva's record integrity.
+       * Persist the authoritative Planning record before loading dependent
+       * requirements. This keeps Step 1 deterministic when autosave,
+       * explicit progression, and record hydration occur near the same time.
        */
-      const draftSavePromise =
-        savePlanningDraft();
+      await savePlanningDraft();
 
       const params =
         new URLSearchParams({
@@ -6526,8 +6712,8 @@ export default function CreatePlanningPage() {
             selectedContractorId,
         });
 
-      const requirementsPromise =
-        fetch(
+      const response =
+        await fetch(
           `/api/planning/requirements?${params.toString()}`,
           {
             method: "GET",
@@ -6535,20 +6721,16 @@ export default function CreatePlanningPage() {
           },
         );
 
-      const [
-        ,
-        response,
-      ] = await Promise.all([
-        draftSavePromise,
-        requirementsPromise,
-      ]);
-
       const data =
-        (await response.json()) as
+        await readPlanningJson<
           | PlanningRequirementsResponse
           | {
               message?: string;
-            };
+            }
+        >(
+          response,
+          "Unable to load requirements and documents.",
+        );
 
       if (!response.ok) {
         throw new Error(
@@ -6702,6 +6884,256 @@ export default function CreatePlanningPage() {
     } finally {
       setPlanSpecificUploadSaving(
         false,
+      );
+    }
+  }
+
+  async function deletePlanSpecificDocument(
+    documentId: string,
+    documentName: string,
+  ) {
+    if (!planningRecordId) {
+      return;
+    }
+
+    if (
+      deletingDocumentIds.includes(
+        documentId,
+      )
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `Delete "${documentName}" from this Planning draft? This will also remove its Qoreva Document Intelligence findings and proposed planning questions.`,
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPlanSpecificUploadError("");
+
+    setDeletingDocumentIds(
+      (current) =>
+        current.includes(documentId)
+          ? current
+          : [...current, documentId],
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/source-documents/${documentId}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          deleted?: boolean;
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to delete the supporting document.",
+        );
+      }
+
+      setPlanSpecificDocuments(
+        (current) =>
+          current.filter(
+            (document) =>
+              document.id !== documentId,
+          ),
+      );
+
+      setDocumentAnalysisById(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[documentId];
+
+          return next;
+        },
+      );
+
+      setDocumentAnalysisErrors(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[documentId];
+
+          return next;
+        },
+      );
+
+      setExpandedDocumentFindingIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              !id.startsWith(
+                `${documentId}:`,
+              ),
+          ),
+      );
+
+      setExpandedFindingDetailIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              !id.startsWith(
+                `${documentId}:`,
+              ),
+          ),
+      );
+
+      setExpandedDocumentQuestionIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              !id.startsWith(
+                `${documentId}:`,
+              ),
+          ),
+      );
+    } catch (error) {
+      setPlanSpecificUploadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete the supporting document.",
+      );
+    } finally {
+      setDeletingDocumentIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              id !== documentId,
+          ),
+      );
+    }
+  }
+
+  async function analyzePlanSpecificDocument(
+    documentId: string,
+  ) {
+    if (!planningRecordId) {
+      return;
+    }
+
+    if (
+      analyzingDocumentIds.includes(
+        documentId,
+      )
+    ) {
+      return;
+    }
+
+    setDocumentAnalysisErrors(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[documentId];
+
+        return next;
+      },
+    );
+
+    setAnalyzingDocumentIds(
+      (current) =>
+        current.includes(documentId)
+          ? current
+          : [...current, documentId],
+    );
+
+    try {
+      const response =
+        await fetch(
+          `/api/planning/${planningRecordId}/source-documents/${documentId}/analyze`,
+          {
+            method: "POST",
+          },
+        );
+
+      const data =
+        (await response.json()) as {
+          message?: string;
+          analysis?: DocumentIntelligenceAnalysis;
+          document?: {
+            id: string;
+            fileName: string | null;
+            aiProcessingStatus: string;
+            isAiReady: boolean;
+          };
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to analyze this document.",
+        );
+      }
+
+      if (!data.analysis) {
+        throw new Error(
+          "Qoreva completed document analysis without returning analysis results.",
+        );
+      }
+
+      setDocumentAnalysisById(
+        (current) => ({
+          ...current,
+          [documentId]:
+            data.analysis!,
+        }),
+      );
+
+      setPlanSpecificDocuments(
+        (current) =>
+          current.map(
+            (document) =>
+              document.id === documentId
+                ? {
+                    ...document,
+                    aiProcessingStatus:
+                      data.document
+                        ?.aiProcessingStatus ??
+                      "Complete",
+                    isAiReady:
+                      data.document
+                        ?.isAiReady ??
+                      false,
+                  }
+                : document,
+          ),
+      );
+    } catch (error) {
+      setDocumentAnalysisErrors(
+        (current) => ({
+          ...current,
+          [documentId]:
+            error instanceof Error
+              ? error.message
+              : "Unable to analyze this document.",
+        }),
+      );
+    } finally {
+      setAnalyzingDocumentIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              id !== documentId,
+          ),
       );
     }
   }
@@ -16601,49 +17033,819 @@ export default function CreatePlanningPage() {
                     ) : null}
 
                     {planSpecificDocuments.length > 0 ? (
-                      <div className="mt-4 grid gap-2">
+                      <div className="mt-4 grid gap-4">
                         {planSpecificDocuments.map(
-                          (document) => (
-                            <div
-                              key={document.id}
-                              className="flex items-center justify-between gap-4 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-4 py-3"
-                            >
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-black text-[var(--qoreva-obsidian)]">
-                                  {document.fileName ||
-                                    document.label ||
-                                    "Supporting document"}
-                                </p>
+                          (document) => {
+                            const isAnalyzing =
+                              analyzingDocumentIds.includes(
+                                document.id,
+                              );
 
-                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-[var(--qoreva-muted)]">
-                                  <span>
-                                    {document.fileSize !==
-                                    null
-                                      ? formatFileSize(
-                                          document.fileSize,
-                                        )
-                                      : "Size unavailable"}
-                                  </span>
+                            const isDeleting =
+                              deletingDocumentIds.includes(
+                                document.id,
+                              );
 
-                                  <span>
-                                    ·
-                                  </span>
+                            const analysis =
+                              documentAnalysisById[
+                                document.id
+                              ];
 
-                                  <span className="font-black text-[var(--qoreva-success)]">
-                                    Saved to Draft
-                                  </span>
+                            const analysisError =
+                              documentAnalysisErrors[
+                                document.id
+                              ];
+
+                            const findingCount =
+                              analysis?.findings
+                                ?.length ?? 0;
+
+                            const questionCount =
+                              analysis
+                                ?.questionCandidates
+                                ?.length ?? 0;
+
+                            const criticalCount =
+                              analysis?.findings.filter(
+                                (finding) =>
+                                  finding.severity
+                                    ?.toLowerCase() ===
+                                  "critical",
+                              ).length ?? 0;
+
+                            const highCount =
+                              analysis?.findings.filter(
+                                (finding) =>
+                                  finding.severity
+                                    ?.toLowerCase() ===
+                                  "high",
+                              ).length ?? 0;
+
+                            const mediumCount =
+                              analysis?.findings.filter(
+                                (finding) =>
+                                  finding.severity
+                                    ?.toLowerCase() ===
+                                  "medium",
+                              ).length ?? 0;
+
+                            const informationalCount =
+                              analysis?.findings.filter(
+                                (finding) =>
+                                  [
+                                    "informational",
+                                    "information",
+                                    "info",
+                                  ].includes(
+                                    finding.severity
+                                      ?.toLowerCase() ??
+                                      "",
+                                  ),
+                              ).length ?? 0;
+
+                            const otherCount =
+                              Math.max(
+                                0,
+                                findingCount -
+                                  criticalCount -
+                                  highCount -
+                                  mediumCount -
+                                  informationalCount,
+                              );
+
+                            const safetyCriticalQuestionCount =
+                              analysis?.questionCandidates.filter(
+                                (question) =>
+                                  question.isCritical,
+                              ).length ?? 0;
+
+                            const findingsSectionId =
+                              `${document.id}:findings`;
+
+                            const questionsSectionId =
+                              `${document.id}:questions`;
+
+                            const findingsExpanded =
+                              expandedDocumentFindingIds.includes(
+                                findingsSectionId,
+                              );
+
+                            const questionsExpanded =
+                              expandedDocumentQuestionIds.includes(
+                                questionsSectionId,
+                              );
+
+                            const documentName =
+                              document.fileName ||
+                              document.label ||
+                              "Supporting document";
+
+                            const documentUrl =
+                              planningRecordId
+                                ? `/api/planning/${planningRecordId}/source-documents/${document.id}`
+                                : "";
+
+                            return (
+                              <article
+                                key={document.id}
+                                className="
+                                  overflow-hidden
+                                  rounded-2xl
+                                  border
+                                  border-[var(--qoreva-border)]
+                                  bg-white
+                                  shadow-[var(--qoreva-shadow-sm)]
+                                "
+                              >
+                                <div className="p-4 sm:p-5">
+                                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="flex items-start gap-3">
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] text-[10px] font-black uppercase text-[var(--qoreva-violet-dark)]">
+                                          {document.mimeType ===
+                                          "application/pdf"
+                                            ? "PDF"
+                                            : "DOC"}
+                                        </div>
+
+                                        <div className="min-w-0">
+                                          <p className="break-words text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                            {documentName}
+                                          </p>
+
+                                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-[var(--qoreva-muted)]">
+                                            <span>
+                                              {document.fileSize !==
+                                              null
+                                                ? formatFileSize(
+                                                    document.fileSize,
+                                                  )
+                                                : "Size unavailable"}
+                                            </span>
+
+                                            {analysis?.documentType ? (
+                                              <>
+                                                <span>
+                                                  ·
+                                                </span>
+
+                                                <span>
+                                                  {
+                                                    analysis.documentType
+                                                  }
+                                                </span>
+                                              </>
+                                            ) : null}
+
+                                            <span>
+                                              ·
+                                            </span>
+
+                                            <span className="font-black text-[var(--qoreva-success)]">
+                                              Saved to Draft
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:justify-end">
+                                      <a
+                                        href={
+                                          documentUrl
+                                        }
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="
+                                          inline-flex
+                                          min-h-10
+                                          flex-1
+                                          items-center
+                                          justify-center
+                                          rounded-xl
+                                          border
+                                          border-[var(--qoreva-border)]
+                                          bg-white
+                                          px-4
+                                          text-xs
+                                          font-black
+                                          text-[var(--qoreva-obsidian)]
+                                          transition
+                                          hover:bg-[var(--qoreva-surface-muted)]
+                                          sm:flex-none
+                                        "
+                                      >
+                                        View Document
+                                      </a>
+
+                                      {!analysis ? (
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            isAnalyzing ||
+                                            isDeleting ||
+                                            !planningRecordId
+                                          }
+                                          onClick={() => {
+                                            void analyzePlanSpecificDocument(
+                                              document.id,
+                                            );
+                                          }}
+                                          className="
+                                            inline-flex
+                                            min-h-10
+                                            flex-1
+                                            items-center
+                                            justify-center
+                                            rounded-xl
+                                            border
+                                            border-[rgba(102,87,232,0.24)]
+                                            bg-[var(--qoreva-violet-soft)]
+                                            px-4
+                                            text-xs
+                                            font-black
+                                            text-[var(--qoreva-violet-dark)]
+                                            transition
+                                            hover:bg-[var(--qoreva-violet-faint)]
+                                            disabled:cursor-wait
+                                            disabled:opacity-60
+                                            sm:flex-none
+                                          "
+                                        >
+                                          {isAnalyzing
+                                            ? "Analyzing..."
+                                            : "Analyze with Qoreva"}
+                                        </button>
+                                      ) : (
+                                        <span className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 text-xs font-black text-[var(--qoreva-success)] sm:flex-none">
+                                          ✓ Analysis Complete
+                                        </span>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          isDeleting ||
+                                          isAnalyzing
+                                        }
+                                        onClick={() => {
+                                          void deletePlanSpecificDocument(
+                                            document.id,
+                                            documentName,
+                                          );
+                                        }}
+                                        className="
+                                          inline-flex
+                                          min-h-10
+                                          items-center
+                                          justify-center
+                                          rounded-xl
+                                          border
+                                          border-[#F0BDC4]
+                                          bg-white
+                                          px-3
+                                          text-xs
+                                          font-black
+                                          text-[var(--qoreva-danger)]
+                                          transition
+                                          hover:bg-[var(--qoreva-danger-soft)]
+                                          disabled:cursor-wait
+                                          disabled:opacity-50
+                                        "
+                                      >
+                                        {isDeleting
+                                          ? "Deleting..."
+                                          : "Delete"}
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
 
-                              <span className="shrink-0 rounded-full border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-3 py-1 text-[10px] font-black text-[var(--qoreva-success)]">
-                                Source
-                              </span>
-                            </div>
-                          ),
+                                {isAnalyzing ? (
+                                  <div className="border-t border-[var(--qoreva-border)] bg-[var(--qoreva-violet-faint)] px-4 py-4 sm:px-5">
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet-soft)] text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                        AI
+                                      </div>
+
+                                      <div>
+                                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                          Qoreva is analyzing this document
+                                        </p>
+
+                                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                          Reviewing planning information, potential gaps, and questions that may require qualified-user attention.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                {analysisError ? (
+                                  <div className="border-t border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-4 py-3 sm:px-5">
+                                    <p className="text-xs font-black text-[var(--qoreva-danger)]">
+                                      {analysisError}
+                                    </p>
+                                  </div>
+                                ) : null}
+
+                                {analysis ? (
+                                  <div className="border-t border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-4 sm:p-5">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                      <div>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
+                                          Qoreva Document Intelligence
+                                        </p>
+
+                                        <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                          Review the intelligence Qoreva identified before continuing planning.
+                                        </p>
+                                      </div>
+
+                                    </div>
+
+                                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                      <div className="rounded-xl border border-[var(--qoreva-border)] bg-white p-3">
+                                        <p className="text-lg font-black text-[var(--qoreva-obsidian)]">
+                                          {findingCount}
+                                        </p>
+
+                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                          Findings
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] p-3">
+                                        <p className="text-lg font-black text-[var(--qoreva-danger)]">
+                                          {criticalCount}
+                                        </p>
+
+                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                          Critical
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-xl border border-[#F2D7A6] bg-[#FFF8E8] p-3">
+                                        <p className="text-lg font-black text-[#9B6212]">
+                                          {highCount}
+                                        </p>
+
+                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#9B6212]">
+                                          High
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-3">
+                                        <p className="text-lg font-black text-[var(--qoreva-violet-dark)]">
+                                          {questionCount}
+                                        </p>
+
+                                        <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                          Questions
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {mediumCount > 0 ? (
+                                        <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                          {mediumCount} medium
+                                        </span>
+                                      ) : null}
+
+                                      {informationalCount > 0 ? (
+                                        <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                          {informationalCount} informational
+                                        </span>
+                                      ) : null}
+
+                                      {otherCount > 0 ? (
+                                        <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                          {otherCount} other
+                                        </span>
+                                      ) : null}
+
+                                      {safetyCriticalQuestionCount > 0 ? (
+                                        <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-bold text-[var(--qoreva-danger)]">
+                                          {safetyCriticalQuestionCount} safety-critical {safetyCriticalQuestionCount === 1 ? "question" : "questions"}
+                                        </span>
+                                      ) : null}
+                                    </div>
+
+                                    <div className="mt-4 overflow-hidden rounded-xl border border-[var(--qoreva-border)] bg-white">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setExpandedDocumentFindingIds(
+                                            (current) =>
+                                              current.includes(
+                                                findingsSectionId,
+                                              )
+                                                ? current.filter(
+                                                    (id) =>
+                                                      id !==
+                                                      findingsSectionId,
+                                                  )
+                                                : [
+                                                    ...current,
+                                                    findingsSectionId,
+                                                  ],
+                                          );
+                                        }}
+                                        aria-expanded={
+                                          findingsExpanded
+                                        }
+                                        className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-[var(--qoreva-surface-muted)]"
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
+                                            {findingCount}
+                                          </span>
+
+                                          <div>
+                                            <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                              Review Findings
+                                            </p>
+
+                                            <p className="text-[11px] font-medium text-[var(--qoreva-muted)]">
+                                              Hazards, gaps, and planning information identified from this document.
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <span className="shrink-0 text-lg font-black text-[var(--qoreva-muted)]">
+                                          {findingsExpanded
+                                            ? "−"
+                                            : "+"}
+                                        </span>
+                                      </button>
+
+                                      {findingsExpanded ? (
+                                        <div className="border-t border-[var(--qoreva-border)] p-3 sm:p-4">
+                                          {findingCount > 0 ? (
+                                            <>
+                                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                                <div className="flex flex-wrap gap-2">
+                                                  {criticalCount > 0 ? (
+                                                    <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-danger)]">
+                                                      {criticalCount} Critical
+                                                    </span>
+                                                  ) : null}
+
+                                                  {highCount > 0 ? (
+                                                    <span className="rounded-full border border-[#F2D7A6] bg-[#FFF8E8] px-2.5 py-1 text-[10px] font-black text-[#9B6212]">
+                                                      {highCount} High
+                                                    </span>
+                                                  ) : null}
+
+                                                  {mediumCount > 0 ? (
+                                                    <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-muted)]">
+                                                      {mediumCount} Medium
+                                                    </span>
+                                                  ) : null}
+
+                                                  {informationalCount > 0 ? (
+                                                    <span className="rounded-full border border-[var(--qoreva-border)] bg-white px-2.5 py-1 text-[10px] font-black text-[var(--qoreva-muted)]">
+                                                      {informationalCount} Informational
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      const documentFindingIds =
+                                                        analysis.findings.map(
+                                                          (_, findingIndex) =>
+                                                            `${document.id}:finding:${findingIndex}`,
+                                                        );
+
+                                                      setExpandedFindingDetailIds(
+                                                        (current) => [
+                                                          ...current.filter(
+                                                            (id) =>
+                                                              !id.startsWith(
+                                                                `${document.id}:finding:`,
+                                                              ),
+                                                          ),
+                                                          ...documentFindingIds,
+                                                        ],
+                                                      );
+                                                    }}
+                                                    className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2.5 py-1.5 text-[10px] font-black text-[var(--qoreva-violet-dark)] transition hover:bg-[var(--qoreva-violet-faint)]"
+                                                  >
+                                                    Expand All
+                                                  </button>
+
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setExpandedFindingDetailIds(
+                                                        (current) =>
+                                                          current.filter(
+                                                            (id) =>
+                                                              !id.startsWith(
+                                                                `${document.id}:finding:`,
+                                                              ),
+                                                          ),
+                                                      );
+                                                    }}
+                                                    className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2.5 py-1.5 text-[10px] font-black text-[var(--qoreva-muted)] transition hover:bg-[var(--qoreva-surface-muted)]"
+                                                  >
+                                                    Collapse All
+                                                  </button>
+                                                </div>
+                                              </div>
+
+                                              <div className="grid gap-2">
+                                                {analysis.findings.map(
+                                                  (
+                                                    finding,
+                                                    findingIndex,
+                                                  ) => {
+                                                    const severity =
+                                                      finding.severity
+                                                        ?.toLowerCase() ??
+                                                      "";
+
+                                                    const isCritical =
+                                                      severity ===
+                                                      "critical";
+
+                                                    const isHigh =
+                                                      severity ===
+                                                      "high";
+
+                                                    const isMedium =
+                                                      severity ===
+                                                      "medium";
+
+                                                    const findingDetailId =
+                                                      `${document.id}:finding:${findingIndex}`;
+
+                                                    const findingExpanded =
+                                                      expandedFindingDetailIds.includes(
+                                                        findingDetailId,
+                                                      );
+
+                                                    return (
+                                                      <div
+                                                        key={`${document.id}-finding-${findingIndex}`}
+                                                        className={`
+                                                          overflow-hidden
+                                                          rounded-xl
+                                                          border
+                                                          ${
+                                                            isCritical
+                                                              ? "border-[#F0BDC4] bg-[var(--qoreva-danger-soft)]"
+                                                              : isHigh
+                                                                ? "border-[#F2D7A6] bg-[#FFF8E8]"
+                                                                : isMedium
+                                                                  ? "border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)]"
+                                                                  : "border-[var(--qoreva-border)] bg-white"
+                                                          }
+                                                        `}
+                                                      >
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setExpandedFindingDetailIds(
+                                                              (current) =>
+                                                                current.includes(
+                                                                  findingDetailId,
+                                                                )
+                                                                  ? current.filter(
+                                                                      (id) =>
+                                                                        id !==
+                                                                        findingDetailId,
+                                                                    )
+                                                                  : [
+                                                                      ...current,
+                                                                      findingDetailId,
+                                                                    ],
+                                                            );
+                                                          }}
+                                                          aria-expanded={
+                                                            findingExpanded
+                                                          }
+                                                          className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left sm:px-4"
+                                                        >
+                                                          <div className="flex min-w-0 items-start gap-3">
+                                                            <span
+                                                              className={`
+                                                                mt-0.5
+                                                                flex
+                                                                h-7
+                                                                w-7
+                                                                shrink-0
+                                                                items-center
+                                                                justify-center
+                                                                rounded-lg
+                                                                text-[10px]
+                                                                font-black
+                                                                ${
+                                                                  isCritical
+                                                                    ? "bg-[var(--qoreva-danger)] text-white"
+                                                                    : isHigh
+                                                                      ? "bg-[#D99724] text-white"
+                                                                      : "bg-[var(--qoreva-violet-soft)] text-[var(--qoreva-violet-dark)]"
+                                                                }
+                                                              `}
+                                                            >
+                                                              {isCritical
+                                                                ? "!"
+                                                                : "Q"}
+                                                            </span>
+
+                                                            <div className="min-w-0">
+                                                              <div className="flex flex-wrap items-center gap-2">
+                                                                <p className="text-sm font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                                                  {finding.title}
+                                                                </p>
+
+                                                                <span className="rounded-full border border-current/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                                                  {finding.severity}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+
+                                                          <span className="shrink-0 text-base font-black text-[var(--qoreva-muted)]">
+                                                            {findingExpanded
+                                                              ? "−"
+                                                              : "+"}
+                                                          </span>
+                                                        </button>
+
+                                                        {findingExpanded ? (
+                                                          <div className="border-t border-black/5 px-4 pb-4 pt-3">
+                                                            <p className="text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                              {finding.description}
+                                                            </p>
+
+                                                            {finding.evidence
+                                                              ?.length >
+                                                            0 ? (
+                                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                                {finding.evidence
+                                                                  .slice(
+                                                                    0,
+                                                                    3,
+                                                                  )
+                                                                  .map(
+                                                                    (
+                                                                      evidence,
+                                                                      evidenceIndex,
+                                                                    ) => (
+                                                                      <span
+                                                                        key={`${document.id}-finding-${findingIndex}-evidence-${evidenceIndex}`}
+                                                                        className="rounded-lg border border-[var(--qoreva-border)] bg-white px-2 py-1 text-[10px] font-bold text-[var(--qoreva-muted)]"
+                                                                      >
+                                                                        {evidence.pageNumber
+                                                                          ? `Page ${evidence.pageNumber}`
+                                                                          : "Document evidence"}
+                                                                      </span>
+                                                                    ),
+                                                                  )}
+                                                              </div>
+                                                            ) : null}
+                                                          </div>
+                                                        ) : null}
+                                                      </div>
+                                                    );
+                                                  },
+                                                )}
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <div className="rounded-xl border border-[#BDE8D4] bg-[var(--qoreva-success-soft)] px-4 py-3">
+                                              <p className="text-xs font-black text-[var(--qoreva-success)]">
+                                                No document findings were identified by Qoreva.
+                                              </p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </div>
+
+                                    {questionCount > 0 ? (
+                                      <div className="mt-3 overflow-hidden rounded-xl border border-[rgba(102,87,232,0.18)] bg-white">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setExpandedDocumentQuestionIds(
+                                              (current) =>
+                                                current.includes(
+                                                  questionsSectionId,
+                                                )
+                                                  ? current.filter(
+                                                      (id) =>
+                                                        id !==
+                                                        questionsSectionId,
+                                                    )
+                                                  : [
+                                                      ...current,
+                                                      questionsSectionId,
+                                                    ],
+                                            );
+                                          }}
+                                          aria-expanded={
+                                            questionsExpanded
+                                          }
+                                          className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-[var(--qoreva-violet-faint)]"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--qoreva-violet-soft)] text-xs font-black text-[var(--qoreva-violet-dark)]">
+                                              {questionCount}
+                                            </span>
+
+                                            <div>
+                                              <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                                Planning Questions
+                                              </p>
+
+                                              <p className="text-[11px] font-medium text-[var(--qoreva-muted)]">
+                                                Questions Qoreva recommends resolving during planning.
+                                              </p>
+                                            </div>
+                                          </div>
+
+                                          <span className="shrink-0 text-lg font-black text-[var(--qoreva-muted)]">
+                                            {questionsExpanded
+                                              ? "−"
+                                              : "+"}
+                                          </span>
+                                        </button>
+
+                                        {questionsExpanded ? (
+                                          <div className="border-t border-[rgba(102,87,232,0.14)] bg-[var(--qoreva-violet-faint)] p-3 sm:p-4">
+                                            <div className="grid gap-2">
+                                              {analysis.questionCandidates.map(
+                                                (
+                                                  question,
+                                                  questionIndex,
+                                                ) => (
+                                                  <div
+                                                    key={`${document.id}-question-${questionIndex}`}
+                                                    className="rounded-xl border border-[rgba(102,87,232,0.14)] bg-white px-4 py-3"
+                                                  >
+                                                    <div className="flex items-start gap-3">
+                                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--qoreva-violet-soft)] text-[10px] font-black text-[var(--qoreva-violet-dark)]">
+                                                        ?
+                                                      </span>
+
+                                                      <div className="min-w-0">
+                                                        <p className="text-sm font-black text-[var(--qoreva-obsidian)]">
+                                                          {question.questionText}
+                                                        </p>
+
+                                                        {question.helpText ? (
+                                                          <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                            {question.helpText}
+                                                          </p>
+                                                        ) : null}
+
+                                                        <div className="mt-2 flex flex-wrap gap-2">
+                                                          <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                                            Proposed
+                                                          </span>
+
+                                                          {question.isCritical ? (
+                                                            <span className="rounded-full border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-danger)]">
+                                                              Safety-Critical Candidate
+                                                            </span>
+                                                          ) : null}
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                ),
+                                              )}
+                                            </div>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+
+                                    <div className="mt-3 rounded-xl border border-[var(--qoreva-border)] bg-white px-4 py-3">
+                                      <p className="text-xs font-black text-[var(--qoreva-obsidian)]">
+                                        AI assistance only — qualified-user review required
+                                      </p>
+
+                                      <p className="mt-1 text-[11px] font-medium leading-5 text-[var(--qoreva-muted)]">
+                                        Qoreva findings and questions are advisory intelligence. They do not automatically change the PTP, establish official risk, or approve a safety decision.
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </article>
+                            );
+                          },
                         )}
                       </div>
                     ) : null}
-                  </section>
+                </section>
 
                   <section className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-5">
                     <div className="flex items-start gap-3">
@@ -16877,6 +18079,12 @@ export default function CreatePlanningPage() {
                     collisionDetection={
                       closestCenter
                     }
+                    autoScroll={{
+                      threshold: {
+                        x: 0,
+                        y: 0.2,
+                      },
+                    }}
                     onDragEnd={
                       handleWorkSequenceDragEnd
                     }
@@ -17739,7 +18947,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Step 6 will qualify the hazards and controls for each work step, complete Critical Control and verification decisions, and confirm the work-step risk. Qoreva will preserve these planning responses as context while qualified people make the final safety decisions.
+                      Step 5 will qualify the hazards and controls for each work step, complete Critical Control and verification decisions, and confirm the work-step risk. Qoreva will preserve these planning responses as context while qualified people make the final safety decisions.
                     </p>
                   </div>
                 </div>
@@ -19046,7 +20254,7 @@ export default function CreatePlanningPage() {
                                                 {controlledRiskDecisionSavingId ===
                                                 step.id
                                                   ? "Saving..."
-                                                  : "Confirm Recommendation"}
+                                                  : "Confirm Controlled Risk"}
                                               </button>
 
                                               <button
@@ -21454,6 +22662,18 @@ export default function CreatePlanningPage() {
                                                             controlEvaluation ? (
                                                               <div className="mt-2 rounded-lg border border-[rgba(102,87,232,0.16)] bg-white px-3 py-2.5">
                                                                 <div className="flex flex-wrap items-center gap-1.5">
+                                                                  <span
+                                                                    className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] ${
+                                                                      controlAccepted
+                                                                        ? "border-[#B9DCCB] bg-[var(--qoreva-success-soft)] text-[var(--qoreva-success)]"
+                                                                        : "border-[#E8C276] bg-[var(--qoreva-warning-soft)] text-[#8A5A12]"
+                                                                    }`}
+                                                                  >
+                                                                    {controlAccepted
+                                                                      ? "Accepted"
+                                                                      : "Needs Acceptance"}
+                                                                  </span>
+
                                                                   {controlEvaluation.controlHierarchy ? (
                                                                     <span className="rounded-full border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.06em] text-[var(--qoreva-text)]">
                                                                       {controlEvaluation.controlHierarchy}
@@ -21620,7 +22840,7 @@ export default function CreatePlanningPage() {
                                                                           ? "Saving..."
                                                                           : !criticalControlVerificationReady
                                                                             ? "Complete Verification First"
-                                                                            : "Confirm Critical"}
+                                                                            : "Confirm Critical Control"}
                                                                       </button>
                                                                     ) : null}
 
@@ -23850,7 +25070,7 @@ export default function CreatePlanningPage() {
               <section className="rounded-2xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-faint)] p-5">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] text-xs font-black text-white">
-                    08
+                    06
                   </div>
 
                   <div>
@@ -23859,7 +25079,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Step 8 will create the submission package and send the PTP into the configured review and signature workflow. Required reviewer/approver roles come from Qoreva baseline routing and applicable Requirement Packs; the PTP is not finalized until that workflow is completed.
+                      The next stage will create the submission package and send the PTP into the configured review and signature workflow. Required reviewer/approver roles come from Qoreva baseline routing and applicable Requirement Packs; the PTP is not finalized until that workflow is completed.
                     </p>
                   </div>
                 </div>
@@ -24227,7 +25447,7 @@ export default function CreatePlanningPage() {
                     </h3>
 
                     <p className="mt-1 max-w-4xl text-sm font-medium leading-6 text-[var(--qoreva-muted)]">
-                      Qoreva resolves the Responsible Supervisor / Foreman and Qualified Reviewer as baseline roles, then adds applicable approval roles from active Requirement Packs for this tenant, project, contractor, and plan type. The Step 7 pre-submission reviewer is not automatically treated as the downstream Qualified Reviewer.
+                      Qoreva resolves the Responsible Supervisor / Foreman and Qualified Reviewer as baseline roles, then adds applicable approval roles from active Requirement Packs for this tenant, project, contractor, and plan type. The pre-submission reviewer is not automatically treated as the downstream Qualified Reviewer.
                     </p>
                   </div>
                 </div>

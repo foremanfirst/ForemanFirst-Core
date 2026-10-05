@@ -10,6 +10,10 @@ import type {
 } from "@/lib/planning/control-effectiveness-evaluator";
 
 import {
+  buildControlConceptKey,
+} from "@/lib/planning/draft-generator";
+
+import {
   PlanningEditorAuthorizationError,
   requireAuthorizedPlanningEditor,
 } from "@/lib/planning/planning-editor-authorization";
@@ -140,6 +144,11 @@ export async function PUT(
         body.controlId,
       );
 
+    const controlConceptKey =
+      toNullableString(
+        body.controlConceptKey,
+      );
+
     const verificationEvidenceMethod =
       toNullableString(
         body.verificationEvidenceMethod,
@@ -248,6 +257,66 @@ export async function PUT(
       );
     }
 
+    const resolvedControlConceptKey =
+      buildControlConceptKey(
+        evaluation.workStepId,
+        evaluation.controlText,
+      );
+
+    const matchingEvaluations =
+      await prisma.planningControlEvaluation.findMany({
+        where: {
+          planningRecordId,
+          tenantId:
+            existingRecord.tenantId,
+          revisionNumber:
+            existingRecord.revisionNumber,
+          workStepId:
+            evaluation.workStepId,
+        },
+
+        select: {
+          id: true,
+          workStepId: true,
+          workStepSequence: true,
+          workStepTitle: true,
+          hazardId: true,
+          hazardText: true,
+          canonicalHazardConceptId: true,
+          controlId: true,
+          controlText: true,
+          controlHierarchy: true,
+          protectiveFunction: true,
+          effectiveness: true,
+          verificationExpectation: true,
+          verificationRequired: true,
+          verificationMethod: true,
+          verificationRequiredForCurrentContext: true,
+          verificationEvidenceMethod: true,
+          verificationEvidence: true,
+          verificationCompleted: true,
+          verifiedById: true,
+          verifiedByName: true,
+          verifiedByRole: true,
+          verifiedAt: true,
+          riskCreditEligible: true,
+          criticalControlRecommended: true,
+          criticalControlClassification: true,
+          criticalControlTrigger: true,
+          evaluationReason: true,
+          evaluatorVersion: true,
+        },
+      });
+
+    const controlConceptEvaluations =
+      matchingEvaluations.filter(
+        (candidate) =>
+          buildControlConceptKey(
+            candidate.workStepId,
+            candidate.controlText,
+          ) === resolvedControlConceptKey,
+      );
+
     const expectation =
       evaluation
         .verificationExpectation;
@@ -319,97 +388,141 @@ export async function PUT(
       );
     }
 
-    const riskCreditAssessment =
-      evaluateControlRiskCredit({
-        candidate: {
-          hazardId:
-            evaluation.hazardId,
+    const riskCreditAssessments =
+      new Map(
+        controlConceptEvaluations.map(
+          (controlEvaluation) => {
+            const relationshipExpectation =
+              controlEvaluation.verificationExpectation;
 
-          hazardText:
-            evaluation.hazardText,
+            const relationshipVerificationRequired =
+              relationshipExpectation ===
+                "Required" ||
+              (
+                relationshipExpectation ===
+                  "Conditional" &&
+                contextDecision === true
+              );
 
-          controlId:
-            evaluation.controlId,
+            const assessment =
+              evaluateControlRiskCredit({
+                candidate: {
+                  hazardId:
+                    controlEvaluation.hazardId,
 
-          controlText:
-            evaluation.controlText,
+                  hazardText:
+                    controlEvaluation.hazardText,
 
-          canonicalHazardConceptId:
-            evaluation.canonicalHazardConceptId as
-              PlanningControlEvaluationCandidate["canonicalHazardConceptId"],
+                  controlId:
+                    controlEvaluation.controlId,
 
-          controlHierarchy:
-            evaluation.controlHierarchy as
-              PlanningControlEvaluationCandidate["controlHierarchy"],
+                  controlText:
+                    controlEvaluation.controlText,
 
-          protectiveFunction:
-            evaluation.protectiveFunction as
-              PlanningControlEvaluationCandidate["protectiveFunction"],
+                  canonicalHazardConceptId:
+                    controlEvaluation
+                      .canonicalHazardConceptId as
+                      PlanningControlEvaluationCandidate[
+                        "canonicalHazardConceptId"
+                      ],
 
-          effectiveness:
-            evaluation.effectiveness as
-              PlanningControlEvaluationCandidate["effectiveness"],
+                  controlHierarchy:
+                    controlEvaluation.controlHierarchy as
+                      PlanningControlEvaluationCandidate[
+                        "controlHierarchy"
+                      ],
 
-          verificationExpectation:
-            evaluation.verificationExpectation as
-              PlanningControlEvaluationCandidate["verificationExpectation"],
+                  protectiveFunction:
+                    controlEvaluation.protectiveFunction as
+                      PlanningControlEvaluationCandidate[
+                        "protectiveFunction"
+                      ],
 
-          verificationRequired:
-            evaluation.verificationRequired,
+                  effectiveness:
+                    controlEvaluation.effectiveness as
+                      PlanningControlEvaluationCandidate[
+                        "effectiveness"
+                      ],
 
-          verificationMethod:
-            evaluation.verificationMethod,
+                  verificationExpectation:
+                    controlEvaluation.verificationExpectation as
+                      PlanningControlEvaluationCandidate[
+                        "verificationExpectation"
+                      ],
 
-          riskCreditEligible:
-            evaluation.riskCreditEligible,
+                  verificationRequired:
+                    controlEvaluation.verificationRequired,
 
-          criticalControlRecommended:
-            evaluation.criticalControlRecommended,
+                  verificationMethod:
+                    controlEvaluation.verificationMethod,
 
-          /*
-           * Risk Credit does not use Critical Control classification.
-           * Preserve a conservative compatibility value while the
-           * contextual policy is wired into persisted evaluations.
-           */
-          criticalControlClassification:
-            evaluation
-              .criticalControlClassification as
-              PlanningControlEvaluationCandidate[
-                "criticalControlClassification"
-              ],
+                  riskCreditEligible:
+                    controlEvaluation.riskCreditEligible,
 
-          criticalControlTrigger:
-            evaluation
-              .criticalControlTrigger,
+                  criticalControlRecommended:
+                    controlEvaluation
+                      .criticalControlRecommended,
 
-          evaluationReason:
-            evaluation.evaluationReason ??
-            "",
+                  criticalControlClassification:
+                    controlEvaluation
+                      .criticalControlClassification as
+                      PlanningControlEvaluationCandidate[
+                        "criticalControlClassification"
+                      ],
 
-          evaluatorVersion:
-            evaluation.evaluatorVersion,
-        },
+                  criticalControlTrigger:
+                    controlEvaluation
+                      .criticalControlTrigger,
 
-        evidence: {
-          verificationMethod:
-            evaluation.verificationMethod,
+                  evaluationReason:
+                    controlEvaluation
+                      .evaluationReason ??
+                    "",
 
-          verificationRequiredForCurrentContext:
-            expectation === "Required"
-              ? true
-              : contextDecision,
+                  evaluatorVersion:
+                    controlEvaluation
+                      .evaluatorVersion,
+                },
 
-          verificationEvidenceMethod:
-            verificationRequired
-              ? verificationEvidenceMethod
-              : null,
+                evidence: {
+                  verificationMethod:
+                    controlEvaluation
+                      .verificationMethod,
 
-          verificationEvidence,
+                  verificationRequiredForCurrentContext:
+                    relationshipExpectation ===
+                      "Required"
+                      ? true
+                      : contextDecision,
 
-          verificationCompleted:
-            verificationRequired,
-        },
-      });
+                  verificationEvidenceMethod:
+                    relationshipVerificationRequired
+                      ? verificationEvidenceMethod
+                      : null,
+
+                  verificationEvidence,
+
+                  verificationCompleted:
+                    relationshipVerificationRequired,
+                },
+              });
+
+            return [
+              controlEvaluation.id,
+              assessment,
+            ] as const;
+          },
+        ),
+      );
+
+    const verificationTargetEvaluations =
+      controlConceptEvaluations.filter(
+        (controlEvaluation) =>
+          controlEvaluation.verificationExpectation ===
+            "Required" ||
+          controlEvaluation.verificationExpectation ===
+            "Conditional",
+      );
 
     const actorRole =
       authorization
@@ -424,8 +537,29 @@ export async function PUT(
     const result =
       await prisma.$transaction(
         async (tx) => {
-          const updatedEvaluation =
-            await tx.planningControlEvaluation.update({
+          const updatedEvaluations =
+            [] as typeof controlConceptEvaluations;
+
+          for (
+            const targetEvaluation of
+            verificationTargetEvaluations
+          ) {
+            const evaluation =
+              targetEvaluation;
+
+            const expectation =
+              evaluation.verificationExpectation;
+
+            const verificationRequired =
+              expectation === "Required" ||
+              (
+                expectation ===
+                  "Conditional" &&
+                contextDecision === true
+              );
+
+            const updatedEvaluation =
+              await tx.planningControlEvaluation.update({
               where: {
                 id:
                   evaluation.id,
@@ -472,8 +606,10 @@ export async function PUT(
                  * is evaluated separately.
                  */
                 riskCreditEligible:
-                  riskCreditAssessment
-                    .riskCreditEligible,
+                  riskCreditAssessments.get(
+                    evaluation.id,
+                  )?.riskCreditEligible ??
+                  false,
               },
 
               select: {
@@ -495,6 +631,8 @@ export async function PUT(
                 protectiveFunction: true,
                 effectiveness: true,
                 verificationExpectation:
+                  true,
+                verificationRequired:
                   true,
                 verificationMethod: true,
 
@@ -523,6 +661,11 @@ export async function PUT(
                 evaluatorVersion: true,
               },
             });
+
+            updatedEvaluations.push(
+              updatedEvaluation,
+            );
+          }
 
           if (
             evaluation.workStepSequence !==
@@ -618,6 +761,38 @@ export async function PUT(
                 controlText:
                   evaluation.controlText,
 
+                controlConceptKey:
+                  resolvedControlConceptKey,
+
+                affectedRelationshipCount:
+                  updatedEvaluations.length,
+
+                affectedEvaluationIds:
+                  updatedEvaluations.map(
+                    (updatedEvaluation) =>
+                      updatedEvaluation.id,
+                  ),
+
+                affectedRelationships:
+                  updatedEvaluations.map(
+                    (updatedEvaluation) => ({
+                      evaluationId:
+                        updatedEvaluation.id,
+
+                      hazardId:
+                        updatedEvaluation.hazardId,
+
+                      hazardText:
+                        updatedEvaluation.hazardText,
+
+                      controlId:
+                        updatedEvaluation.controlId,
+
+                      controlText:
+                        updatedEvaluation.controlText,
+                    }),
+                  ),
+
                 verificationExpectation:
                   expectation,
 
@@ -648,7 +823,7 @@ export async function PUT(
             },
           });
 
-          return updatedEvaluation;
+          return updatedEvaluations;
         },
       );
 
@@ -658,7 +833,7 @@ export async function PUT(
       revisionNumber:
         existingRecord.revisionNumber,
 
-      controlEvaluation:
+      controlEvaluations:
         result,
 
       requiresRiskRefresh:

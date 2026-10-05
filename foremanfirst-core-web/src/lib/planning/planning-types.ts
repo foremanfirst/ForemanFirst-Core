@@ -422,6 +422,15 @@ export type GeneratedHazardControlItem = {
 
   text: string;
 
+  /**
+   * Stable planning identity used to group equivalent control statements
+   * within a work step.
+   *
+   * This does not replace the existing hazard/control relationship ID
+   * and does not establish canonical safety authority.
+   */
+  controlConceptKey?: string | null;
+
   source: DraftGenerationSource;
 
   sourceActivityCodes: string[];

@@ -60,10 +60,41 @@ export default function PlanningPage() {
           { cache: "no-store" },
         );
 
-        const data = (await response.json()) as {
+        const rawBody = await response.text();
+
+        if (!rawBody.trim()) {
+          throw new Error(
+            `Unable to load planning records. The server returned an empty response (${response.status}).`,
+          );
+        }
+
+        let data: {
           records?: PlanningRecord[];
           message?: string;
         };
+
+        try {
+          data = JSON.parse(rawBody) as {
+            records?: PlanningRecord[];
+            message?: string;
+          };
+        } catch {
+          console.error(
+            "Planning API returned an invalid JSON response:",
+            {
+              status: response.status,
+              statusText: response.statusText,
+              contentType:
+                response.headers.get("content-type") ?? "",
+              url: response.url,
+              bodyPreview: rawBody.slice(0, 200),
+            },
+          );
+
+          throw new Error(
+            `Unable to load planning records. The server returned an invalid response (${response.status}).`,
+          );
+        }
 
         if (!response.ok) {
           throw new Error(data.message || "Unable to load planning records.");

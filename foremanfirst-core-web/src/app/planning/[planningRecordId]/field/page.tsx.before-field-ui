@@ -1,0 +1,213 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+
+type FieldControl = {
+  id: string;
+  workStepId: string;
+  hazardId: string;
+  controlId: string;
+  controlText: string;
+  controlHierarchy: string | null;
+  protectiveFunction: string | null;
+  effectiveness: string | null;
+  verificationRequiredForCurrentContext: boolean | null;
+  verificationEvidenceMethod: string | null;
+  verificationEvidence: string | null;
+  verificationCompleted: boolean;
+  verifiedByName: string | null;
+  verifiedByRole: string | null;
+  verifiedAt: string | null;
+  riskCreditEligible: boolean;
+  criticalControlRecommended: boolean;
+  criticalControlClassification: string;
+  criticalControlDecision: string | null;
+  criticalControlDecisionReason: string | null;
+};
+
+type FieldHazard = {
+  hazardId: string;
+  hazardText: string;
+  canonicalHazardConceptId: string | null;
+  controls: FieldControl[];
+};
+
+type FieldWorkStep = {
+  id: string;
+  sequence: number;
+  title: string;
+  description: string | null;
+  equipmentTools: string | null;
+  materialsChemicals: string | null;
+  locationOverride: string | null;
+  safetyCritical: boolean;
+  inherentRiskLevel: string | null;
+  recommendedControlledRiskLevel: string | null;
+  controlledRiskLevel: string | null;
+  fieldSummary: {
+    hazardCount: number;
+    controlCount: number;
+    confirmedCriticalControlCount: number;
+    controlsAwaitingVerification: number;
+    completedVerifications: number;
+  };
+  hazards: FieldHazard[];
+};
+
+type FieldViewResponse = {
+  fieldLifecycleState:
+    | "Effective"
+    | "Upcoming"
+    | "Expired"
+    | "Unavailable";
+  fieldUseAllowed: boolean;
+  record: {
+    id: string;
+    planType: string;
+    title: string;
+    status: string;
+    revisionNumber: number;
+    responsibleSupervisor: string | null;
+    plannedStartDate: string | null;
+    effectiveStartDate: string | null;
+    effectiveEndDate: string | null;
+    workLocation: string | null;
+    crewSize: number | null;
+    shift: string | null;
+    scopeDescription: string | null;
+    equipmentTools: string | null;
+    materialsChemicals: string | null;
+    adjacentWork: string | null;
+    specialConditions: string | null;
+    requiredPpe: string | null;
+    requiredPermits: string | null;
+    emergencyPlan: string | null;
+    stopWorkTriggers: string | null;
+    company: {
+      id: string;
+      name: string;
+    };
+    project: {
+      id: string;
+      name: string;
+      projectCode: string | null;
+      clientName: string | null;
+    };
+    contractor: {
+      id: string;
+      name: string;
+      legalName: string | null;
+      trade: string | null;
+    } | null;
+    workSteps: FieldWorkStep[];
+  };
+};
+
+export default function PlanningFieldViewPage() {
+  const params = useParams<{
+    planningRecordId: string;
+  }>();
+
+  const planningRecordId =
+    params.planningRecordId;
+
+  const [data, setData] =
+    useState<FieldViewResponse | null>(
+      null,
+    );
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFieldView() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response =
+          await fetch(
+            `/api/planning/${planningRecordId}/field-view`,
+            {
+              cache: "no-store",
+            },
+          );
+
+        const payload =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            payload.message ||
+              "Unable to load field view.",
+          );
+        }
+
+        if (!cancelled) {
+          setData(
+            payload as FieldViewResponse,
+          );
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Unable to load field view.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadFieldView();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [planningRecordId]);
+
+  if (loading) {
+    return (
+      <div className="p-6 text-sm font-bold text-[var(--qoreva-muted)]">
+        Loading controlled PTP…
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="space-y-4 p-6">
+        <Link
+          href={`/planning/${planningRecordId}`}
+          className="text-xs font-black text-[var(--qoreva-violet)]"
+        >
+          ← Planning Record
+        </Link>
+
+        <p className="text-sm font-bold text-red-700">
+          {error ||
+            "Unable to load field view."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="p-6 text-sm font-bold text-[var(--qoreva-muted)]">
+        Field View foundation loaded.
+      </p>
+    </div>
+  );
+}

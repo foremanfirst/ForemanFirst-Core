@@ -21,6 +21,7 @@ import {
 } from "@/lib/planning/planning-context";
 
 import {
+  buildControlConceptKey,
   generatePlanningDraft,
 } from "@/lib/planning/draft-generator";
 
@@ -611,6 +612,12 @@ export async function GET(
 
           return {
             ...evaluation,
+
+            controlConceptKey:
+              buildControlConceptKey(
+                evaluation.workStepId,
+                evaluation.controlText,
+              ),
 
             criticalControlDecision:
               criticalControlDecision
@@ -1511,6 +1518,12 @@ export async function PUT(
 
                 return {
                   ...evaluation,
+
+                  controlConceptKey:
+                    buildControlConceptKey(
+                      evaluation.workStepId,
+                      evaluation.controlText,
+                    ),
 
                   criticalControlDecision:
                     criticalControlDecision?.decision ?? null,

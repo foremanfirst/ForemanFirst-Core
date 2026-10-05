@@ -151,6 +151,29 @@ export async function GET(
 
           createdAt: true,
           updatedAt: true,
+
+          findings: {
+            where: {
+              revisionNumber:
+                authorization
+                  .planningRecord
+                  .revisionNumber,
+            },
+
+            orderBy: {
+              createdAt:
+                "asc",
+            },
+
+            include: {
+              questionCandidates: {
+                orderBy: {
+                  createdAt:
+                    "asc",
+                },
+              },
+            },
+          },
         },
       });
 
@@ -166,15 +189,57 @@ export async function GET(
 
       documents:
         sourceDocuments.map(
-          (document) => ({
-            ...document,
+          (document) => {
+            const {
+              findings,
+              ...sourceDocument
+            } = document;
 
-            createdAt:
-              document.createdAt.toISOString(),
+            const questionCandidates =
+              findings.flatMap(
+                (finding) =>
+                  finding.questionCandidates,
+              );
 
-            updatedAt:
-              document.updatedAt.toISOString(),
-          }),
+            return {
+              ...sourceDocument,
+
+              createdAt:
+                sourceDocument.createdAt.toISOString(),
+
+              updatedAt:
+                sourceDocument.updatedAt.toISOString(),
+
+              analysis:
+                findings.length > 0
+                  ? {
+                      status:
+                        "existing",
+
+                      provider:
+                        null,
+
+                      model:
+                        null,
+
+                      documentType:
+                        sourceDocument.aiDocumentType,
+
+                      findings,
+
+                      questionCandidates,
+
+                      confidence:
+                        sourceDocument.aiConfidence !==
+                        null
+                          ? Number(
+                              sourceDocument.aiConfidence,
+                            )
+                          : null,
+                    }
+                  : null,
+            };
+          },
         ),
     });
   } catch (error) {

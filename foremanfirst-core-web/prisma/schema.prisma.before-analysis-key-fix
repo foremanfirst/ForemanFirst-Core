@@ -1,0 +1,2176 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Company {
+  id          String  @id @default(cuid())
+  tenantId    String
+  name        String
+  companyType String
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects        Project[]
+  workers         Worker[]
+  contractors     Contractor[]
+  planningRecords PlanningRecord[]
+
+  @@index([tenantId])
+  @@index([isArchived])
+}
+
+model Project {
+  id        String @id @default(cuid())
+  tenantId  String
+  companyId String
+
+  name        String
+  projectCode String?
+  clientName  String?
+  projectType String?
+  description String?
+
+  address  String?
+  city     String?
+  state    String?
+  zipCode  String?
+  location String?
+
+  status String @default("Planning")
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  projectManager String?
+  superintendent String?
+  safetyManager  String?
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  contractValue     Decimal? @db.Decimal(14, 2)
+  plannedWorkforce  Int      @default(0)
+  currentWorkforce  Int      @default(0)
+  workersOnsite     Int      @default(0)
+  activeContractors Int      @default(0)
+  totalManHours     Int      @default(0)
+
+  progress                 Int @default(0)
+  openActions              Int @default(0)
+  recordableIncidents      Int @default(0)
+  permitsOpen              Int @default(0)
+  planningDocumentsPending Int @default(0)
+  trainingCompliance       Int @default(100)
+  accessCompliance         Int @default(100)
+  healthScore              Int @default(100)
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company                        Company                         @relation(fields: [companyId], references: [id])
+  workers                        Worker[]
+  contractors                    Contractor[]
+  contractorDocuments            ContractorDocument[]
+  contractorDocumentRequirements ContractorDocumentRequirement[]
+  planningRecords                PlanningRecord[]
+  organizations                  ProjectOrganization[]
+  memberships                    ProjectMembership[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([isArchived])
+  @@index([status])
+}
+
+model ProjectOrganization {
+  id       String @id @default(cuid())
+  tenantId String
+
+  projectId String
+
+  organizationName String
+  organizationType String
+  role             String
+
+  isPrimary Boolean @default(false)
+
+  effectiveStartDate DateTime?
+  effectiveEndDate   DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([role])
+  @@index([organizationName])
+  @@index([isActive])
+}
+
+// ============================================================
+// QOREVA IDENTITY & MEMBERSHIP FOUNDATION
+// ============================================================
+//
+// User
+//   Authenticated human identity.
+//
+// TenantMembership
+//   Grants a User access to a Qoreva tenant/customer account.
+//
+// ProjectMembership
+//   Grants that tenant member access and responsibilities on
+//   a specific project.
+//
+// Worker remains the field/workforce personnel profile.
+// A Worker may optionally link to a User when that person
+// has an authenticated Qoreva account.
+// ============================================================
+
+model User {
+  id String @id @default(cuid())
+
+  firstName   String?
+  lastName    String?
+  displayName String
+
+  // Global authenticated identity.
+  // Application services should normalize email before save.
+  email String @unique
+
+  phone String?
+
+  // Authentication providers such as Microsoft Entra ID,
+  // Google Workspace, and email/password will map into this
+  // identity during the authentication implementation phase.
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+
+  status   String  @default("Active")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantMemberships TenantMembership[]
+  workerProfiles    Worker[]
+
+  @@index([status])
+  @@index([isActive])
+  @@index([lastName, firstName])
+}
+
+model TenantMembership {
+  id       String @id @default(cuid())
+  tenantId String
+
+  userId String
+
+  // Tenant responsibilities such as:
+  // TENANT_ADMIN
+  // SAFETY_MANAGER
+  // PROJECT_MANAGER
+  // SUPERINTENDENT
+  roleCodes String[] @default([])
+
+  canManageUsers        Boolean @default(false)
+  canManageProjects     Boolean @default(false)
+  canManageRequirements Boolean @default(false)
+
+  isActive Boolean @default(true)
+
+  joinedAt   DateTime  @default(now())
+  disabledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectMemberships ProjectMembership[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([isActive])
+}
+
+model ProjectMembership {
+  id       String @id @default(cuid())
+  tenantId String
+
+  projectId          String
+  tenantMembershipId String
+
+  // Human/project responsibilities such as:
+  // PROJECT_MANAGER
+  // SUPERINTENDENT
+  // SAFETY_MANAGER
+  // FOREMAN
+  // QUALIFIED_PERSON
+  roleCodes String[] @default([])
+
+  // Formal workflow eligibility.
+  //
+  // Examples:
+  // QUALIFIED_REVIEWER
+  // RESPONSIBLE_SUPERVISOR
+  // OWNER_REVIEWER
+  approvalRoleCodes String[] @default([])
+
+  // Explicit Planning permissions.
+  canCreatePlanning  Boolean @default(false)
+  canReviewPlanning  Boolean @default(false)
+  canApprovePlanning Boolean @default(false)
+  canManagePlanning  Boolean @default(false)
+
+  isActive Boolean @default(true)
+
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenantMembership TenantMembership @relation(fields: [tenantMembershipId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tenantMembershipId])
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([tenantMembershipId])
+  @@index([isActive])
+}
+
+model Worker {
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId String
+  projectId String?
+
+  // Optional authenticated Qoreva identity.
+  //
+  // Not every field worker requires a platform account.
+  // A User may be linked to field Worker profiles when
+  // that person also has authenticated Qoreva access.
+  userId String?
+
+  firstName  String
+  middleName String?
+  lastName   String
+  suffix     String?
+
+  employeeNumber String?
+  email          String?
+  phone          String?
+
+  trade      String?
+  jobTitle   String?
+  crew       String?
+  foreman    String?
+  unionLocal String?
+
+  emergencyContactName         String?
+  emergencyContactRelationship String?
+  emergencyContactPhone        String?
+
+  orientationStatus    String    @default("Not Started")
+  orientationDate      DateTime?
+  orientationExpiresAt DateTime?
+
+  trainingStatus String @default("Pending")
+
+  drugScreenStatus    String    @default("Not Required")
+  drugScreenDate      DateTime?
+  drugScreenExpiresAt DateTime?
+
+  badgeNumber    String?
+  badgeStatus    String    @default("Inactive")
+  badgeExpiresAt DateTime?
+  qrCredentialId String?   @unique
+
+  accessStatus String @default("Pending")
+
+  hireDate  DateTime?
+  startDate DateTime?
+  endDate   DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company  @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  dailyWseSignatures DailyWorkerSafetyEngagementSignature[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([isArchived])
+  @@index([accessStatus])
+  @@index([badgeStatus])
+  @@index([lastName, firstName])
+}
+
+model Contractor {
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId String
+  projectId String?
+
+  name           String
+  legalName      String?
+  contractorCode String?
+
+  trade       String?
+  specialty   String?
+  description String?
+
+  primaryContactName  String?
+  primaryContactEmail String?
+  primaryContactPhone String?
+
+  safetyContactName  String?
+  safetyContactEmail String?
+  safetyContactPhone String?
+
+  address String?
+  city    String?
+  state   String?
+  zipCode String?
+
+  workforceCount Int @default(0)
+
+  emr  Decimal? @db.Decimal(5, 2)
+  trir Decimal? @db.Decimal(6, 2)
+
+  insuranceProvider  String?
+  insuranceExpiresAt DateTime?
+
+  orientationStatus String @default("Pending")
+  complianceStatus  String @default("Pending")
+  approvalStatus    String @default("Pending")
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company         Company              @relation(fields: [companyId], references: [id])
+  project         Project?             @relation(fields: [projectId], references: [id])
+  documents       ContractorDocument[]
+  planningRecords PlanningRecord[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([isArchived])
+  @@index([approvalStatus])
+  @@index([complianceStatus])
+  @@index([name])
+}
+
+model ContractorDocument {
+  id       String @id @default(cuid())
+  tenantId String
+
+  contractorId String
+  projectId    String?
+
+  documentType String
+  documentName String
+
+  fileName        String
+  mimeType        String
+  fileSize        Int
+  storageProvider String
+  storageKey      String
+  storageUrl      String?
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  approvalStatus String @default("Pending")
+  reviewStatus   String @default("Not Reviewed")
+
+  notes String?
+
+  aiProcessingStatus String   @default("Not Started")
+  aiDocumentType     String?
+  aiConfidence       Decimal? @db.Decimal(5, 4)
+  extractedData      Json?
+  confirmedData      Json?
+
+  uploadedBy String?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  project    Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  events                  ContractorDocumentEvent[]
+  planningSourceDocuments PlanningSourceDocument[]
+
+  @@index([tenantId])
+  @@index([contractorId])
+  @@index([projectId])
+  @@index([documentType])
+  @@index([expirationDate])
+  @@index([approvalStatus])
+  @@index([reviewStatus])
+  @@index([isArchived])
+}
+
+model ContractorDocumentRequirement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  projectId String
+
+  documentType String
+  name         String
+  description  String?
+
+  isRequired         Boolean @default(true)
+  expirationRequired Boolean @default(false)
+  reviewRequired     Boolean @default(true)
+
+  sortOrder Int @default(0)
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, projectId, documentType])
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([documentType])
+  @@index([isRequired])
+  @@index([isArchived])
+}
+
+model ContractorDocumentEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  contractorDocumentId String
+  contractorId         String
+
+  eventType String
+
+  previousApprovalStatus String?
+  newApprovalStatus      String?
+
+  previousReviewStatus String?
+  newReviewStatus      String?
+
+  comment     String?
+  performedBy String?
+
+  createdAt DateTime @default(now())
+
+  contractorDocument ContractorDocument @relation(fields: [contractorDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([contractorDocumentId])
+  @@index([contractorId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model EvaAuditEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  // Groups all Eva activity belonging to one user request.
+  requestId String
+
+  // Eva capability and executable tool involved.
+  skillId String?
+  toolId  String?
+
+  // What Eva attempted to do.
+  action     String
+  actionRisk String
+
+  // Human responsible for the request.
+  actorType String  @default("USER")
+  actorId   String?
+  actorName String?
+  actorRole String?
+
+  // Qoreva resource affected or inspected.
+  resourceType String?
+  resourceId   String?
+
+  // Optional project/planning context.
+  projectId        String?
+  planningRecordId String?
+
+  // Confirmation lifecycle.
+  confirmationRequired Boolean @default(false)
+  confirmationStatus   String?
+
+  // Execution result.
+  success      Boolean
+  errorCode    String?
+  errorMessage String?
+
+  // Structured non-sensitive audit metadata.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  planningRecord PlanningRecord? @relation(fields: [planningRecordId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([requestId])
+  @@index([skillId])
+  @@index([toolId])
+  @@index([actorId])
+  @@index([resourceType, resourceId])
+  @@index([projectId])
+  @@index([planningRecordId])
+  @@index([success])
+  @@index([createdAt])
+}
+
+model PlanningRecord {
+  documentFindings   PlanningDocumentFinding[]
+  questionCandidates PlanningQuestionCandidate[]
+
+  id       String @id @default(cuid())
+  tenantId String
+
+  companyId    String
+  projectId    String
+  contractorId String?
+
+  planType String
+  title    String
+
+  status         String @default("Draft")
+  revisionNumber Int    @default(1)
+
+  responsibleSupervisor   String?
+  responsibleSupervisorId String?
+
+  plannedStartDate   DateTime?
+  effectiveStartDate DateTime?
+  effectiveEndDate   DateTime?
+
+  workLocation String?
+  crewSize     Int?
+  shift        String?
+
+  scopeDescription   String?
+  equipmentTools     String?
+  materialsChemicals String?
+  adjacentWork       String?
+  specialConditions  String?
+
+  requiredPpe      String?
+  requiredPermits  String?
+  emergencyPlan    String?
+  stopWorkTriggers String?
+  planningNotes    String?
+
+  qualityScore Int @default(0)
+
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  activeAt    DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdBy String?
+  updatedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company     @relation(fields: [companyId], references: [id])
+  project    Project     @relation(fields: [projectId], references: [id])
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  workSteps                PlanningWorkStep[]
+  activities               PlanningActivity[]
+  questionResponses        PlanningQuestionResponse[]
+  sourceDocuments          PlanningSourceDocument[]
+  revisions                PlanningRevision[]
+  revisionSourceDocuments  PlanningRevisionSourceDocument[]
+  reviews                  PlanningReview[]
+  reviewComments           PlanningReviewComment[]
+  approvals                PlanningApproval[]
+  signatures               PlanningSignature[]
+  events                   PlanningEvent[]
+  dailyWseRecords          DailyWorkerSafetyEngagement[]
+  hazardControlDecisions   PlanningHazardControlDecision[]
+  hazardControlOverrides   PlanningHazardControlOverride[]
+  controlEvaluations       PlanningControlEvaluation[]
+  criticalControlDecisions PlanningCriticalControlDecision[]
+  evaAuditEvents           EvaAuditEvent[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([projectId])
+  @@index([contractorId])
+  @@index([planType])
+  @@index([status])
+  @@index([revisionNumber])
+  @@index([effectiveStartDate])
+  @@index([effectiveEndDate])
+  @@index([isArchived])
+  @@index([createdAt])
+}
+
+model PlanningWorkStep {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  sequence    Int
+  title       String
+  description String?
+
+  // Optional structured context for the work method.
+  // These fields enrich hazard/requirement intelligence without
+  // making every work step a long mandatory form.
+  equipmentTools     String?
+  materialsChemicals String?
+  locationOverride   String?
+
+  hazards  String?
+  controls String?
+
+  safetyCritical Boolean @default(false)
+
+  // Legacy work-step risk field retained temporarily for compatibility
+  // while Qoreva transitions to the inherent -> controlled risk model.
+  riskLevel String?
+
+  // Risk before controls are credited.
+  inherentRiskLevel String?
+
+  // Qoreva's post-control risk recommendation.
+  // This remains separate from the qualified person's official
+  // Controlled Risk confirmation.
+  recommendedControlledRiskLevel String?
+
+  // Risk after selected/verified controls are credited and
+  // confirmed by the qualified planner.
+  controlledRiskLevel String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, sequence])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([riskLevel])
+  @@index([inherentRiskLevel])
+  @@index([recommendedControlledRiskLevel])
+  @@index([controlledRiskLevel])
+  @@index([safetyCritical])
+}
+
+model PlanningControlEvaluation {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable Guided Planning work-step identity. This intentionally
+  // does not require a PlanningWorkStep foreign key because control
+  // evaluation can occur before final work-step persistence.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  // Stable working-plan identities for the evaluated relationship.
+  hazardId  String
+  controlId String
+
+  // Canonical Qoreva hazard identity used for this evaluation.
+  // Null means the relationship remains custom or unresolved.
+  canonicalHazardConceptId String?
+
+  hazardText  String
+  controlText String
+
+  // Structured Hierarchy of Controls classification when known.
+  controlHierarchy String?
+
+  // Qoreva's structured evaluation of this specific control.
+  //
+  // Hierarchy, protective function, effectiveness, and verification
+  // are intentionally separate. A higher-order control is not
+  // automatically effective.
+  protectiveFunction      String?
+  effectiveness           String?
+  verificationExpectation String?
+  verificationRequired    Boolean @default(false)
+
+  // Qoreva-authored expectation describing how this control should
+  // normally be verified. This is not proof that verification occurred.
+  verificationMethod String?
+
+  // Planning-specific qualified-user verification evidence.
+  //
+  // Conditional controls require an explicit current-context decision.
+  // Required controls require completed evidence before receiving
+  // Qoreva Risk Credit.
+  verificationRequiredForCurrentContext Boolean?
+  verificationEvidenceMethod            String?
+  verificationEvidence                  String?
+  verificationCompleted                 Boolean  @default(false)
+
+  verifiedById   String?
+  verifiedByName String?
+  verifiedByRole String?
+  verifiedAt     DateTime?
+
+  // Whether the current evidence is sufficient for this control to
+  // contribute to Qoreva's Controlled Risk recommendation.
+  riskCreditEligible Boolean @default(false)
+
+  // Critical Control remains a recommendation until confirmed through
+  // the appropriate qualified-user workflow.
+  criticalControlRecommended Boolean @default(false)
+
+  // Hazard-specific recommendation policy:
+  // Core, Contextual, or Supporting.
+  //
+  // Contextual controls retain their explicit trigger so applicability
+  // can be decided without inferring from display wording.
+  criticalControlClassification String  @default("Supporting")
+  criticalControlTrigger        String?
+
+  evaluationReason String?
+
+  evaluatorVersion String
+
+  evaluatedById   String?
+  evaluatedByName String?
+  evaluatedByRole String?
+  evaluatedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  // One current evaluation for a specific working control in a
+  // specific PTP revision. Future evaluation history can be preserved
+  // through audit events or a dedicated history model if required.
+  @@unique([planningRecordId, revisionNumber, workStepId, hazardId, controlId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([workStepId])
+  @@index([hazardId])
+  @@index([controlId])
+  @@index([canonicalHazardConceptId])
+  @@index([controlHierarchy])
+  @@index([effectiveness])
+  @@index([riskCreditEligible])
+  @@index([criticalControlRecommended])
+  @@index([criticalControlClassification])
+  @@index([evaluatedAt])
+}
+
+model PlanningCriticalControlDecision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable Guided Planning identities. These intentionally do not
+  // require foreign keys to regenerated working-plan objects.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  hazardId  String
+  controlId String
+
+  canonicalHazardConceptId String?
+
+  // Exact content snapshot reviewed by the qualified user.
+  hazardText  String
+  controlText String
+
+  // Server-generated fingerprint of revision, identities, canonical
+  // meaning, and exact wording. Changed content cannot inherit an
+  // earlier Critical Control decision.
+  relationshipFingerprint String
+
+  // Confirmed or Declined.
+  decision String
+
+  // Required when a qualified user declines Qoreva's recommendation.
+  decisionReason String?
+
+  recommendedEvaluatorVersion String
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade, map: "PCCD_record_fkey")
+
+  @@unique([planningRecordId, revisionNumber, relationshipFingerprint], map: "PCCD_record_revision_fingerprint_key")
+  @@index([tenantId], map: "PCCD_tenant_idx")
+  @@index([planningRecordId], map: "PCCD_record_idx")
+  @@index([planningRecordId, revisionNumber], map: "PCCD_record_revision_idx")
+  @@index([revisionNumber], map: "PCCD_revision_idx")
+  @@index([workStepId], map: "PCCD_work_step_idx")
+  @@index([workStepSequence], map: "PCCD_work_step_sequence_idx")
+  @@index([hazardId], map: "PCCD_hazard_idx")
+  @@index([controlId], map: "PCCD_control_idx")
+  @@index([canonicalHazardConceptId], map: "PCCD_canonical_hazard_idx")
+  @@index([decision], map: "PCCD_decision_idx")
+  @@index([decidedAt], map: "PCCD_decided_at_idx")
+}
+
+model PlanningHazardControlDecision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable Guided Planning work-step identity.
+  // Nullable temporarily for legacy decisions created before
+  // work-step-scoped decision identity was introduced.
+  workStepId       String?
+  workStepSequence Int?
+  workStepTitle    String?
+
+  recommendationId String
+
+  itemType String
+
+  originalText String
+
+  decision String
+
+  modifiedText String?
+
+  targetHazardId String?
+
+  canonicalHazardConceptId String?
+
+  sourceType String?
+
+  sourceMetadata Json?
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  targets PlanningHazardControlDecisionTarget[]
+
+  @@unique([planningRecordId, revisionNumber, workStepId, recommendationId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([workStepId])
+  @@index([decision])
+  @@index([targetHazardId])
+  @@index([canonicalHazardConceptId])
+  @@index([decidedAt])
+}
+
+model PlanningHazardControlDecisionTarget {
+  id String @id @default(cuid())
+
+  tenantId         String
+  planningRecordId String
+  revisionNumber   Int
+
+  decisionId String
+  hazardId   String
+  isPrimary  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  decision PlanningHazardControlDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, hazardId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([decisionId])
+  @@index([hazardId])
+  @@index([isPrimary])
+}
+
+model PlanningHazardControlOverride {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Stable draft work-step identity. This intentionally is not a
+  // PlanningWorkStep foreign key because Guided Intake work steps can
+  // exist before the final work-step records are persisted.
+  workStepId       String
+  workStepSequence Int?
+  workStepTitle    String?
+
+  // Hazard or Control
+  itemType String
+
+  // Add, Edit, Change, Remove
+  action String
+
+  // Stable identity of an existing generated or user-authored item.
+  // Null for a newly added item with no prior source item.
+  targetItemId String?
+
+  // Controls are scoped to a hazard.
+  parentHazardId String?
+
+  // Existing source wording. Null for a newly added item.
+  originalText String?
+
+  // Final qualified-user wording for Add/Edit/Change.
+  finalText String?
+
+  // Canonical semantic identity when known. This remains nullable for
+  // custom hazards that do not map safely to the canonical library.
+  canonicalHazardConceptId String?
+
+  // Preserve where the original item came from.
+  sourceType     String?
+  sourceMetadata Json?
+
+  // Optional explanation for a material change or removal.
+  reason String?
+
+  changedById   String?
+  changedByName String?
+  changedByRole String?
+  changedAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  // Stable revision-scoped identity used for idempotent saves/retries.
+  operationKey String
+
+  @@unique([planningRecordId, revisionNumber, operationKey])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([revisionNumber])
+  @@index([workStepId])
+  @@index([itemType])
+  @@index([action])
+  @@index([targetItemId])
+  @@index([parentHazardId])
+  @@index([canonicalHazardConceptId])
+  @@index([changedAt])
+}
+
+model PlanningQuestionResponse {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  questionId String
+  category   String
+  question   String
+  helpText   String?
+
+  isCritical Boolean @default(false)
+
+  responseValue String?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, questionId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([category])
+  @@index([isCritical])
+}
+
+model PlanningSourceDocument {
+  findings PlanningDocumentFinding[]
+
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId     String
+  contractorDocumentId String?
+
+  sourceType String
+  label      String?
+
+  fileName        String?
+  mimeType        String?
+  fileSize        Int?
+  storageProvider String?
+  storageKey      String?
+  storageUrl      String?
+
+  isSelected Boolean @default(true)
+
+  /**
+   * Document-intelligence lifecycle.
+   * AI extraction is advisory only. extractedData may contain
+   * machine-generated candidates, while confirmedData represents
+   * information explicitly reviewed/confirmed by a qualified user.
+   * isAiReady remains the simple downstream eligibility flag for
+   * Planning, Requirements Intelligence, and future Assistant use.
+   */
+  aiProcessingStatus String   @default("Not Started")
+  aiDocumentType     String?
+  aiConfidence       Decimal? @db.Decimal(5, 4)
+  extractedData      Json?
+  confirmedData      Json?
+  isAiReady          Boolean  @default(false)
+
+  approvalStatusAtSelection String?
+  reviewStatusAtSelection   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord     PlanningRecord      @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  contractorDocument ContractorDocument? @relation(fields: [contractorDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([contractorDocumentId])
+  @@index([sourceType])
+  @@index([isSelected])
+}
+
+model PlanningDocumentFinding {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  sourceDocumentId String
+  revisionNumber   Int
+
+  /**
+   * Finding classification.
+   * Examples:
+   * SafetyCritical
+   * MissingInformation
+   * RequirementGap
+   * DocumentConflict
+   * PlanningConcern
+   * Informational
+   */
+  findingType String
+
+  /**
+   * Advisory severity assigned by document intelligence.
+   * Final safety decisions remain with qualified users.
+   */
+  severity String
+
+  title       String
+  description String
+
+  /**
+   * Evidence supporting the finding.
+   * This may contain extracted text, structured values,
+   * source locations, page references, and other provenance.
+   */
+  evidence Json?
+
+  /**
+   * AI confidence is advisory metadata only.
+   */
+  confidence Decimal? @db.Decimal(5, 4)
+
+  /**
+   * Lifecycle:
+   * Proposed
+   * Reviewed
+   * Accepted
+   * Dismissed
+   * Superseded
+   */
+  status String @default("Proposed")
+
+  resolutionNotes String?
+
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+
+  /**
+   * Stable idempotency key for repeated document analysis.
+   */
+  analysisKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord         @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  sourceDocument PlanningSourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
+  questionCandidates PlanningQuestionCandidate[]
+
+  @@unique([sourceDocumentId, analysisKey])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([sourceDocumentId])
+  @@index([findingType])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PlanningQuestionCandidate {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+  findingId        String?
+
+  /**
+   * This is a Planning-Record-specific AI-generated question.
+   * It does NOT become a reusable PlanningQuestionDefinition.
+   */
+  questionText String
+  helpText     String?
+
+  category String
+  section  String?
+
+  /**
+   * Examples:
+   * Text
+   * TextArea
+   * Boolean
+   * SingleSelect
+   * MultiSelect
+   * Number
+   * Date
+   * Person
+   * Equipment
+   */
+  questionType String @default("TextArea")
+
+  isCritical Boolean @default(false)
+
+  /**
+   * Lifecycle:
+   * Proposed
+   * Accepted
+   * Dismissed
+   * Superseded
+   */
+  status String @default("Proposed")
+
+  /**
+   * Why Qoreva generated the question.
+   */
+  generationReason String?
+
+  /**
+   * Additional provenance and generation context.
+   */
+  sourceMetadata Json?
+
+  confidence Decimal? @db.Decimal(5, 4)
+
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+
+  acceptedAt  DateTime?
+  dismissedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  finding PlanningDocumentFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRecordId, revisionNumber])
+  @@index([findingId])
+  @@index([status])
+  @@index([category])
+  @@index([isCritical])
+  @@index([createdAt])
+}
+
+model PlanningRevision {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  status String
+
+  revisionReason String?
+  snapshot       Json
+
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  planningRecord  PlanningRecord                   @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  sourceDocuments PlanningRevisionSourceDocument[]
+
+  @@unique([planningRecordId, revisionNumber])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([createdAt])
+}
+
+model PlanningRevisionSourceDocument {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId   String
+  planningRevisionId String
+  revisionNumber     Int
+
+  // Snapshot identifiers only.
+  //
+  // These intentionally are not foreign keys back to the
+  // mutable working-document records. Historical evidence
+  // must remain intact if a working source is later replaced,
+  // archived, or removed.
+  sourceDocumentId     String
+  contractorDocumentId String?
+
+  sourceType String
+  label      String?
+
+  fileName        String?
+  mimeType        String?
+  fileSize        Int?
+  storageProvider String?
+  storageKey      String?
+  storageUrl      String?
+
+  // SHA-256 of the file bytes captured at submission.
+  // Used to verify that historical revision evidence
+  // still matches the originally submitted document.
+  contentSha256 String?
+
+  isAiReady Boolean @default(false)
+
+  approvalStatusAtSelection String?
+  reviewStatusAtSelection   String?
+
+  capturedAt DateTime @default(now())
+
+  planningRecord   PlanningRecord   @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  planningRevision PlanningRevision @relation(fields: [planningRevisionId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRevisionId, sourceDocumentId])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningRevisionId])
+  @@index([revisionNumber])
+  @@index([sourceDocumentId])
+  @@index([contractorDocumentId])
+  @@index([sourceType])
+  @@index([capturedAt])
+}
+
+model PlanningReview {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  reviewerId   String?
+  reviewerName String
+  reviewerRole String
+
+  status String @default("In Review")
+
+  confirmations Json?
+  reviewNotes   String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord          @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  comments       PlanningReviewComment[]
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([reviewerId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model PlanningReviewComment {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  planningReviewId String?
+
+  revisionNumber Int
+
+  targetId String
+  section  String
+  label    String
+  comment  String
+
+  status String @default("Open")
+
+  createdById   String?
+  createdByName String?
+
+  resolvedById   String?
+  resolvedByName String?
+  resolvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord  @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+  planningReview PlanningReview? @relation(fields: [planningReviewId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([planningReviewId])
+  @@index([revisionNumber])
+  @@index([targetId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PlanningApproval {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  // Snapshot of the approval route that applied when submitted.
+  // It must not silently change if Requirement Packs change later.
+  roleCode  String
+  roleLabel String
+
+  isRequired Boolean @default(true)
+  sortOrder  Int     @default(0)
+
+  // A route may exist before a specific approver is assigned.
+  approverId    String?
+  approverName  String?
+  approverEmail String?
+
+  // Pending, Approved, RevisionRequired, Rejected
+  status String @default("Pending")
+
+  // Human reviewer decision context.
+  decisionComment String?
+
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime?
+
+  // Some approval routes require an electronic signature
+  // in addition to the approval decision.
+  signatureRequired Boolean @default(true)
+
+  // Optional relationship to captured PlanningSignature evidence.
+  planningSignatureId String?
+
+  // Notification lifecycle foundation.
+  notificationStatus String?
+  notifiedAt         DateTime?
+  reminderSentAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, revisionNumber, roleCode, sortOrder])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([roleCode])
+  @@index([approverId])
+  @@index([approverEmail])
+  @@index([status])
+  @@index([planningSignatureId])
+  @@index([decidedAt])
+  @@index([notifiedAt])
+  @@index([createdAt])
+}
+
+model PlanningSignature {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  role        String
+  signerId    String?
+  signerName  String
+  signerEmail String?
+
+  isRequired Boolean @default(true)
+  sortOrder  Int     @default(0)
+
+  status        String @default("Pending")
+  signatureType String @default("Drawn")
+
+  signatureStorageProvider String?
+  signatureStorageKey      String?
+  signatureStorageUrl      String?
+
+  signedAt DateTime?
+
+  ipAddress  String?
+  userAgent  String?
+  deviceInfo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([signerId])
+  @@index([role])
+  @@index([status])
+  @@index([signedAt])
+}
+
+model PlanningEvent {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  eventType        String
+
+  previousStatus String?
+  newStatus      String?
+
+  revisionNumber Int?
+
+  actorId   String?
+  actorName String?
+  actorRole String?
+
+  comment  String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([eventType])
+  @@index([revisionNumber])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+model DailyWorkerSafetyEngagement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+  revisionNumber   Int
+
+  engagementDate DateTime
+  shift          String?
+
+  foremanId   String?
+  foremanName String
+
+  workLocation   String?
+  dailyRiskLevel String?
+
+  emergencyActionPlanReviewed Boolean @default(false)
+  emergencyNotes              String?
+
+  changeStatus String @default("No Changes")
+
+  foremanMorningAcknowledgedAt DateTime?
+
+  endOfShiftIncidentsOrNearMisses Boolean?
+  endOfShiftConditionsChanged     Boolean?
+  endOfShiftControlsEffective     Boolean?
+  endOfShiftAdditionalHazards     Boolean?
+  endOfShiftWorkedSafely          Boolean?
+  endOfShiftLessonsToShare        Boolean?
+  endOfShiftLessonsLearned        String?
+  endOfShiftNotes                 String?
+
+  carryForwardStatus     String?
+  ptpRevisionRecommended Boolean @default(false)
+
+  foremanFinalSignatureStorageProvider String?
+  foremanFinalSignatureStorageKey      String?
+  foremanFinalSignatureStorageUrl      String?
+  foremanFinalSignedAt                 DateTime?
+
+  status String @default("Open")
+
+  createdBy String?
+  updatedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  tasks      DailyWorkerSafetyEngagementTask[]
+  signatures DailyWorkerSafetyEngagementSignature[]
+  mocRecords DailyWorkerSafetyEngagementMoc[]
+
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([revisionNumber])
+  @@index([engagementDate])
+  @@index([status])
+}
+
+model DailyWorkerSafetyEngagementTask {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+  sequence   Int
+
+  taskDescription String
+  hazards         String
+  mitigations     String
+
+  riskLevel      String?
+  safetyCritical Boolean @default(false)
+
+  // Tracks whether this task came from the approved PTP
+  // or was added during the Daily WSE.
+  source String @default("Daily")
+
+  // When source = "PTP", this links the Daily WSE task
+  // back to the exact approved PlanningWorkStep it came from.
+  sourceWorkStepId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyWseId, sequence])
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([riskLevel])
+  @@index([safetyCritical])
+  @@index([source])
+  @@index([sourceWorkStepId])
+}
+
+model DailyWorkerSafetyEngagementSignature {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+  workerId   String?
+
+  workerName  String
+  workerEmail String?
+
+  acknowledgementStatus String @default("Pending")
+  signatureType         String @default("Drawn")
+
+  signatureStorageProvider String?
+  signatureStorageKey      String?
+  signatureStorageUrl      String?
+
+  signedAt DateTime?
+
+  signedInAt  DateTime?
+  signedOutAt DateTime?
+
+  signOutInitials String?
+
+  ipAddress  String?
+  userAgent  String?
+  deviceInfo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+  worker   Worker?                     @relation(fields: [workerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([workerId])
+  @@index([acknowledgementStatus])
+  @@index([signedAt])
+}
+
+model DailyWorkerSafetyEngagementMoc {
+  id       String @id @default(cuid())
+  tenantId String
+
+  dailyWseId String
+
+  affectedTaskId String?
+
+  changeDescription String
+  newHazards        String?
+  newMitigations    String?
+
+  revisedRiskLevel String?
+
+  requiresPtpRevision Boolean @default(false)
+
+  // Draft, PendingApproval, Approved,
+  // Rejected, RevisionRequired, Cancelled
+  status String @default("Draft")
+
+  // Submission happens only when the foreman/user
+  // explicitly submits the MOC for approval.
+  // Notifications must not be triggered while Draft.
+  submittedById   String?
+  submittedByName String?
+  submittedByRole String?
+  submittedAt     DateTime?
+
+  // Snapshot of the approval routing that applied
+  // when this MOC was submitted.
+  //
+  // This preserves the exact approval requirements
+  // that applied at submission time even if the
+  // Requirement Pack changes later.
+  approvalRouting Json?
+
+  // Parent-level final/current disposition summary.
+  //
+  // Individual management approval decisions are
+  // stored in the approvals relation below.
+  reviewedById   String?
+  reviewedByName String?
+  reviewedByRole String?
+  reviewedAt     DateTime?
+
+  reviewDecision String?
+  reviewComment  String?
+
+  approvedAt DateTime?
+  rejectedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyWse DailyWorkerSafetyEngagement @relation(fields: [dailyWseId], references: [id], onDelete: Cascade)
+
+  // One submitted MOC can require multiple
+  // independent management approvals.
+  approvals DailyWorkerSafetyEngagementMocApproval[]
+
+  @@index([tenantId])
+  @@index([dailyWseId])
+  @@index([affectedTaskId])
+  @@index([requiresPtpRevision])
+  @@index([status])
+  @@index([submittedAt])
+  @@index([reviewedAt])
+  @@index([createdAt])
+}
+
+model DailyWorkerSafetyEngagementMocApproval {
+  id       String @id @default(cuid())
+  tenantId String
+
+  mocId String
+
+  // Snapshot of the approval role resolved from
+  // the applicable Requirement Pack at submission.
+  roleCode  String
+  roleLabel String
+
+  required  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  // Optional named approver assignment.
+  //
+  // These fields allow Qoreva to eventually route
+  // email/in-app notifications directly to the
+  // correct designated approver.
+  approverId    String?
+  approverName  String?
+  approverEmail String?
+
+  // Pending, Approved, Rejected, RevisionRequired
+  status String @default("Pending")
+
+  // Individual approver decision.
+  decision String?
+  comment  String?
+
+  // Person who actually made the decision.
+  decidedById   String?
+  decidedByName String?
+  decidedByRole String?
+  decidedAt     DateTime?
+
+  // ==========================================================
+  // MOC APPROVAL SIGNATURE
+  // ==========================================================
+
+  // Approval requires an electronic signature.
+  //
+  // Request Revision and Reject do not require
+  // an approval signature.
+  signatureRequired Boolean @default(true)
+
+  // Drawn, Typed, VerifiedIdentity, etc.
+  signatureType String?
+
+  // Captured signature payload.
+  //
+  // MVP:
+  // Can store normalized signature-pad stroke/vector data.
+  //
+  // Future:
+  // A rendered signature artifact can be stored in
+  // S3/Azure Blob and referenced by signatureAssetKey.
+  signatureData Json?
+
+  // Optional cloud object-storage reference for a
+  // rendered signature artifact.
+  signatureAssetKey String?
+
+  // Snapshot of the exact acknowledgement accepted
+  // by the Designated Approver when signing.
+  signatureAttestation String?
+
+  // Time the approval signature was applied.
+  signedAt DateTime?
+
+  // Audit context captured when the signature is submitted.
+  signatureIpAddress String?
+  signatureUserAgent String?
+
+  // Notification delivery will be connected later.
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  moc DailyWorkerSafetyEngagementMoc @relation(fields: [mocId], references: [id], onDelete: Cascade)
+
+  // One MOC approval requirement per resolved role.
+  //
+  // MVP routing permits one required role:
+  // DESIGNATED_MOC_APPROVER.
+  @@unique([mocId, roleCode])
+  @@index([tenantId])
+  @@index([mocId])
+  @@index([roleCode])
+  @@index([status])
+  @@index([approverId])
+  @@index([approverEmail])
+  @@index([decidedAt])
+  @@index([signedAt])
+  @@index([notifiedAt])
+}
+
+// ============================================================
+// QOREVA PLANNING - GUIDED PTP INTAKE FOUNDATION
+// ============================================================
+
+model PlanningActivityDefinition {
+  id       String  @id @default(cuid())
+  tenantId String?
+  scopeKey String  @default("QOREVA")
+
+  activityCode String
+  name         String
+  category     String
+
+  description String?
+
+  // Keywords help AI/rules map scope descriptions
+  // and equipment selections to likely activities.
+  keywords Json?
+
+  isHighRisk Boolean @default(false)
+
+  // Qoreva, Tenant, Owner, GC, Company, Project
+  sourceType String @default("Qoreva")
+
+  sortOrder Int @default(0)
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scopeKey, activityCode])
+  @@index([tenantId])
+  @@index([scopeKey])
+  @@index([activityCode])
+  @@index([category])
+  @@index([isHighRisk])
+  @@index([isActive])
+  @@index([isArchived])
+}
+
+model PlanningActivity {
+  id       String @id @default(cuid())
+  tenantId String
+
+  planningRecordId String
+
+  activityCode String
+  name         String
+  category     String?
+
+  // How Qoreva identified the activity:
+  // User, AI, Requirement, System
+  detectionSource String @default("User")
+
+  aiConfidence Decimal? @db.Decimal(5, 4)
+
+  // AI may suggest an activity, but a qualified user
+  // confirms whether it applies to the official PTP.
+  confirmationStatus String    @default("Pending")
+  confirmedBy        String?
+  confirmedAt        DateTime?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planningRecord PlanningRecord @relation(fields: [planningRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRecordId, activityCode])
+  @@index([tenantId])
+  @@index([planningRecordId])
+  @@index([activityCode])
+  @@index([category])
+  @@index([confirmationStatus])
+}
+
+model PlanningQuestionDefinition {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionCode String
+  version      Int    @default(1)
+
+  category String
+  section  String?
+
+  questionText String
+  helpText     String?
+
+  // Examples:
+  // Text, TextArea, Boolean, SingleSelect,
+  // MultiSelect, Number, Date, Person, Equipment
+  questionType String
+
+  options Json?
+
+  unit String?
+
+  isRequired Boolean @default(false)
+  isCritical Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  // Determines whether this is part of the Qoreva base library,
+  // tenant configuration, owner pack, etc.
+  sourceType String @default("Qoreva")
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules            PlanningQuestionRule[]
+  requirementLinks PlanningQuestionRequirement[]
+
+  @@unique([tenantId, questionCode, version])
+  @@index([tenantId])
+  @@index([category])
+  @@index([section])
+  @@index([questionCode])
+  @@index([isActive])
+  @@index([isArchived])
+}
+
+model PlanningQuestionRule {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionDefinitionId String
+
+  // Examples:
+  // ActivityDetected
+  // AnswerEquals
+  // AnswerContains
+  // RequirementApplies
+  // Always
+  ruleType String
+
+  // Structured deterministic condition.
+  // AI does NOT decide whether required compliance
+  // questions can be skipped.
+  conditions Json
+
+  action String @default("Show")
+
+  priority Int @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questionDefinition PlanningQuestionDefinition @relation(fields: [questionDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([questionDefinitionId])
+  @@index([ruleType])
+  @@index([isActive])
+}
+
+model RequirementPack {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name        String
+  description String?
+
+  // Qoreva, Owner, GC, Company, Project
+  packType String
+
+  organizationName String?
+
+  version Int @default(1)
+
+  status String @default("Draft")
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  // Allows applicability without hardcoding GM,
+  // Barton Malow, Ford, etc. into application logic.
+  applicability Json?
+
+  // Configurable Planning approval/signature routing.
+  // Qoreva resolves applicable Owner, GC, Company,
+  // Project, and tenant requirements without
+  // hardcoding customer-specific approval workflows.
+  approvalRouting Json?
+
+  createdBy  String?
+  approvedBy String?
+  approvedAt DateTime?
+
+  isActive   Boolean   @default(true)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules RequirementRule[]
+
+  @@index([tenantId])
+  @@index([packType])
+  @@index([organizationName])
+  @@index([status])
+  @@index([version])
+  @@index([isArchived])
+}
+
+model RequirementRule {
+  id       String @id @default(cuid())
+  tenantId String
+
+  requirementPackId String
+
+  ruleCode String
+
+  title           String
+  requirementText String
+
+  category String?
+
+  // Structured trigger conditions evaluated by Qoreva.
+  triggerConditions Json?
+
+  // Information Qoreva must know before it can
+  // determine whether the requirement applies.
+  requiredInformation Json?
+
+  // Controls or actions required when rule applies.
+  requiredControls Json?
+
+  severity String?
+
+  sourceDocumentName String?
+  sourcePage         String?
+  sourceReference    Json?
+
+  status String @default("Draft")
+
+  effectiveDate  DateTime?
+  expirationDate DateTime?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requirementPack RequirementPack @relation(fields: [requirementPackId], references: [id], onDelete: Cascade)
+
+  questionLinks PlanningQuestionRequirement[]
+
+  @@unique([requirementPackId, ruleCode])
+  @@index([tenantId])
+  @@index([requirementPackId])
+  @@index([category])
+  @@index([status])
+  @@index([isActive])
+}
+
+model PlanningQuestionRequirement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  questionDefinitionId String
+  requirementRuleId    String
+
+  // Information, Validation, ControlConfirmation
+  purpose String @default("Information")
+
+  // Optional deterministic validation describing
+  // what response satisfies this specific
+  // requirement-to-question relationship.
+  //
+  // Example:
+  // {
+  //   "type": "AnswerEquals",
+  //   "value": "true",
+  //   "blockingLevel": "Submission",
+  //   "message": "Required condition has not been satisfied."
+  // }
+  validation Json?
+
+  createdAt DateTime @default(now())
+
+  questionDefinition PlanningQuestionDefinition @relation(fields: [questionDefinitionId], references: [id], onDelete: Cascade)
+
+  requirementRule RequirementRule @relation(fields: [requirementRuleId], references: [id], onDelete: Cascade)
+
+  @@unique([questionDefinitionId, requirementRuleId])
+  @@index([tenantId])
+  @@index([questionDefinitionId])
+  @@index([requirementRuleId])
+}

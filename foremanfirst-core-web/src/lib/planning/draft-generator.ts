@@ -1209,6 +1209,17 @@ function stableDraftItemId(
   return `draft-${(hash >>> 0).toString(36)}`;
 }
 
+export function buildControlConceptKey(
+  workStepId: string,
+  controlText: string,
+) {
+  return stableDraftItemId(
+    "control-concept",
+    workStepId,
+    controlText,
+  );
+}
+
 function inferHazardControlGroups(
   activityCode: string,
   guidance: ActivityGuidance,
@@ -1347,6 +1358,15 @@ function buildGeneratedHazardControlGroup(
               controlText,
             ),
 
+      buildControlConceptKey:
+        workStepId
+          ? (controlText) =>
+              buildControlConceptKey(
+                workStepId,
+                controlText,
+              )
+          : undefined,
+
       source: "Rule",
     });
   }
@@ -1410,6 +1430,14 @@ function buildGeneratedHazardControlGroup(
               ),
 
           text: control,
+
+          controlConceptKey:
+            workStepId
+              ? buildControlConceptKey(
+                  workStepId,
+                  control,
+                )
+              : null,
 
           source:
             "Rule" as const,
@@ -3447,18 +3475,65 @@ function getHazardMatchScore(
   );
 }
 
+function readOverrideParentHazardText(
+  sourceMetadata: unknown,
+) {
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return null;
+  }
+
+  const value = (
+    sourceMetadata as Record<string, unknown>
+  ).parentHazardText;
+
+  return typeof value === "string"
+    ? value.trim() || null
+    : null;
+}
+
 function hasExplicitRecommendedControlSelections(
   hazardId: string,
+  hazardText: string,
   overrides: PlanningHazardControlOverrideContext[],
 ) {
+  const normalizedHazardText =
+    hazardText.trim().toLowerCase();
+
   return overrides.some(
-    (override) =>
-      override.itemType === "Control" &&
-      override.action === "Add" &&
-      override.parentHazardId === hazardId &&
-      override.operationKey?.startsWith(
-        "recommended-control-add:",
-      ),
+    (override) => {
+      if (
+        override.itemType !== "Control" ||
+        override.action !== "Add" ||
+        !override.operationKey?.startsWith(
+          "recommended-control-add:",
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        override.parentHazardId ===
+        hazardId
+      ) {
+        return true;
+      }
+
+      const persistedParentHazardText =
+        readOverrideParentHazardText(
+          override.sourceMetadata,
+        );
+
+      return (
+        persistedParentHazardText !== null &&
+        persistedParentHazardText
+          .toLowerCase() ===
+          normalizedHazardText
+      );
+    },
   );
 }
 
@@ -3519,7 +3594,7 @@ function resolveUserHazardFromCanonicalLibrary(
     return true;
   }
 
-  userGroup.controls =
+  const canonicalControls =
     canonicalMatch
       .definition
       .controls
@@ -3556,6 +3631,52 @@ function resolveUserHazardFromCanonicalLibrary(
           required: false,
         }),
       );
+
+  const existingControlTexts =
+    new Set(
+      userGroup.controls.map(
+        (control) =>
+          control.text
+            .trim()
+            .toLowerCase(),
+      ),
+    );
+
+  const newCanonicalControls =
+    canonicalControls.filter(
+      (control) => {
+        const normalizedText =
+          control.text
+            .trim()
+            .toLowerCase();
+
+        if (
+          existingControlTexts.has(
+            normalizedText,
+          )
+        ) {
+          return false;
+        }
+
+        existingControlTexts.add(
+          normalizedText,
+        );
+
+        return true;
+      },
+    );
+
+  /*
+   * Canonical resolution is additive.
+   *
+   * Existing field-authored controls remain intact.
+   * Canonical controls may supplement them, but they can never
+   * erase or replace a control the qualified user already has.
+   */
+  userGroup.controls = [
+    ...userGroup.controls,
+    ...newCanonicalControls,
+  ];
 
   return (
     userGroup.controls.length >
@@ -3973,6 +4094,29 @@ function readDecisionParentHazardIdentity(
   };
 }
 
+function readDecisionControlConceptKey(
+  sourceMetadata: unknown,
+) {
+  if (
+    typeof sourceMetadata !== "object" ||
+    sourceMetadata === null ||
+    Array.isArray(sourceMetadata)
+  ) {
+    return null;
+  }
+
+  const metadata =
+    sourceMetadata as Record<
+      string,
+      unknown
+    >;
+
+  return typeof metadata.controlConceptKey ===
+    "string"
+    ? metadata.controlConceptKey.trim() || null
+    : null;
+}
+
 function reconnectPersistedControlDecisionIdentity(
   groups: GeneratedHazardControlGroup[],
   decision: PlanningHazardControlDecisionContext,
@@ -3985,6 +4129,53 @@ function reconnectPersistedControlDecisionIdentity(
 
   if (existingLocation) {
     return existingLocation;
+  }
+
+  /*
+   * Stable control-concept identity is preferred when available.
+   *
+   * recommendationId remains the historical generated-item
+   * identity, but controlConceptKey survives changes to generated
+   * relationship IDs and allows qualified-user decisions such as
+   * Not Applicable to remain attached after regeneration.
+   */
+  const persistedControlConceptKey =
+    readDecisionControlConceptKey(
+      decision.sourceMetadata,
+    );
+
+  if (persistedControlConceptKey) {
+    const conceptMatches =
+      groups.flatMap((group) =>
+        group.controls.flatMap(
+          (control, controlIndex) =>
+            control.controlConceptKey ===
+            persistedControlConceptKey
+              ? [
+                  {
+                    group,
+                    controlIndex,
+                    control,
+                  },
+                ]
+              : [],
+        ),
+      );
+
+    if (conceptMatches.length === 1) {
+      const location =
+        conceptMatches[0];
+
+      /*
+       * Reattach the historical recommendation ID so the
+       * remainder of the decision pipeline can continue to
+       * operate on the existing persisted decision identity.
+       */
+      location.control.id =
+        decision.recommendationId;
+
+      return location;
+    }
   }
 
   const {
@@ -4413,6 +4604,54 @@ function findGeneratedHazardGroup(
   ) ?? null;
 }
 
+function findGeneratedHazardGroupForControlOverride(
+  groups: GeneratedHazardControlGroup[],
+  override: PlanningHazardControlOverrideContext,
+) {
+  if (override.parentHazardId) {
+    const byId =
+      findGeneratedHazardGroup(
+        groups,
+        override.parentHazardId,
+      );
+
+    if (byId) {
+      return byId;
+    }
+  }
+
+  const persistedParentHazardText =
+    readOverrideParentHazardText(
+      override.sourceMetadata,
+    );
+
+  if (!persistedParentHazardText) {
+    return null;
+  }
+
+  const normalizedParentHazardText =
+    persistedParentHazardText
+      .trim()
+      .toLowerCase();
+
+  const matches =
+    groups.filter(
+      (group) =>
+        group.hazard.text
+          .trim()
+          .toLowerCase() ===
+        normalizedParentHazardText,
+    );
+
+  /*
+   * Only reconnect by text when exactly one hazard matches.
+   * Never guess when the text is ambiguous.
+   */
+  return matches.length === 1
+    ? matches[0]
+    : null;
+}
+
 function buildOverrideHazardGroup(
   override: PlanningHazardControlOverrideContext,
 ): GeneratedHazardControlGroup | null {
@@ -4698,17 +4937,14 @@ function applyHazardControlOverrides(
       const finalText =
         override.finalText?.trim();
 
-      if (
-        !finalText ||
-        !override.parentHazardId
-      ) {
+      if (!finalText) {
         continue;
       }
 
       const parentGroup =
-        findGeneratedHazardGroup(
+        findGeneratedHazardGroupForControlOverride(
           workingGroups,
-          override.parentHazardId,
+          override,
         );
 
       if (!parentGroup) {
@@ -4916,6 +5152,7 @@ function resolveUserHazardControls(
     if (
       hasExplicitRecommendedControlSelections(
         userGroup.hazard.id,
+        userGroup.hazard.text,
         overrides,
       )
     ) {

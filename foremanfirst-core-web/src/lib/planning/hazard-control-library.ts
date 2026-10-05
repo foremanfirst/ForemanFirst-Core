@@ -1125,6 +1125,9 @@ export function buildCanonicalHazardControlGroup(args: {
   buildControlId: (
     controlText: string,
   ) => string;
+  buildControlConceptKey?: (
+    controlText: string,
+  ) => string;
   source?: DraftGenerationSource;
 }): GeneratedHazardControlGroup {
   const source =
@@ -1183,6 +1186,11 @@ export function buildCanonicalHazardControlGroup(args: {
             args.buildControlId(
               controlText,
             ),
+
+          controlConceptKey:
+            args.buildControlConceptKey?.(
+              controlText,
+            ) ?? null,
 
           text:
             controlText,
