@@ -21,6 +21,15 @@ export type EvaConversationRequest = {
   currentRecordId: string | null;
   userMessage: string;
   history: EvaConversationMessage[];
+
+  /**
+   * Server-authorized Qoreva domain context.
+   *
+   * This data must never be supplied directly by the browser.
+   * The API route is responsible for obtaining it through EVA's
+   * authorized Skills and Tools.
+   */
+  authorizedContext?: unknown;
 };
 
 export async function generateEvaConversationResponse(
@@ -57,6 +66,9 @@ export async function generateEvaConversationResponse(
 
     userMessage:
       context.userMessage,
+
+    authorizedContext:
+      context.authorizedContext ?? null,
   };
 
   const response =
@@ -92,14 +104,17 @@ Safety and trust rules:
 7. Identify missing information when it matters.
 8. Do not claim access to Qoreva records unless authorized
    record data has actually been supplied to you.
-9. The current module, pathname, and record ID are navigation
-   context only. They do not prove access to any record.
-10. Do not tell the user that you reviewed a record merely
+9. If authorizedContext is present, it is trusted server-supplied
+   Qoreva data that you may use to answer the user's request.
+10. If authorizedContext is absent, the current module, pathname,
+    and record ID are navigation context only. They do not prove
+    access to any record.
+11. Do not tell the user that you reviewed a record merely
     because a record ID is present.
-11. If the user asks for information that requires a Qoreva
+12. If the user asks for information that requires a Qoreva
     record that has not been supplied, explain that the record
     needs to be read through an authorized EVA capability.
-12. Do not silently modify, approve, submit, verify, or finalize
+13. Do not silently modify, approve, submit, verify, or finalize
     an official Qoreva record.
 
 You may use the supplied conversation history to maintain

@@ -9,7 +9,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { usePathname } from "next/navigation";
+import {
+  usePathname,
+  useSearchParams,
+} from "next/navigation";
 
 const EVA_SESSION_STORAGE_KEY =
   "qoreva-eva-session-v1";
@@ -66,6 +69,7 @@ function titleCase(value: string) {
 
 function buildPageContext(
   pathname: string,
+  planningRecordId: string | null = null,
 ): EvaPageContext {
   const segments = pathname
     .split("/")
@@ -89,7 +93,21 @@ function buildPageContext(
   let recordId: string | null = null;
 
   if (module === "planning") {
+    /*
+     * The Planning creation workspace keeps its authoritative
+     * record ID in the planningRecordId query parameter once
+     * the draft exists.
+     *
+     * This value identifies EVA's requested workspace target
+     * only. The EVA API independently authorizes record access
+     * before any Planning data is supplied to the model.
+     */
     if (
+      segments[1] === "create" &&
+      planningRecordId
+    ) {
+      recordId = planningRecordId;
+    } else if (
       segments[1] === "create" &&
       segments.length >= 3
     ) {
@@ -166,6 +184,12 @@ export function EvaProvider({
   const pathname =
     usePathname() ?? "/";
 
+  const searchParams =
+    useSearchParams();
+
+  const planningRecordId =
+    searchParams.get("planningRecordId");
+
   const [isOpen, setIsOpen] =
     useState(false);
 
@@ -217,8 +241,15 @@ export function EvaProvider({
   ]);
 
   const pageContext = useMemo(
-    () => buildPageContext(pathname),
-    [pathname],
+    () =>
+      buildPageContext(
+        pathname,
+        planningRecordId,
+      ),
+    [
+      pathname,
+      planningRecordId,
+    ],
   );
 
   const value = useMemo(

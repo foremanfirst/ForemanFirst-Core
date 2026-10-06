@@ -10,6 +10,26 @@ import {
   type EvaConversationMessage,
 } from "@/lib/ai/eva/conversation";
 
+import {
+  requireAuthorizedPlanningReader,
+} from "@/lib/planning/planning-reader-authorization";
+
+import {
+  buildEvaUserContext,
+} from "@/lib/ai/eva/core/context-builder";
+
+import {
+  getEvaSkills,
+} from "@/lib/ai/eva/core/skill-registry";
+
+import {
+  runEva,
+} from "@/lib/ai/eva/core/orchestrator";
+
+import type {
+  EvaRuntimeContext,
+} from "@/lib/ai/eva/core/context";
+
 export const dynamic = "force-dynamic";
 
 function nullableString(
@@ -155,32 +175,153 @@ export async function POST(
         body.history,
       );
 
+    const normalizedModule =
+      currentModule.slice(
+        0,
+        100,
+      );
+
+    const normalizedPathname =
+      currentPathname.slice(
+        0,
+        500,
+      );
+
+    const normalizedRecordId =
+      currentRecordId?.slice(
+        0,
+        200,
+      ) ?? null;
+
+    let authorizedContext:
+      unknown = null;
+
+    /*
+     * Phase 3A — Authorized Planning awareness.
+     *
+     * The record ID supplied by the browser is only a requested
+     * target. It grants no record access by itself.
+     *
+     * Qoreva first resolves the authenticated user's Planning
+     * Reader authorization. Those authoritative tenant/project
+     * IDs are then used to build EVA's runtime context.
+     *
+     * The actual record read still executes through EVA's
+     * registered Planning tool, which performs its own record
+     * authorization and records the read in EVA's audit trail.
+     */
+    if (
+      normalizedModule === "planning" &&
+      normalizedRecordId
+    ) {
+      const authorization =
+        await requireAuthorizedPlanningReader(
+          normalizedRecordId,
+        );
+
+      const availableSkillIds =
+        getEvaSkills().map(
+          (skill) => skill.id,
+        );
+
+      const {
+        userContext,
+        projectContext,
+      } =
+        await buildEvaUserContext(
+          authorization.user,
+          {
+            tenantId:
+              authorization.planningRecord.tenantId,
+
+            projectId:
+              authorization.planningRecord.projectId,
+
+            userMessage,
+
+            currentModule:
+              normalizedModule,
+
+            currentRecordId:
+              normalizedRecordId,
+
+            availableSkillIds,
+          },
+        );
+
+      const runtimeContext:
+        EvaRuntimeContext = {
+        conversation: {
+          user:
+            userContext,
+
+          project:
+            projectContext,
+
+          currentModule:
+            normalizedModule,
+
+          currentRecordId:
+            normalizedRecordId,
+
+          userMessage,
+        },
+
+        user:
+          userContext,
+
+        project:
+          projectContext,
+
+        availableSkillIds,
+
+        metadata: {
+          requestId:
+            crypto.randomUUID(),
+
+          source:
+            "global-eva-conversation",
+        },
+      };
+
+      const planningRead =
+        await runEva(
+          runtimeContext,
+          {
+            requestedToolId:
+              "planning.getPlanningRecord",
+          },
+        );
+
+      if (
+        planningRead.sourceTool ===
+          "planning.getPlanningRecord" &&
+        planningRead.data
+      ) {
+        authorizedContext =
+          planningRead.data;
+      }
+    }
+
     const response =
       await generateEvaConversationResponse({
         userDisplayName:
           user.displayName,
 
         currentModule:
-          currentModule.slice(
-            0,
-            100,
-          ),
+          normalizedModule,
 
         currentPathname:
-          currentPathname.slice(
-            0,
-            500,
-          ),
+          normalizedPathname,
 
         currentRecordId:
-          currentRecordId?.slice(
-            0,
-            200,
-          ) ?? null,
+          normalizedRecordId,
 
         userMessage,
 
         history,
+
+        authorizedContext,
       });
 
     return NextResponse.json({
