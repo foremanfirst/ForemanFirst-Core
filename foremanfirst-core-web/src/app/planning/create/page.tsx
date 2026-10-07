@@ -416,6 +416,25 @@ type RequirementQuestionSource = {
   sourcePage: string | null;
 };
 
+type DocumentQuestionEvidence = {
+  pageNumber: number | null;
+  excerpt: string | null;
+  description: string | null;
+  sourceType: string | null;
+};
+
+type DocumentQuestionSource = {
+  documentId: string;
+  documentName: string;
+  generationReason: string | null;
+  findingId: string | null;
+  findingTitle: string | null;
+  findingType: string | null;
+  severity: string | null;
+  confidence: number | null;
+  evidence: DocumentQuestionEvidence[];
+};
+
 type DynamicPlanningQuestion = {
   id: string;
   questionCode: string;
@@ -432,6 +451,7 @@ type DynamicPlanningQuestion = {
   sourceType: string;
 
   requirementSources: RequirementQuestionSource[];
+  documentSource?: DocumentQuestionSource | null;
 };
 
 type PlanningAnswerAssessment = {
@@ -18898,6 +18918,12 @@ export default function CreatePlanningPage() {
                       const hasRequirementSources =
                         requirementSources.length > 0;
 
+                      const documentSource =
+                        question.documentSource ?? null;
+
+                      const hasDocumentSource =
+                        documentSource !== null;
+
                       const complianceResults =
                         planningCompliance?.results.filter(
                           (result) =>
@@ -18975,6 +19001,82 @@ export default function CreatePlanningPage() {
                                 <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
                                   {question.helpText}
                                 </p>
+                              ) : null}
+
+                              {hasDocumentSource ? (
+                                <details className="group mt-3 rounded-xl border border-[rgba(102,87,232,0.18)] bg-white">
+                                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs font-black text-[var(--qoreva-violet-dark)] [&::-webkit-details-marker]:hidden">
+                                    <span>
+                                      Why Qoreva is asking
+                                    </span>
+
+                                    <span className="flex items-center gap-2 text-[10px] font-bold text-[var(--qoreva-muted)]">
+                                      Document Intelligence
+                                      <span className="text-sm transition-transform group-open:rotate-180">
+                                        ▾
+                                      </span>
+                                    </span>
+                                  </summary>
+
+                                  <div className="border-t border-[rgba(102,87,232,0.14)] p-3">
+                                    <div className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] p-3">
+                                      <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet)]">
+                                        Selected Project Document
+                                      </p>
+
+                                      <p className="mt-1 text-sm font-black text-[var(--qoreva-obsidian)]">
+                                        {documentSource.documentName}
+                                      </p>
+
+                                      {documentSource.findingTitle ? (
+                                        <p className="mt-2 text-xs font-black leading-5 text-[var(--qoreva-obsidian)]">
+                                          {documentSource.findingTitle}
+                                        </p>
+                                      ) : null}
+
+                                      {documentSource.generationReason ? (
+                                        <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                          {documentSource.generationReason}
+                                        </p>
+                                      ) : null}
+
+                                      {documentSource.evidence.length > 0 ? (
+                                        <div className="mt-3 grid gap-2">
+                                          {documentSource.evidence.map(
+                                            (evidence, evidenceIndex) => (
+                                              <div
+                                                key={`${documentSource.documentId}-${evidenceIndex}`}
+                                                className="rounded-lg border border-[var(--qoreva-border)] bg-white p-2.5"
+                                              >
+                                                {evidence.pageNumber !== null ? (
+                                                  <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-violet-dark)]">
+                                                    Page {evidence.pageNumber}
+                                                  </p>
+                                                ) : null}
+
+                                                {evidence.description ? (
+                                                  <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                                    {evidence.description}
+                                                  </p>
+                                                ) : null}
+
+                                                {evidence.excerpt ? (
+                                                  <p className="mt-1 text-xs font-medium italic leading-5 text-[var(--qoreva-subtle)]">
+                                                    “{evidence.excerpt}”
+                                                  </p>
+                                                ) : null}
+                                              </div>
+                                            ),
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </div>
+
+                                    <p className="mt-3 text-[10px] font-bold leading-4 text-[var(--qoreva-muted)]">
+                                      Qoreva identified this planning consideration from the selected document. Document Intelligence is advisory; a qualified user remains responsible for the final planning decision.
+                                    </p>
+                                  </div>
+                                </details>
                               ) : null}
 
                               {hasRequirementSources ? (
@@ -28113,12 +28215,30 @@ function PlanningDocumentCard({
                 label={
                   document.planningStatus.isAiReady
                     ? "AI Ready"
-                    : `AI: ${document.aiProcessingStatus}`
+                    : document.aiProcessingStatus ===
+                        "Complete"
+                      ? "Analysis Complete"
+                      : document.aiProcessingStatus ===
+                          "Processing"
+                        ? "Analyzing"
+                        : document.aiProcessingStatus ===
+                            "Failed"
+                          ? "Analysis Failed"
+                          : "Not Analyzed"
                 }
                 tone={
                   document.planningStatus.isAiReady
                     ? "success"
-                    : "neutral"
+                    : document.aiProcessingStatus ===
+                        "Complete"
+                      ? "warning"
+                      : document.aiProcessingStatus ===
+                          "Failed"
+                        ? "danger"
+                        : document.aiProcessingStatus ===
+                            "Processing"
+                          ? "info"
+                          : "neutral"
                 }
               />
 
@@ -28162,11 +28282,27 @@ function PlanningDocumentCard({
                 ? "Expired documents cannot be selected as an active planning source."
                 : "Rejected documents cannot be selected as an active planning source."}
             </p>
-          ) : !document.planningStatus.isAiReady ? (
+          ) : document.aiProcessingStatus ===
+              "Complete" &&
+            !document.planningStatus.isAiReady ? (
             <p className="rounded-xl border border-[#F0D5A4] bg-[var(--qoreva-warning-soft)] px-3 py-2 text-xs font-black leading-5 text-[#9B6212]">
-              This document may be selected for context, but AI processing is not complete.
+              Analysis is complete. Qualified-user review is required before this document becomes AI Ready.
             </p>
-          ) : null}
+          ) : document.aiProcessingStatus ===
+              "Processing" ? (
+            <p className="rounded-xl border border-[rgba(102,87,232,0.18)] bg-[var(--qoreva-violet-soft)] px-3 py-2 text-xs font-black leading-5 text-[var(--qoreva-violet-dark)]">
+              Qoreva is analyzing this document.
+            </p>
+          ) : document.aiProcessingStatus ===
+              "Failed" ? (
+            <p className="rounded-xl border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-black leading-5 text-[var(--qoreva-danger)]">
+              Document analysis failed. Retry analysis before using its intelligence.
+            </p>
+          ) : (
+            <p className="rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2 text-xs font-black leading-5 text-[var(--qoreva-muted)]">
+              This document has not been analyzed by Qoreva.
+            </p>
+          )}
         </div>
       </div>
     </article>
