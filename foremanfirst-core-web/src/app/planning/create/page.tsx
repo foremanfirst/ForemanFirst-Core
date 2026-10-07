@@ -3379,6 +3379,47 @@ export default function CreatePlanningPage() {
       >
     >(new Map());
 
+  /*
+   * Every local edit advances this question's autosave version.
+   * Older in-flight requests may finish later, but they must never
+   * overwrite the visible save state of a newer local edit.
+   */
+  const guidedAnswerAutosaveVersionRef =
+    useRef<Map<string, number>>(
+      new Map(),
+    );
+
+  /*
+   * Serialize writes independently for each Guided Planning question.
+   *
+   * A newer edit for the same question must not reach the database
+   * before an older in-flight save finishes. Different questions may
+   * still autosave concurrently.
+   */
+  const guidedAnswerAutosaveQueueRef =
+    useRef<Map<string, Promise<void>>>(
+      new Map(),
+    );
+
+  type GuidedAnswerAutosaveStatus =
+    | "idle"
+    | "pending"
+    | "saving"
+    | "saved"
+    | "error";
+
+  const [
+    guidedAnswerAutosaveStatusByQuestion,
+    setGuidedAnswerAutosaveStatusByQuestion,
+  ] = useState<
+    Record<string, GuidedAnswerAutosaveStatus>
+  >({});
+
+  const [
+    guidedAnswerAutosaveErrorByQuestion,
+    setGuidedAnswerAutosaveErrorByQuestion,
+  ] = useState<Record<string, string>>({});
+
   const [
     detectedActivities,
     setDetectedActivities,
@@ -8539,6 +8580,250 @@ export default function CreatePlanningPage() {
     }
   }
 
+  function queueGuidedAnswerAutosave(
+    questionCode: string,
+    answer: PlanningAnswer,
+    autosaveVersion: number,
+  ): Promise<void> {
+    if (!planningRecordId) {
+      return Promise.resolve();
+    }
+
+    const previousSave =
+      guidedAnswerAutosaveQueueRef.current.get(
+        questionCode,
+      ) ?? Promise.resolve();
+
+    const queuedSave = previousSave
+      .catch(() => {
+        /*
+         * A failed earlier save must not permanently block newer
+         * planner edits from attempting to persist.
+         */
+      })
+      .then(async () => {
+        if (
+          guidedAnswerAutosaveVersionRef.current.get(
+            questionCode,
+          ) === autosaveVersion
+        ) {
+          setGuidedAnswerAutosaveStatusByQuestion(
+            (current) => ({
+              ...current,
+              [questionCode]: "saving",
+            }),
+          );
+        }
+
+        try {
+          const response = await fetch(
+            `/api/planning/${planningRecordId}/guided-planning/answer`,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                questionCode,
+                responseValue:
+                  answer.value,
+                notes:
+                  answer.notes,
+              }),
+            },
+          );
+
+          const data =
+            await readPlanningJson<{
+              response?: {
+                id: string;
+                questionId: string;
+                responseValue:
+                  | string
+                  | null;
+                notes: string | null;
+                updatedAt: string;
+              };
+              error?: string;
+            }>(
+              response,
+              "Unable to autosave Guided Planning answer.",
+            );
+
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+                "Unable to autosave Guided Planning answer.",
+            );
+          }
+
+          if (
+            guidedAnswerAutosaveVersionRef.current.get(
+              questionCode,
+            ) === autosaveVersion
+          ) {
+            setGuidedAnswerAutosaveStatusByQuestion(
+              (current) => ({
+                ...current,
+                [questionCode]: "saved",
+              }),
+            );
+          }
+        } catch (error) {
+          /*
+           * Preserve the local answer and keep the planner working.
+           * Full Guided Planning persistence still provides another
+           * save path during workflow transitions.
+           */
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unable to autosave Guided Planning answer.";
+
+          if (
+            guidedAnswerAutosaveVersionRef.current.get(
+              questionCode,
+            ) === autosaveVersion
+          ) {
+            setGuidedAnswerAutosaveStatusByQuestion(
+              (current) => ({
+                ...current,
+                [questionCode]: "error",
+              }),
+            );
+
+            setGuidedAnswerAutosaveErrorByQuestion(
+              (current) => ({
+                ...current,
+                [questionCode]: message,
+              }),
+            );
+          }
+
+          console.error(
+            `Unable to autosave Guided Planning answer ${questionCode}:`,
+            error,
+          );
+        }
+      });
+
+    guidedAnswerAutosaveQueueRef.current.set(
+      questionCode,
+      queuedSave,
+    );
+
+    void queuedSave.finally(() => {
+      if (
+        guidedAnswerAutosaveQueueRef.current.get(
+          questionCode,
+        ) === queuedSave
+      ) {
+        guidedAnswerAutosaveQueueRef.current.delete(
+          questionCode,
+        );
+      }
+    });
+
+    return queuedSave;
+  }
+
+  async function flushGuidedAnswerAutosaves(): Promise<void> {
+    /*
+     * Force every still-debounced answer into its serialized queue.
+     *
+     * This is the persistence barrier used before the broader Guided
+     * Planning PUT. It prevents an answer PATCH from arriving after the
+     * full save has replaced question responses.
+     */
+    const pendingQuestionCodes = Array.from(
+      guidedAnswerAutosaveTimersRef.current.keys(),
+    );
+
+    for (const questionCode of pendingQuestionCodes) {
+      const timer =
+        guidedAnswerAutosaveTimersRef.current.get(
+          questionCode,
+        );
+
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      guidedAnswerAutosaveTimersRef.current.delete(
+        questionCode,
+      );
+
+      const answer =
+        planningAnswersRef.current[questionCode];
+
+      const autosaveVersion =
+        guidedAnswerAutosaveVersionRef.current.get(
+          questionCode,
+        );
+
+      if (
+        answer &&
+        autosaveVersion !== undefined
+      ) {
+        void queueGuidedAnswerAutosave(
+          questionCode,
+          answer,
+          autosaveVersion,
+        );
+      }
+    }
+
+    /*
+     * The queue map can change while earlier promises settle, so wait
+     * until no answer-scoped writes remain before allowing the full
+     * Guided Planning persistence request to begin.
+     */
+    while (
+      guidedAnswerAutosaveQueueRef.current.size > 0
+    ) {
+      const queuedSaves = Array.from(
+        guidedAnswerAutosaveQueueRef.current.values(),
+      );
+
+      await Promise.allSettled(queuedSaves);
+    }
+  }
+
+  function flushGuidedAnswerOnBlur(
+    questionCode: string,
+  ): void {
+    const timer =
+      guidedAnswerAutosaveTimersRef.current.get(
+        questionCode,
+      );
+
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    guidedAnswerAutosaveTimersRef.current.delete(
+      questionCode,
+    );
+
+    const answer =
+      planningAnswersRef.current[questionCode];
+
+    const version =
+      guidedAnswerAutosaveVersionRef.current.get(
+        questionCode,
+      );
+
+    if (answer && version !== undefined) {
+      void queueGuidedAnswerAutosave(
+        questionCode,
+        answer,
+        version,
+      );
+    }
+  }
+
   function updatePlanningAnswer(
     questionCode: string,
     field: "value" | "notes",
@@ -8587,6 +8872,39 @@ export default function CreatePlanningPage() {
      * A field edit should update only this planner-owned answer.
      */
     if (planningRecordId) {
+      const autosaveVersion =
+        (guidedAnswerAutosaveVersionRef.current.get(
+          questionCode,
+        ) ?? 0) + 1;
+
+      guidedAnswerAutosaveVersionRef.current.set(
+        questionCode,
+        autosaveVersion,
+      );
+
+      setGuidedAnswerAutosaveStatusByQuestion(
+        (current) => ({
+          ...current,
+          [questionCode]: "pending",
+        }),
+      );
+
+      setGuidedAnswerAutosaveErrorByQuestion(
+        (current) => {
+          if (!current[questionCode]) {
+            return current;
+          }
+
+          const next = {
+            ...current,
+          };
+
+          delete next[questionCode];
+
+          return next;
+        },
+      );
+
       const existingTimer =
         guidedAnswerAutosaveTimersRef.current.get(
           questionCode,
@@ -8601,61 +8919,11 @@ export default function CreatePlanningPage() {
           questionCode,
         );
 
-        void (async () => {
-          try {
-            const response = await fetch(
-              `/api/planning/${planningRecordId}/guided-planning/answer`,
-              {
-                method: "PATCH",
-                headers: {
-                  "Content-Type":
-                    "application/json",
-                },
-                body: JSON.stringify({
-                  questionCode,
-                  responseValue:
-                    nextAnswer.value,
-                  notes:
-                    nextAnswer.notes,
-                }),
-              },
-            );
-
-            const data =
-              await readPlanningJson<{
-                response?: {
-                  id: string;
-                  questionId: string;
-                  responseValue:
-                    | string
-                    | null;
-                  notes: string | null;
-                  updatedAt: string;
-                };
-                error?: string;
-              }>(
-                response,
-                "Unable to autosave Guided Planning answer.",
-              );
-
-            if (!response.ok) {
-              throw new Error(
-                data.error ||
-                  "Unable to autosave Guided Planning answer.",
-              );
-            }
-          } catch (error) {
-            /*
-             * Preserve the local answer and keep the planner working.
-             * Full Guided Planning persistence still runs during
-             * workflow navigation and provides another save path.
-             */
-            console.error(
-              `Unable to autosave Guided Planning answer ${questionCode}:`,
-              error,
-            );
-          }
-        })();
+        void queueGuidedAnswerAutosave(
+          questionCode,
+          nextAnswer,
+          autosaveVersion,
+        );
       }, 750);
 
       guidedAnswerAutosaveTimersRef.current.set(
@@ -9093,6 +9361,14 @@ export default function CreatePlanningPage() {
     setPlanningDraftSaving(true);
 
     try {
+      /*
+       * Drain answer-scoped autosaves before the broader Guided
+       * Planning PUT begins. The full persistence route replaces
+       * question responses, so allowing an older PATCH to arrive
+       * afterward could overwrite the newly persisted snapshot.
+       */
+      await flushGuidedAnswerAutosaves();
+
       const workStepsPayload =
         activeSteps.map((step, index) => {
           const planning =
@@ -9131,8 +9407,13 @@ export default function CreatePlanningPage() {
       const questionResponsesPayload =
         guidedPlanningQuestions.map(
           (question) => {
+            /*
+             * Use the synchronous answer mirror rather than the React
+             * render snapshot. A user may click Continue immediately
+             * after typing, before React commits the newest state.
+             */
             const answer =
-              planningAnswers[
+              planningAnswersRef.current[
                 question.questionCode
               ] ?? {
                 value: "",
@@ -19536,6 +19817,12 @@ export default function CreatePlanningPage() {
                                 "
                               >
                                 <DynamicPlanningQuestionInput
+                                  onBlur={() =>
+                                    flushGuidedAnswerOnBlur(
+                                      question.questionCode,
+                                    )
+                                  }
+                                  disabled={planningDraftSaving}
                                   question={question}
                                   value={answer.value}
                                   onChange={(value) =>
@@ -19599,6 +19886,12 @@ export default function CreatePlanningPage() {
                               ) : null}
 
                               <textarea
+                                onBlur={() =>
+                                  flushGuidedAnswerOnBlur(
+                                    question.questionCode,
+                                  )
+                                }
+                                disabled={planningDraftSaving}
                                 value={answer.notes}
                                 rows={2}
                                 placeholder="Add task-specific details, method, verification, or explanation..."
@@ -19611,6 +19904,43 @@ export default function CreatePlanningPage() {
                                 }
                                 className={`mt-3 ${textareaClassName}`}
                               />
+
+                              {guidedAnswerAutosaveStatusByQuestion[
+                                question.questionCode
+                              ] &&
+                              guidedAnswerAutosaveStatusByQuestion[
+                                question.questionCode
+                              ] !== "idle" ? (
+                                <p
+                                  role="status"
+                                  aria-live="polite"
+                                  className={`mt-2 text-[11px] font-semibold ${
+                                    guidedAnswerAutosaveStatusByQuestion[
+                                      question.questionCode
+                                    ] === "error"
+                                      ? "text-[var(--qoreva-danger)]"
+                                      : "text-[var(--qoreva-muted)]"
+                                  }`}
+                                >
+                                  {guidedAnswerAutosaveStatusByQuestion[
+                                    question.questionCode
+                                  ] === "pending"
+                                    ? "Saving soon…"
+                                    : guidedAnswerAutosaveStatusByQuestion[
+                                          question.questionCode
+                                        ] === "saving"
+                                      ? "Saving…"
+                                      : guidedAnswerAutosaveStatusByQuestion[
+                                            question.questionCode
+                                          ] === "saved"
+                                        ? "✓ Saved"
+                                        : `Couldn't save — ${
+                                            guidedAnswerAutosaveErrorByQuestion[
+                                              question.questionCode
+                                            ] || "Please try again."
+                                          }`}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         </article>
@@ -27224,10 +27554,14 @@ function DynamicPlanningQuestionInput({
   question,
   value,
   onChange,
+  onBlur,
+  disabled = false,
 }: {
   question: DynamicPlanningQuestion;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
+  disabled?: boolean;
 }) {
   const options = Array.isArray(question.options)
     ? question.options.filter(
@@ -27244,8 +27578,10 @@ function DynamicPlanningQuestionInput({
           { label: "No", value: "false" },
         ].map((option) => (
           <button
+        onBlur={onBlur}
             key={option.value}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             aria-pressed={value === option.value}
             className={`min-h-10 rounded-xl border px-4 py-2 text-xs font-black transition ${
@@ -27267,6 +27603,8 @@ function DynamicPlanningQuestionInput({
   ) {
     return (
       <select
+        onBlur={onBlur}
+        disabled={disabled}
         value={value}
         onChange={(event) =>
           onChange(event.target.value)
@@ -27286,6 +27624,8 @@ function DynamicPlanningQuestionInput({
   if (question.questionType === "TextArea") {
     return (
       <textarea
+        onBlur={onBlur}
+        disabled={disabled}
         value={value}
         rows={3}
         onChange={(event) =>
@@ -27300,6 +27640,8 @@ function DynamicPlanningQuestionInput({
   return (
     <div className="mt-4">
       <input
+        onBlur={onBlur}
+        disabled={disabled}
         type={
           question.questionType === "Number"
             ? "number"
