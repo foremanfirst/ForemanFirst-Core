@@ -1679,11 +1679,25 @@ export async function PUT(
             await tx.planningQuestionResponse.createMany({
               data:
                 questionResponses.map(
-                  (response, index) => {
+                  (response) => {
+                    /*
+                     * Question identity is stable; array position is not.
+                     *
+                     * Guided Planning can contain deterministic,
+                     * requirement-driven, conditional, and Document
+                     * Intelligence questions. Their ordering may change
+                     * as planning context is re-evaluated.
+                     *
+                     * Reconcile trusted metadata by questionCode rather
+                     * than assuming the browser response array and the
+                     * server generation context have identical indexes.
+                     */
                     const trustedQuestion =
-                      incomingGenerationContext.questions[
-                        index
-                      ];
+                      incomingGenerationContext.questions.find(
+                        (question) =>
+                          question.questionCode ===
+                          response.questionId,
+                      );
 
                     return {
                       tenantId:

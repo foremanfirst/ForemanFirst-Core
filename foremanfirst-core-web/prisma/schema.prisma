@@ -598,6 +598,11 @@ model PlanningRecord {
   status         String @default("Draft")
   revisionNumber Int    @default(1)
 
+  // Last Planning wizard step successfully visited by the user.
+  // This is resume/navigation state only; it does not represent
+  // workflow approval, completion, or compliance status.
+  lastVisitedStep Int?
+
   responsibleSupervisor   String?
   responsibleSupervisorId String?
 

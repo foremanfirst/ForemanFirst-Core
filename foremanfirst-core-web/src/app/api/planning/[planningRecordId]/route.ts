@@ -321,6 +321,7 @@ export async function PATCH(
           contractorId: true,
           status: true,
           revisionNumber: true,
+          lastVisitedStep: true,
           submittedAt: true,
           approvedAt: true,
           activeAt: true,

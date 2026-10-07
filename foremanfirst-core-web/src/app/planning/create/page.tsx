@@ -1903,6 +1903,7 @@ type EditablePlanningRecordResponse = {
     title: string;
     status: string;
     revisionNumber: number;
+    lastVisitedStep: number | null;
     submittedAt: string | null;
     responsibleSupervisor: string | null;
     responsibleSupervisorId: string | null;
@@ -2560,6 +2561,19 @@ export default function CreatePlanningPage() {
    */
   const previousStepRef =
     useRef(currentStep);
+
+  /*
+   * Resume-position persistence is intentionally separate from
+   * formal Planning lifecycle state.
+   *
+   * The persisted value answers only:
+   * "Which wizard step should this planner return to?"
+   */
+  const lastPersistedVisitedStepRef =
+    useRef<number | null>(null);
+
+  const resumeStepPersistenceReadyRef =
+    useRef(false);
 
   const stepFiveReadinessRailRef =
     useRef<HTMLElement | null>(null);
@@ -3321,6 +3335,28 @@ export default function CreatePlanningPage() {
     planningAnswers,
     setPlanningAnswers,
   ] = useState<Record<string, PlanningAnswer>>({});
+
+  /*
+   * Keep the latest Guided Planning answers available synchronously.
+   *
+   * A planner may edit an answer and its Notes before React commits
+   * another render. Autosave must always merge against the latest
+   * local value rather than a potentially stale render snapshot.
+   */
+  const planningAnswersRef =
+    useRef<Record<string, PlanningAnswer>>({});
+
+  /*
+   * Each Guided Planning question owns its own debounce timer.
+   * Editing one answer must never cancel another answer's save.
+   */
+  const guidedAnswerAutosaveTimersRef =
+    useRef<
+      Map<
+        string,
+        ReturnType<typeof setTimeout>
+      >
+    >(new Map());
 
   const [
     detectedActivities,
@@ -4672,6 +4708,9 @@ export default function CreatePlanningPage() {
         setWorkStepPlanning(
           restoredWorkPlanning,
         );
+        planningAnswersRef.current =
+          restoredAnswers;
+
         setPlanningAnswers(
           restoredAnswers,
         );
@@ -4774,24 +4813,46 @@ export default function CreatePlanningPage() {
         setAdditionalApproverName("");
 
         /*
-         * Resume at the most advanced safe point represented by
-         * persisted state.
+         * Controlled lifecycle state remains authoritative over
+         * resume/navigation state.
          *
-         * Submitted records reopen at Step 8 in read-only mode.
-         * A Draft with persisted signatures also resumes at Step 8.
-         * A completed/current review resumes at Step 7.
-         * A generated current draft resumes at Step 6.
-         * Otherwise edit mode begins at Work Scope.
+         * Submitted records and records with persisted signatures
+         * reopen at Step 8. A current qualified review reopens at
+         * Step 7.
+         *
+         * Ordinary Draft records return to the exact persisted
+         * last-visited step. For legacy Draft records that predate
+         * lastVisitedStep, retain the previous artifact-based
+         * fallback: generated draft -> Step 6, otherwise -> Step 4.
          */
+        const persistedResumeStep =
+          Number.isInteger(
+            record.lastVisitedStep,
+          ) &&
+          Number(record.lastVisitedStep) >= 1 &&
+          Number(record.lastVisitedStep) <= 8
+            ? Number(record.lastVisitedStep)
+            : null;
+
+        const legacyResumeStep =
+          restoredGeneratedDraft ? 6 : 4;
+
         const resumeStep =
           submittedRecord ||
           restoredSubmissionSignatures.length > 0
             ? 8
             : currentReview
               ? 7
-              : restoredGeneratedDraft
-                ? 6
-                : 4;
+              : persistedResumeStep ??
+                legacyResumeStep;
+
+        /*
+         * Seed resume persistence before applying hydrated navigation.
+         * Loading an existing record must not be mistaken for a new
+         * user-driven step transition.
+         */
+        lastPersistedVisitedStepRef.current =
+          persistedResumeStep ?? resumeStep;
 
         setHighestReachedStep(
           resumeStep,
@@ -4902,6 +4963,9 @@ export default function CreatePlanningPage() {
            * by setEditModeLoading(false) may safely evaluate autosave.
            */
           assignmentAutosaveReadyRef.current =
+            true;
+
+          resumeStepPersistenceReadyRef.current =
             true;
 
           setEditModeLoading(false);
@@ -8118,15 +8182,16 @@ export default function CreatePlanningPage() {
        * Prefill the core guided-planning answers from the
        * Step 4 scope fields.
        */
-      setPlanningAnswers(
-        (current) => ({
-          ...current,
+      const currentPlanningAnswers =
+        planningAnswersRef.current;
 
+      const nextPlanningAnswers = {
+        ...currentPlanningAnswers,
           CORE_SCOPE_DESCRIPTION: {
             value:
               scopeDescription.trim(),
             notes:
-              current
+              currentPlanningAnswers
                 .CORE_SCOPE_DESCRIPTION
                 ?.notes ?? "",
           },
@@ -8135,7 +8200,7 @@ export default function CreatePlanningPage() {
             value:
               workLocation.trim(),
             notes:
-              current
+              currentPlanningAnswers
                 .CORE_WORK_LOCATION
                 ?.notes ?? "",
           },
@@ -8144,7 +8209,7 @@ export default function CreatePlanningPage() {
             value:
               crewSize.trim(),
             notes:
-              current
+              currentPlanningAnswers
                 .CORE_CREW_SIZE
                 ?.notes ?? "",
           },
@@ -8153,7 +8218,7 @@ export default function CreatePlanningPage() {
             value:
               equipmentTools.trim(),
             notes:
-              current
+              currentPlanningAnswers
                 .CORE_EQUIPMENT_TOOLS
                 ?.notes ?? "",
           },
@@ -8162,11 +8227,17 @@ export default function CreatePlanningPage() {
             value:
               materialsChemicals.trim(),
             notes:
-              current
+              currentPlanningAnswers
                 .CORE_MATERIALS
                 ?.notes ?? "",
           },
-        }),
+        };
+
+      planningAnswersRef.current =
+        nextPlanningAnswers;
+
+      setPlanningAnswers(
+        nextPlanningAnswers,
       );
 
       setCurrentStep(5);
@@ -8197,19 +8268,125 @@ export default function CreatePlanningPage() {
     field: "value" | "notes",
     value: string,
   ) {
+    const currentAnswer =
+      planningAnswersRef.current[questionCode];
+
+    const nextAnswer: PlanningAnswer = {
+      value:
+        field === "value"
+          ? value
+          : currentAnswer?.value ?? "",
+      notes:
+        field === "notes"
+          ? value
+          : currentAnswer?.notes ?? "",
+    };
+
+    /*
+     * Update the synchronous mirror before React state so another
+     * field edit in the same render window sees this exact answer.
+     */
+    planningAnswersRef.current = {
+      ...planningAnswersRef.current,
+      [questionCode]: nextAnswer,
+    };
+
+    /*
+     * Keep the React state update pure.
+     *
+     * Autosave scheduling happens after the local answer has been
+     * derived so React Strict Mode or concurrent rendering cannot
+     * cause network side effects by re-running a state updater.
+     */
     setPlanningAnswers((current) => ({
       ...current,
-      [questionCode]: {
-        value:
-          field === "value"
-            ? value
-            : current[questionCode]?.value ?? "",
-        notes:
-          field === "notes"
-            ? value
-            : current[questionCode]?.notes ?? "",
-      },
+      [questionCode]: nextAnswer,
     }));
+
+    /*
+     * Autosave is intentionally answer-scoped rather than calling
+     * the full Guided Planning persistence route.
+     *
+     * The full route replaces work steps and question responses.
+     * A field edit should update only this planner-owned answer.
+     */
+    if (planningRecordId) {
+      const existingTimer =
+        guidedAnswerAutosaveTimersRef.current.get(
+          questionCode,
+        );
+
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(() => {
+        guidedAnswerAutosaveTimersRef.current.delete(
+          questionCode,
+        );
+
+        void (async () => {
+          try {
+            const response = await fetch(
+              `/api/planning/${planningRecordId}/guided-planning/answer`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+                body: JSON.stringify({
+                  questionCode,
+                  responseValue:
+                    nextAnswer.value,
+                  notes:
+                    nextAnswer.notes,
+                }),
+              },
+            );
+
+            const data =
+              await readPlanningJson<{
+                response?: {
+                  id: string;
+                  questionId: string;
+                  responseValue:
+                    | string
+                    | null;
+                  notes: string | null;
+                  updatedAt: string;
+                };
+                error?: string;
+              }>(
+                response,
+                "Unable to autosave Guided Planning answer.",
+              );
+
+            if (!response.ok) {
+              throw new Error(
+                data.error ||
+                  "Unable to autosave Guided Planning answer.",
+              );
+            }
+          } catch (error) {
+            /*
+             * Preserve the local answer and keep the planner working.
+             * Full Guided Planning persistence still runs during
+             * workflow navigation and provides another save path.
+             */
+            console.error(
+              `Unable to autosave Guided Planning answer ${questionCode}:`,
+              error,
+            );
+          }
+        })();
+      }, 750);
+
+      guidedAnswerAutosaveTimersRef.current.set(
+        questionCode,
+        timer,
+      );
+    }
 
     setStepError("");
   }
@@ -13664,6 +13841,91 @@ export default function CreatePlanningPage() {
     );
   }, [currentStep]);
 
+  /*
+   * Persist the planner's actual wizard position.
+   *
+   * This runs after successful navigation rather than being coupled
+   * to any one step's Continue button, so forward navigation, Back,
+   * and guided issue-resolution jumps all share the same behavior.
+   *
+   * Failure here must never trap a field user on a screen. The next
+   * successful navigation will retry because the persisted-step ref
+   * is updated only after the server confirms the PATCH.
+   */
+  useEffect(() => {
+    if (
+      !resumeStepPersistenceReadyRef.current ||
+      !planningRecordId ||
+      submitted ||
+      lastPersistedVisitedStepRef.current ===
+        currentStep
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function persistResumeStep() {
+      try {
+        const response = await fetch(
+          `/api/planning/${planningRecordId}/resume`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              lastVisitedStep: currentStep,
+            }),
+          },
+        );
+
+        const data =
+          await readPlanningJson<{
+            planningRecordId?: string;
+            lastVisitedStep?: number | null;
+            message?: string;
+          }>(
+            response,
+            "Unable to save Planning resume position.",
+          );
+
+        if (!response.ok) {
+          throw new Error(
+            data.message ||
+              "Unable to save Planning resume position.",
+          );
+        }
+
+        if (!cancelled) {
+          lastPersistedVisitedStepRef.current =
+            currentStep;
+        }
+      } catch (error) {
+        /*
+         * Resume position is navigation convenience state, not an
+         * official safety record decision. Do not block field work
+         * when this lightweight persistence request fails.
+         */
+        console.error(
+          "Unable to persist Planning resume position:",
+          error,
+        );
+      }
+    }
+
+    void persistResumeStep();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentStep,
+    planningRecordId,
+    submitted,
+  ]);
+
   function returnToStep(
     step: number,
   ) {
@@ -15064,8 +15326,35 @@ export default function CreatePlanningPage() {
     }
   }
 
-  function goBackOneStep() {
+  async function goBackOneStep() {
     setStepError("");
+
+    /*
+     * Guided Planning owns persisted question responses.
+     *
+     * Moving backward from Guided Planning must preserve the planner's
+     * in-progress answers just like moving forward does. This save is
+     * intentionally non-blocking from a readiness perspective: users may
+     * move backward while questions are still incomplete. Qualified-user
+     * completion requirements remain enforced by the forward workflow.
+     */
+    if (currentStep === 5) {
+      const saved =
+        await persistGuidedPlanning({
+          requireHazardReadinessPlanning:
+            false,
+          advanceToHazardReview:
+            false,
+          invalidateGeneratedDraft:
+            true,
+          validateQuestionReadiness:
+            false,
+        });
+
+      if (!saved) {
+        return;
+      }
+    }
 
     if (currentStep > 1) {
       setCurrentStep(

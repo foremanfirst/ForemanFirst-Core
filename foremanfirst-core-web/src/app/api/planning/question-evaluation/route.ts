@@ -151,6 +151,9 @@ export async function POST(
 
           tenantId:
             true,
+
+          revisionNumber:
+            true,
         },
       });
 
@@ -187,7 +190,7 @@ export async function POST(
           rule.ruleCode,
       );
 
-    const questions =
+    const deterministicQuestions =
       await evaluatePlanningQuestions({
         tenantId:
           planningRecord.tenantId,
@@ -198,6 +201,148 @@ export async function POST(
 
         answers,
       });
+
+    /*
+     * Document Intelligence questions are Planning-record-specific
+     * advisory prompts generated from selected project documents.
+     *
+     * They remain separate from reusable PlanningQuestionDefinitions
+     * and Requirement Rules. A document-generated question therefore
+     * does not become an official requirement merely because Qoreva
+     * surfaces it in Guided Planning.
+     *
+     * Only current-revision candidates from selected, successfully
+     * analyzed source documents are eligible. Dismissed and superseded
+     * candidates are intentionally excluded. Qualified-user confirmation
+     * remains separate from document analysis completion.
+     */
+    const documentQuestionCandidates =
+      await prisma.planningQuestionCandidate.findMany({
+        where: {
+          tenantId:
+            planningRecord.tenantId,
+
+          planningRecordId,
+
+          revisionNumber:
+            planningRecord.revisionNumber,
+
+          status: {
+            in: [
+              "Proposed",
+              "Accepted",
+            ],
+          },
+
+          sourceDocument: {
+            isSelected:
+              true,
+
+            /*
+             * Analysis completion makes the generated questions
+             * eligible for Guided Planning review.
+             *
+             * isAiReady is intentionally NOT used here because it
+             * represents the separate qualified-user confirmation
+             * boundary for document intelligence.
+             */
+            aiProcessingStatus:
+              "Complete",
+          },
+        },
+
+        orderBy: [
+          {
+            sourceDocumentId:
+              "asc",
+          },
+          {
+            createdAt:
+              "asc",
+          },
+        ],
+
+        select: {
+          id:
+            true,
+
+          questionText:
+            true,
+
+          helpText:
+            true,
+
+          category:
+            true,
+
+          section:
+            true,
+
+          questionType:
+            true,
+
+          isCritical:
+            true,
+
+        },
+      });
+
+    const documentQuestions =
+      documentQuestionCandidates.map(
+        (candidate, index) => ({
+          id:
+            candidate.id,
+
+          questionCode:
+            `DOC_${candidate.id}`,
+
+          category:
+            candidate.category,
+
+          section:
+            candidate.section,
+
+          questionText:
+            candidate.questionText,
+
+          helpText:
+            candidate.helpText,
+
+          questionType:
+            candidate.questionType,
+
+          options:
+            null,
+
+          unit:
+            null,
+
+          isRequired:
+            candidate.isCritical,
+
+          isCritical:
+            candidate.isCritical,
+
+          sortOrder:
+            100000 + index,
+
+          sourceType:
+            "DocumentIntelligence",
+
+          requirementSources:
+            [],
+        }),
+      );
+
+    /*
+     * Keep the existing deterministic engine authoritative for core,
+     * activity, and requirement-driven questions, then append eligible
+     * record-specific Document Intelligence prompts.
+     */
+    const questions = [
+      ...deterministicQuestions,
+      ...documentQuestions,
+    ];
 
     const compliance =
       await evaluatePlanningCompliance({
