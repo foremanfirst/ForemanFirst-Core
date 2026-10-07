@@ -294,6 +294,9 @@ export async function POST(
           isCritical:
             true,
 
+          status:
+            true,
+
           generationReason:
             true,
 
@@ -456,6 +459,9 @@ export async function POST(
               candidate.sourceDocument.fileName ??
               candidate.sourceDocument.label ??
               "Selected project document",
+
+            reviewStatus:
+              candidate.status,
 
             generationReason:
               candidate.generationReason,

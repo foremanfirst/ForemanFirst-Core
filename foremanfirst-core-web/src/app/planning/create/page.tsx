@@ -426,6 +426,7 @@ type DocumentQuestionEvidence = {
 type DocumentQuestionSource = {
   documentId: string;
   documentName: string;
+  reviewStatus: "Proposed" | "Accepted";
   generationReason: string | null;
   findingId: string | null;
   findingTitle: string | null;
@@ -3877,6 +3878,26 @@ export default function CreatePlanningPage() {
   ] = useState("");
 
   const [
+    reviewingDocumentQuestionIds,
+    setReviewingDocumentQuestionIds,
+  ] = useState<string[]>([]);
+
+  const [
+    documentQuestionReviewErrors,
+    setDocumentQuestionReviewErrors,
+  ] = useState<Record<string, string>>({});
+
+  const [
+    canReviewDocumentIntelligence,
+    setCanReviewDocumentIntelligence,
+  ] = useState<boolean | null>(null);
+
+  const [
+    documentIntelligenceCapabilityError,
+    setDocumentIntelligenceCapabilityError,
+  ] = useState("");
+
+  const [
     workStepPlanning,
     setWorkStepPlanning,
   ] = useState<Record<string, WorkStepPlanning>>({});
@@ -5428,13 +5449,43 @@ export default function CreatePlanningPage() {
           }
 
           if (!cancelled) {
+            const nextQuestions =
+              data.questions ?? [];
+
             setGuidedPlanningQuestions(
-              data.questions ?? [],
+              nextQuestions,
             );
 
             setPlanningCompliance(
               data.compliance ?? null,
             );
+
+            const proposedDocumentQuestion =
+              nextQuestions.find(
+                (question) =>
+                  question.sourceType ===
+                    "DocumentIntelligence" &&
+                  question.documentSource
+                    ?.reviewStatus ===
+                    "Proposed",
+              );
+
+            if (proposedDocumentQuestion) {
+              setCanReviewDocumentIntelligence(
+                null,
+              );
+
+              void loadDocumentIntelligenceReviewCapability(
+                proposedDocumentQuestion.id,
+              );
+            } else {
+              setCanReviewDocumentIntelligence(
+                null,
+              );
+              setDocumentIntelligenceCapabilityError(
+                "",
+              );
+            }
           }
         } catch (error) {
           if (!cancelled) {
@@ -8279,6 +8330,211 @@ export default function CreatePlanningPage() {
       );
       setActivityDetectionLoading(
         false,
+      );
+    }
+  }
+
+  async function loadDocumentIntelligenceReviewCapability(
+    candidateId: string,
+  ) {
+    if (!planningRecordId) {
+      setCanReviewDocumentIntelligence(null);
+      return;
+    }
+
+    setDocumentIntelligenceCapabilityError("");
+
+    try {
+      const response = await fetch(
+        `/api/planning/${planningRecordId}/guided-planning/question-candidates/${candidateId}/review`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      const data =
+        await readPlanningJson<{
+          canReview?: boolean;
+          error?: string;
+        }>(
+          response,
+          "Unable to determine Document Intelligence review capability.",
+        );
+
+      if (
+        !response.ok ||
+        typeof data.canReview !== "boolean"
+      ) {
+        throw new Error(
+          data.error ||
+            "Unable to determine Document Intelligence review capability.",
+        );
+      }
+
+      setCanReviewDocumentIntelligence(
+        data.canReview,
+      );
+    } catch (error) {
+      setCanReviewDocumentIntelligence(null);
+      setDocumentIntelligenceCapabilityError(
+        error instanceof Error
+          ? error.message
+          : "Unable to determine Document Intelligence review capability.",
+      );
+    }
+  }
+
+  async function reviewDocumentQuestionCandidate(
+    candidateId: string,
+    decision: "Accepted" | "Dismissed",
+  ) {
+    if (
+      !planningRecordId ||
+      reviewingDocumentQuestionIds.includes(
+        candidateId,
+      )
+    ) {
+      return;
+    }
+
+    setDocumentQuestionReviewErrors(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[candidateId];
+
+        return next;
+      },
+    );
+
+    setReviewingDocumentQuestionIds(
+      (current) =>
+        current.includes(candidateId)
+          ? current
+          : [...current, candidateId],
+    );
+
+    try {
+      const response = await fetch(
+        `/api/planning/${planningRecordId}/guided-planning/question-candidates/${candidateId}/review`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            decision,
+          }),
+        },
+      );
+
+      const data =
+        await readPlanningJson<{
+          candidate?: {
+            id: string;
+            status:
+              | "Accepted"
+              | "Dismissed";
+            reviewedById:
+              | string
+              | null;
+            reviewedByName:
+              | string
+              | null;
+            reviewedAt:
+              | string
+              | null;
+            acceptedAt:
+              | string
+              | null;
+            dismissedAt:
+              | string
+              | null;
+          };
+          error?: string;
+        }>(
+          response,
+          "Unable to review the Document Intelligence question.",
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Unable to review the Document Intelligence question.",
+        );
+      }
+
+      if (
+        !data.candidate ||
+        data.candidate.id !== candidateId ||
+        data.candidate.status !== decision
+      ) {
+        throw new Error(
+          "Qoreva could not verify the Document Intelligence review result.",
+        );
+      }
+
+      if (decision === "Accepted") {
+        /*
+         * Acceptance confirms relevance to this Planning record.
+         * It does not answer the question, create an authoritative
+         * requirement, or approve the Planning record.
+         */
+        setGuidedPlanningQuestions(
+          (current) =>
+            current.map((question) => {
+              if (
+                question.id !== candidateId ||
+                !question.documentSource
+              ) {
+                return question;
+              }
+
+              return {
+                ...question,
+                documentSource: {
+                  ...question.documentSource,
+                  reviewStatus:
+                    "Accepted",
+                },
+              };
+            }),
+        );
+      } else {
+        /*
+         * Dismissed candidates are no longer eligible for active
+         * Guided Planning. Preserve the server-side review record
+         * while removing the advisory question from this field view.
+         */
+        setGuidedPlanningQuestions(
+          (current) =>
+            current.filter(
+              (question) =>
+                question.id !== candidateId,
+            ),
+        );
+      }
+    } catch (error) {
+      setDocumentQuestionReviewErrors(
+        (current) => ({
+          ...current,
+          [candidateId]:
+            error instanceof Error
+              ? error.message
+              : "Unable to review the Document Intelligence question.",
+        }),
+      );
+    } finally {
+      setReviewingDocumentQuestionIds(
+        (current) =>
+          current.filter(
+            (id) =>
+              id !== candidateId,
+          ),
       );
     }
   }
@@ -18924,6 +19180,16 @@ export default function CreatePlanningPage() {
                       const hasDocumentSource =
                         documentSource !== null;
 
+                      const isDocumentQuestionReviewing =
+                        reviewingDocumentQuestionIds.includes(
+                          question.id,
+                        );
+
+                      const documentQuestionReviewError =
+                        documentQuestionReviewErrors[
+                          question.id
+                        ] ?? "";
+
                       const complianceResults =
                         planningCompliance?.results.filter(
                           (result) =>
@@ -19077,6 +19343,99 @@ export default function CreatePlanningPage() {
                                     </p>
                                   </div>
                                 </details>
+                              ) : null}
+
+                              {hasDocumentSource ? (
+                                <div className="mt-3">
+                                  {documentSource.reviewStatus ===
+                                  "Proposed" ? (
+                                    <div className="rounded-xl border border-[rgba(102,87,232,0.18)] bg-white p-3">
+                                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0">
+                                          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--qoreva-violet)]">
+                                            Review AI Finding
+                                          </p>
+
+                                          <p className="mt-1 text-xs font-medium leading-5 text-[var(--qoreva-muted)]">
+                                            Confirm whether this Qoreva-identified consideration is relevant to this Planning record. This review does not answer the question or create an official requirement.
+                                          </p>
+                                        </div>
+
+                                        {canReviewDocumentIntelligence ===
+                                        true ? (
+                                          <div className="flex shrink-0 flex-wrap gap-2">
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                isDocumentQuestionReviewing
+                                              }
+                                              onClick={() =>
+                                                void reviewDocumentQuestionCandidate(
+                                                  question.id,
+                                                  "Accepted",
+                                                )
+                                              }
+                                              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[var(--qoreva-violet)] px-3 text-xs font-black text-white transition hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
+                                            >
+                                              {isDocumentQuestionReviewing
+                                                ? "Saving..."
+                                                : "Accept for Planning"}
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                isDocumentQuestionReviewing
+                                              }
+                                              onClick={() =>
+                                                void reviewDocumentQuestionCandidate(
+                                                  question.id,
+                                                  "Dismissed",
+                                                )
+                                              }
+                                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--qoreva-border-strong)] bg-white px-3 text-xs font-black text-[var(--qoreva-muted)] transition hover:bg-[var(--qoreva-surface-muted)] disabled:cursor-wait disabled:opacity-50"
+                                            >
+                                              Dismiss
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="shrink-0 rounded-xl border border-[var(--qoreva-border)] bg-[var(--qoreva-surface-muted)] px-3 py-2">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[var(--qoreva-muted)]">
+                                              {documentIntelligenceCapabilityError
+                                                ? "Review Access Unavailable"
+                                                : canReviewDocumentIntelligence ===
+                                                    null
+                                                  ? "Checking Review Access"
+                                                  : "Qualified Safety Review Required"}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {documentQuestionReviewError ? (
+                                        <div className="mt-3 rounded-lg border border-[#F0BDC4] bg-[var(--qoreva-danger-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--qoreva-danger)]">
+                                          {documentQuestionReviewError}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-start gap-2 rounded-xl border border-[rgba(34,139,94,0.20)] bg-[rgba(34,139,94,0.06)] px-3 py-2.5">
+                                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[rgba(34,139,94,0.25)] bg-white text-[10px] font-black text-[#227A55]">
+                                        ✓
+                                      </span>
+
+                                      <div>
+                                        <p className="text-xs font-black text-[#227A55]">
+                                          Reviewed for Planning
+                                        </p>
+
+                                        <p className="mt-0.5 text-[10px] font-bold leading-4 text-[var(--qoreva-muted)]">
+                                          A qualified user accepted this consideration as relevant to this Planning record. Answer the planning question separately below.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               ) : null}
 
                               {hasRequirementSources ? (

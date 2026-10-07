@@ -46,6 +46,41 @@ export type AuthorizedPlanningQualifiedReviewer = {
   };
 };
 
+export type PlanningQualifiedReviewerCapability = {
+  canReview: boolean;
+  authorization: AuthorizedPlanningQualifiedReviewer | null;
+};
+
+export async function getPlanningQualifiedReviewerCapability(
+  planningRecordId: string,
+): Promise<PlanningQualifiedReviewerCapability> {
+  try {
+    const authorization =
+      await requireAuthorizedPlanningQualifiedReviewer(
+        planningRecordId,
+      );
+
+    return {
+      canReview: true,
+      authorization,
+    };
+  } catch (error) {
+    if (
+      error instanceof
+      PlanningQualifiedReviewerAuthorizationError &&
+      (error.status === 403 ||
+        error.status === 404)
+    ) {
+      return {
+        canReview: false,
+        authorization: null,
+      };
+    }
+
+    throw error;
+  }
+}
+
 export async function requireAuthorizedPlanningQualifiedReviewer(
   planningRecordId: string,
 ): Promise<AuthorizedPlanningQualifiedReviewer> {
