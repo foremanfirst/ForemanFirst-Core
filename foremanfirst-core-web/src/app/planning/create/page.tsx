@@ -9163,6 +9163,30 @@ export default function CreatePlanningPage() {
     pendingHazardReviewTargetId,
   ]);
 
+  function reconcileCorePlanningAnswers() {
+    const coreValues: Record<string, string> = {
+      CORE_SCOPE_DESCRIPTION: scopeDescription.trim(),
+      CORE_WORK_LOCATION: workLocation.trim(),
+      CORE_CREW_SIZE: crewSize.trim(),
+      CORE_EQUIPMENT_TOOLS: equipmentTools.trim(),
+      CORE_MATERIALS: materialsChemicals.trim(),
+    };
+
+    const nextAnswers = {
+      ...planningAnswersRef.current,
+    };
+
+    for (const [code, value] of Object.entries(coreValues)) {
+      nextAnswers[code] = {
+        value,
+        notes: nextAnswers[code]?.notes ?? "",
+      };
+    }
+
+    planningAnswersRef.current = nextAnswers;
+    return nextAnswers;
+  }
+
   async function persistGuidedPlanning({
     requireHazardReadinessPlanning,
     advanceToHazardReview,
@@ -9176,11 +9200,13 @@ export default function CreatePlanningPage() {
     validateQuestionReadiness?: boolean;
     reconcileConfirmedActivities?: boolean;
   }): Promise<boolean> {
+    reconcileCorePlanningAnswers();
+
     const invalidAnsweredQuestions =
       guidedPlanningQuestions.filter(
         (question) => {
           const answer =
-            planningAnswers[
+            planningAnswersRef.current[
               question.questionCode
             ] ?? {
               value: "",
@@ -9217,7 +9243,7 @@ export default function CreatePlanningPage() {
           }
 
           const answer =
-            planningAnswers[
+            planningAnswersRef.current[
               question.questionCode
             ] ?? {
               value: "",
@@ -9236,10 +9262,13 @@ export default function CreatePlanningPage() {
       validateQuestionReadiness &&
       unansweredCritical.length > 0
     ) {
+      const missingQuestionLabels =
+        unansweredCritical
+          .map((question) => question.questionText)
+          .join("; ");
+
       setStepError(
-        `Answer all safety-critical planning questions before continuing. ${unansweredCritical.length} critical item${
-          unansweredCritical.length === 1 ? "" : "s"
-        } remain.`,
+        `Complete these safety-critical questions before continuing: ${missingQuestionLabels}`,
       );
       return false;
     }
