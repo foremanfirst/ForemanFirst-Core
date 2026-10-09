@@ -1,10 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import StepFiveNavigation, {
-  type StepFiveTab,
-} from "@/components/planning/hazards-readiness/StepFiveNavigation";
-
 import {
   closestCenter,
   DndContext,
@@ -2578,9 +2574,6 @@ async function readPlanningJson<T>(
 export default function CreatePlanningPage() {
   const [currentStep, setCurrentStep] =
     useState(1);
-
-  const [stepFiveActiveTab, setStepFiveActiveTab] =
-    useState<StepFiveTab>("work-steps");
 
   /*
    * Track actual wizard-step transitions so normal Next / Back /
@@ -9725,16 +9718,26 @@ export default function CreatePlanningPage() {
   }
 
   async function continueFromGuidedPlanning() {
-    await persistGuidedPlanning({
-      requireHazardReadinessPlanning:
-        false,
-      advanceToHazardReview:
-        true,
-      invalidateGeneratedDraft:
-        true,
-      reconcileConfirmedActivities:
-        true,
+    const saved = await persistGuidedPlanning({
+      requireHazardReadinessPlanning: false,
+      advanceToHazardReview: false,
+      invalidateGeneratedDraft: false,
+      reconcileConfirmedActivities: true,
     });
+
+    if (!saved) {
+      return;
+    }
+
+    if (!generatedPlanningDraft) {
+      const generated = await generateDraftPlan();
+
+      if (!generated) {
+        return;
+      }
+    }
+
+    setCurrentStep(6);
   }
 
   async function saveHazardReadinessPlanning() {
@@ -20116,6 +20119,7 @@ export default function CreatePlanningPage() {
               onClick={continueFromGuidedPlanning}
               disabled={
                 planningDraftSaving ||
+                draftBuildSaving ||
                 guidedQuestionsLoading
               }
               className={`
@@ -20125,8 +20129,10 @@ export default function CreatePlanningPage() {
               `}
             >
               {planningDraftSaving
-                ? "Saving Guided Planning..."
-                : "Continue to Build Plan →"}
+                ? "Saving Planning..."
+                : draftBuildSaving
+                  ? "Building Your Plan..."
+                  : "Build & Review Plan →"}
             </button>
           </section>
         </>
@@ -20162,42 +20168,6 @@ export default function CreatePlanningPage() {
                 description="Review hazards and controls, confirm critical controls and verification, and evaluate controlled risk before submission."
               />
             </div>
-
-            <StepFiveNavigation
-              activeTab={stepFiveActiveTab}
-              onTabChange={(tab) => {
-                setStepFiveActiveTab(tab);
-
-                const destination =
-                  tab === "work-steps"
-                    ? "step-five-work-steps"
-                    : tab === "hazards"
-                      ? "step-five-hazard-review"
-                    : tab === "controls"
-                      ? "qoreva-control-assignment-review"
-                    : tab === "critical-controls" ||
-                      tab === "verification"
-                      ? "step-five-control-review"
-                    : tab === "risk-summary"
-                      ? "step-five-control-review"
-                      : null;
-
-                if (destination) {
-                  const target =
-                    document.getElementById(destination) ??
-                    (tab === "controls"
-                      ? document.getElementById(
-                          "step-five-hazard-review",
-                        )
-                      : null);
-
-                  target?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start",
-                  });
-                }
-              }}
-            />
 
             <div
               className="
@@ -21655,7 +21625,7 @@ export default function CreatePlanningPage() {
               ) : null}
 
               {generatedPlanningDraft ? (
-                <section id="step-five-work-steps" className="order-1 overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
+                <section className="order-1 overflow-hidden rounded-[1.75rem] border border-[rgba(102,87,232,0.22)] bg-white shadow-[var(--qoreva-shadow-sm)]">
                   <div className="border-b border-[rgba(102,87,232,0.16)] bg-[var(--qoreva-violet-faint)] p-5 sm:p-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div>
@@ -22347,7 +22317,7 @@ export default function CreatePlanningPage() {
                       </div>
                     ) : null}
 
-                    <section id="step-five-hazard-review">
+                    <section>
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[var(--qoreva-violet)]">
